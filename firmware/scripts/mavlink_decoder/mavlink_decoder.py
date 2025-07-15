@@ -14,7 +14,7 @@ mavlink_connection = mavutil.mavlink_connection(SERIAL_PORT, baud=BAUD_RATE)
 
 while (True):
     msg = mavlink_connection.recv_match(type=MAVLINK_PACKET_TYPE_LIST, blocking=True)
-    os.system('cls') # Clear the screen.
+    os.system('cls' if os.name == 'nt' else 'clear') # Clear the screen.
     print("ICAO Addr |Latitude  |Longitude |Alt Type  |Alt (m)   |Hdg (deg) |Hvel (m/s)|Vvel (m/s)|Callsign  |Type      |TSLC (sec)|Flags     |Squawk")
     print("----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------")
     
