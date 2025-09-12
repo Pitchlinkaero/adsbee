@@ -52,16 +52,20 @@ public:
     /**
      * Publish decoded packet immediately (no buffering)
      * @param[in] packet Decoded ADS-B packet
+     * @param[in] band Frequency band source (1090 MHz or 978 MHz UAT)
      * @return true on success
      */
-    bool PublishPacket(const Decoded1090Packet& packet);
+    bool PublishPacket(const Decoded1090Packet& packet,
+                      MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ);
     
     /**
      * Publish aircraft status immediately
      * @param[in] aircraft Aircraft data
+     * @param[in] band Frequency band source (1090 MHz or 978 MHz UAT)
      * @return true on success
      */
-    bool PublishAircraft(const Aircraft& aircraft);
+    bool PublishAircraft(const Aircraft& aircraft,
+                        MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ);
     
     /**
      * Get current format

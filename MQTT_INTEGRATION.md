@@ -1,6 +1,6 @@
 # ADSBee MQTT Integration
 
-Stream real-time ADS-B data to any MQTT broker with support for both JSON and binary formats.
+Stream real-time ADS-B data from both 1090 MHz and 978 MHz (UAT) to any MQTT broker with support for both JSON and binary formats.
 
 ## Quick Start
 
@@ -34,6 +34,7 @@ Human-readable, ~250 bytes per message. Best for WiFi/Ethernet.
 ```json
 {
   "icao": "A12345",
+  "band": "1090",    // "1090" or "UAT" 
   "call": "UAL123",
   "lat": 37.7749,
   "lon": -122.4194,
@@ -46,15 +47,20 @@ Human-readable, ~250 bytes per message. Best for WiFi/Ethernet.
 }
 ```
 
-Topic: `adsb/{ICAO}/status`
+Topics:
+- 1090 MHz: `adsb/{ICAO}/status`
+- 978 MHz UAT: `uat/{ICAO}/status`
 
 ### Binary Format
-Compact 20-byte messages for bandwidth-limited connections.
+Compact 21-byte messages for bandwidth-limited connections.
 
 - Same real-time delivery
+- Includes band identification
 - Ideal for cellular IoT, satellite, LoRaWAN
 
-Topic: `a/{ICAO}/s` (shortened for additional savings)
+Topics (shortened for additional savings):
+- 1090 MHz: `a/{ICAO}/s` 
+- 978 MHz UAT: `u/{ICAO}/s`
 
 ## Configuration Commands
 
@@ -73,6 +79,28 @@ AT+MQTTFORMAT?   # Show current format
 AT+FEEDPROTOCOL? # Show protocol settings
 AT+FEEDURI?      # Show broker address
 ```
+
+## Dual-Band Support
+
+ADSBee supports both frequency bands used for ADS-B:
+
+### 1090 MHz (Mode S / ADS-B)
+- International standard
+- Commercial aviation
+- All aircraft above 18,000 ft
+- Topics prefix: `adsb/` (JSON) or `a/` (binary)
+
+### 978 MHz (UAT)
+- US-specific below 18,000 ft
+- General aviation
+- Weather (FIS-B) and traffic (TIS-B) uplinks
+- Topics prefix: `uat/` (JSON) or `u/` (binary)
+
+Messages automatically include band identification so you can:
+- Filter by frequency band
+- Track coverage gaps
+- Identify aircraft type (commercial vs GA)
+- Separate traffic for different applications
 
 ## MQTT Broker Setup
 
@@ -106,23 +134,32 @@ import json
 import struct
 
 def on_message(client, userdata, message):
-    if message.topic.startswith("adsb/"):
+    # Handle both 1090 MHz and UAT messages
+    if message.topic.startswith(("adsb/", "uat/")):
         # JSON format
         data = json.loads(message.payload)
-        print(f"Aircraft {data['icao']} at {data['alt']} ft")
-    elif message.topic.startswith("a/"):
-        # Binary format - first byte is message type
+        band = data.get('band', '1090')
+        print(f"[{band}] Aircraft {data['icao']} at {data['alt']} ft")
+        
+    elif message.topic.startswith(("a/", "u/")):
+        # Binary format
         msg_type = message.payload[0]
         if msg_type == 0x02:  # Aircraft message
-            # Unpack binary structure (example)
-            icao = int.from_bytes(message.payload[1:4], 'big')
-            print(f"Aircraft {icao:06X} (binary)")
+            band_bits = message.payload[1] >> 6  # Band in upper 2 bits
+            band = "UAT" if band_bits == 1 else "1090"
+            icao = int.from_bytes(message.payload[1:4], 'big') & 0xFFFFFF
+            print(f"[{band}] Aircraft {icao:06X} (binary)")
 
 client = mqtt.Client()
 client.on_message = on_message
 client.connect("localhost", 1883)
-client.subscribe("adsb/+/status")  # JSON
-client.subscribe("a/+/s")          # Binary
+
+# Subscribe to both bands
+client.subscribe("adsb/+/status")  # 1090 MHz JSON
+client.subscribe("uat/+/status")   # UAT JSON
+client.subscribe("a/+/s")          # 1090 MHz Binary
+client.subscribe("u/+/s")          # UAT Binary
+
 client.loop_forever()
 ```
 

@@ -27,10 +27,19 @@ public:
         BINARY_RAW = 0x03        // Raw Mode-S packet (8-15 bytes)
     };
     
-    // Compact binary structure for aircraft data (20 bytes total)
+    // Frequency band source
+    enum FrequencyBand : uint8_t {
+        BAND_1090_MHZ = 0,    // Mode S / ADS-B (1090 MHz)
+        BAND_978_MHZ = 1,     // UAT (978 MHz)
+        BAND_UNKNOWN = 2      // Unknown source
+    };
+    
+    // Compact binary structure for aircraft data (21 bytes total)
     struct __attribute__((packed)) BinaryAircraft {
         uint8_t type;             // Message type (1 byte)
+        uint8_t band : 2;         // Frequency band (2 bits)
         uint32_t icao24 : 24;     // ICAO address (3 bytes)
+        uint8_t rssi : 6;         // Signal strength (6 bits, -63 to 0 dBm)
         uint16_t timestamp;       // Seconds since epoch % 65536 (2 bytes)
         int32_t lat : 24;         // Latitude * 1e5 (3 bytes)
         int32_t lon : 24;         // Longitude * 1e5 (3 bytes)
@@ -50,12 +59,14 @@ public:
      * @param[out] buffer Output buffer
      * @param[in] buffer_size Buffer size
      * @param[in] format Output format (JSON or BINARY)
+     * @param[in] band Frequency band source
      * @return Number of bytes written, 0 on error
      */
     static uint16_t FormatPacket(const Decoded1090Packet& packet,
                                   uint8_t* buffer,
                                   uint16_t buffer_size,
-                                  Format format);
+                                  Format format,
+                                  FrequencyBand band = BAND_1090_MHZ);
     
     /**
      * Format aircraft data for MQTT publishing
@@ -63,12 +74,14 @@ public:
      * @param[out] buffer Output buffer
      * @param[in] buffer_size Buffer size
      * @param[in] format Output format (JSON or BINARY)
+     * @param[in] band Frequency band source
      * @return Number of bytes written, 0 on error
      */
     static uint16_t FormatAircraft(const Aircraft& aircraft,
                                     uint8_t* buffer,
                                     uint16_t buffer_size,
-                                    Format format);
+                                    Format format,
+                                    FrequencyBand band = BAND_1090_MHZ);
     
     /**
      * Get MQTT topic for publishing
@@ -76,6 +89,7 @@ public:
      * @param[in] msg_type Message type ("position", "status", "raw")
      * @param[out] topic_buf Buffer for topic string
      * @param[in] topic_size Buffer size
+     * @param[in] band Frequency band source
      * @param[in] use_short Use short topics for binary format
      * @return true on success
      */
@@ -83,6 +97,7 @@ public:
                         const char* msg_type,
                         char* topic_buf,
                         uint16_t topic_size,
+                        FrequencyBand band = BAND_1090_MHZ,
                         bool use_short = false);
     
     /**
@@ -117,20 +132,24 @@ private:
     // JSON formatting
     static uint16_t FormatPacketJSON(const Decoded1090Packet& packet,
                                       char* buffer,
-                                      uint16_t buffer_size);
+                                      uint16_t buffer_size,
+                                      FrequencyBand band);
     
     static uint16_t FormatAircraftJSON(const Aircraft& aircraft,
                                         char* buffer,
-                                        uint16_t buffer_size);
+                                        uint16_t buffer_size,
+                                        FrequencyBand band);
     
     // Binary formatting
     static uint16_t FormatPacketBinary(const Decoded1090Packet& packet,
                                         uint8_t* buffer,
-                                        uint16_t buffer_size);
+                                        uint16_t buffer_size,
+                                        FrequencyBand band);
     
     static uint16_t FormatAircraftBinary(const Aircraft& aircraft,
                                           uint8_t* buffer,
-                                          uint16_t buffer_size);
+                                          uint16_t buffer_size,
+                                          FrequencyBand band);
 };
 
 #endif // MQTT_PROTOCOL_HH_

@@ -5,30 +5,32 @@
 uint16_t MQTTProtocol::FormatPacket(const Decoded1090Packet& packet,
                                      uint8_t* buffer,
                                      uint16_t buffer_size,
-                                     Format format) {
+                                     Format format,
+                                     FrequencyBand band) {
     if (!buffer || buffer_size < 20) {
         return 0;
     }
     
     if (format == FORMAT_JSON) {
-        return FormatPacketJSON(packet, (char*)buffer, buffer_size);
+        return FormatPacketJSON(packet, (char*)buffer, buffer_size, band);
     } else {
-        return FormatPacketBinary(packet, buffer, buffer_size);
+        return FormatPacketBinary(packet, buffer, buffer_size, band);
     }
 }
 
 uint16_t MQTTProtocol::FormatAircraft(const Aircraft& aircraft,
                                        uint8_t* buffer,
                                        uint16_t buffer_size,
-                                       Format format) {
+                                       Format format,
+                                       FrequencyBand band) {
     if (!buffer || buffer_size < 20) {
         return 0;
     }
     
     if (format == FORMAT_JSON) {
-        return FormatAircraftJSON(aircraft, (char*)buffer, buffer_size);
+        return FormatAircraftJSON(aircraft, (char*)buffer, buffer_size, band);
     } else {
-        return FormatAircraftBinary(aircraft, buffer, buffer_size);
+        return FormatAircraftBinary(aircraft, buffer, buffer_size, band);
     }
 }
 
@@ -36,12 +38,15 @@ bool MQTTProtocol::GetTopic(uint32_t icao24,
                             const char* msg_type,
                             char* topic_buf,
                             uint16_t topic_size,
+                            FrequencyBand band,
                             bool use_short) {
     if (!topic_buf || !msg_type || topic_size < 16) {
         return false;
     }
     
     int written;
+    const char* band_str = (band == BAND_978_MHZ) ? "uat" : "adsb";
+    const char* band_short = (band == BAND_978_MHZ) ? "u" : "a";
     
     if (use_short) {
         // Short topics for binary format (saves ~20 bytes)
@@ -50,10 +55,10 @@ bool MQTTProtocol::GetTopic(uint32_t icao24,
         else if (strcmp(msg_type, "status") == 0) short_type = "s";
         else if (strcmp(msg_type, "raw") == 0) short_type = "r";
         
-        written = snprintf(topic_buf, topic_size, "a/%06X/%s", icao24, short_type);
+        written = snprintf(topic_buf, topic_size, "%s/%06X/%s", band_short, icao24, short_type);
     } else {
-        // Standard topics for JSON
-        written = snprintf(topic_buf, topic_size, "adsb/%06X/%s", icao24, msg_type);
+        // Standard topics for JSON - include band in topic
+        written = snprintf(topic_buf, topic_size, "%s/%06X/%s", band_str, icao24, msg_type);
     }
     
     return (written > 0 && written < topic_size);
@@ -62,19 +67,23 @@ bool MQTTProtocol::GetTopic(uint32_t icao24,
 // JSON Implementation
 uint16_t MQTTProtocol::FormatPacketJSON(const Decoded1090Packet& packet,
                                          char* buffer,
-                                         uint16_t buffer_size) {
+                                         uint16_t buffer_size,
+                                         FrequencyBand band) {
     uint32_t icao24 = packet.transponder_packet.aa_or_vs & 0xFFFFFF;
     uint8_t df = packet.transponder_packet.format;
+    const char* band_str = (band == BAND_978_MHZ) ? "UAT" : "1090";
     
-    // Build JSON with essential fields only
+    // Build JSON with essential fields including band
     int written = snprintf(buffer, buffer_size,
         "{\"t\":%llu,"           // timestamp (short key)
         "\"icao\":\"%06X\","
+        "\"band\":\"%s\","       // Frequency band
         "\"df\":%d,"
         "\"rssi\":%d,"
         "\"hex\":\"",
         packet.timestamp_12mhz / 12000,  // Convert to ms
         icao24,
+        band_str,
         df,
         packet.signal_level
     );
@@ -106,10 +115,14 @@ uint16_t MQTTProtocol::FormatPacketJSON(const Decoded1090Packet& packet,
 
 uint16_t MQTTProtocol::FormatAircraftJSON(const Aircraft& aircraft,
                                            char* buffer,
-                                           uint16_t buffer_size) {
-    // Compact JSON with short keys
+                                           uint16_t buffer_size,
+                                           FrequencyBand band) {
+    const char* band_str = (band == BAND_978_MHZ) ? "UAT" : "1090";
+    
+    // Compact JSON with short keys including band
     int written = snprintf(buffer, buffer_size,
         "{\"icao\":\"%06X\","
+        "\"band\":\"%s\","   // Frequency band
         "\"call\":\"%s\","
         "\"lat\":%.5f,"      // 5 decimal places sufficient
         "\"lon\":%.5f,"
@@ -120,6 +133,7 @@ uint16_t MQTTProtocol::FormatAircraftJSON(const Aircraft& aircraft,
         "\"sqk\":\"%04X\","
         "\"gnd\":%d}",       // 1/0 instead of true/false
         aircraft.icao_address,
+        band_str,
         aircraft.callsign,
         aircraft.latitude,
         aircraft.longitude,
@@ -141,24 +155,27 @@ uint16_t MQTTProtocol::FormatAircraftJSON(const Aircraft& aircraft,
 // Binary Implementation
 uint16_t MQTTProtocol::FormatPacketBinary(const Decoded1090Packet& packet,
                                            uint8_t* buffer,
-                                           uint16_t buffer_size) {
+                                           uint16_t buffer_size,
+                                           FrequencyBand band) {
     uint8_t df = packet.transponder_packet.format;
     uint8_t len = (df >= 16) ? 14 : 7;  // Long or short format
     
-    if (buffer_size < len + 1) {
+    if (buffer_size < len + 2) {
         return 0;
     }
     
-    // Simple format: [Type:1][Data:7-14]
+    // Format: [Type:1][Band:2bits|Reserved:6bits][Data:7-14]
     buffer[0] = BINARY_RAW;
-    memcpy(buffer + 1, packet.transponder_packet.packet_buf, len);
+    buffer[1] = (band & 0x03) << 6;  // Band in upper 2 bits
+    memcpy(buffer + 2, packet.transponder_packet.packet_buf, len);
     
-    return len + 1;
+    return len + 2;
 }
 
 uint16_t MQTTProtocol::FormatAircraftBinary(const Aircraft& aircraft,
                                              uint8_t* buffer,
-                                             uint16_t buffer_size) {
+                                             uint16_t buffer_size,
+                                             FrequencyBand band) {
     if (buffer_size < sizeof(BinaryAircraft)) {
         return 0;
     }
@@ -167,7 +184,9 @@ uint16_t MQTTProtocol::FormatAircraftBinary(const Aircraft& aircraft,
     
     // Pack all data into compact structure
     msg->type = BINARY_AIRCRAFT;
+    msg->band = band & 0x03;  // 2-bit band identifier
     msg->icao24 = aircraft.icao_address & 0xFFFFFF;
+    msg->rssi = (aircraft.signal_level + 63) & 0x3F;  // Convert to 6-bit value
     msg->timestamp = (aircraft.last_message_timestamp_12mhz / 12000000) & 0xFFFF;
     
     // Fixed-point encoding for lat/lon (0.00001° precision)

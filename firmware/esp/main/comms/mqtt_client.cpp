@@ -105,25 +105,26 @@ void ADSBeeMQTTClient::Disconnect() {
     }
 }
 
-bool ADSBeeMQTTClient::PublishPacket(const Decoded1090Packet& packet) {
+bool ADSBeeMQTTClient::PublishPacket(const Decoded1090Packet& packet,
+                                     MQTTProtocol::FrequencyBand band) {
     if (!connected_) {
         return false;
     }
     
-    // Format message
+    // Format message with band information
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer), config_.format);
+    uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer), config_.format, band);
     
     if (len == 0) {
         return false;
     }
     
-    // Get topic
+    // Get topic with band
     uint32_t icao24 = packet.transponder_packet.aa_or_vs & 0xFFFFFF;
     char topic[MQTTProtocol::kMaxTopicSize];
     bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
     
-    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), use_short)) {
+    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), band, use_short)) {
         return false;
     }
     
@@ -147,24 +148,25 @@ bool ADSBeeMQTTClient::PublishPacket(const Decoded1090Packet& packet) {
     return false;
 }
 
-bool ADSBeeMQTTClient::PublishAircraft(const Aircraft& aircraft) {
+bool ADSBeeMQTTClient::PublishAircraft(const Aircraft& aircraft,
+                                       MQTTProtocol::FrequencyBand band) {
     if (!connected_) {
         return false;
     }
     
-    // Format message
+    // Format message with band information
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer), config_.format);
+    uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer), config_.format, band);
     
     if (len == 0) {
         return false;
     }
     
-    // Get topic
+    // Get topic with band
     char topic[MQTTProtocol::kMaxTopicSize];
     bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
     
-    if (!MQTTProtocol::GetTopic(aircraft.icao_address, "status", topic, sizeof(topic), use_short)) {
+    if (!MQTTProtocol::GetTopic(aircraft.icao_address, "status", topic, sizeof(topic), band, use_short)) {
         return false;
     }
     
