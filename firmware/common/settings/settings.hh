@@ -39,6 +39,7 @@ class SettingsManager {
         kMAVLINK1,
         kMAVLINK2,
         kGDL90,
+        kMQTT,
         kNumProtocols
     };
     static constexpr uint16_t kReportingProtocolStrMaxLen = 30;
@@ -163,6 +164,14 @@ class SettingsManager {
         bool feed_is_active[kMaxNumFeeds];
         ReportingProtocol feed_protocols[kMaxNumFeeds];
         uint8_t feed_receiver_ids[kMaxNumFeeds][kFeedReceiverIDNumBytes];
+        
+        // MQTT-specific settings
+        enum MQTTFormat : uint8_t {
+            MQTT_FORMAT_JSON = 0,
+            MQTT_FORMAT_BINARY = 1
+        };
+        MQTTFormat feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON, 
+                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
 
         /**
          * Default constructor.
