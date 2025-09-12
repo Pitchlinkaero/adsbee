@@ -26,13 +26,25 @@ void CommsManager::IPWANTask(void* pvParameters) {
             snprintf(client_id, sizeof(client_id), "ADSBee-%d-%06X", 
                      i, esp_random() & 0xFFFFFF);
             
+            // Convert receiver ID to hex string for device ID
+            char device_id[17];  // 8 bytes * 2 + null terminator
+            snprintf(device_id, sizeof(device_id), "%02x%02x%02x%02x%02x%02x%02x%02x",
+                    settings_manager.settings.feed_receiver_ids[i][0],
+                    settings_manager.settings.feed_receiver_ids[i][1],
+                    settings_manager.settings.feed_receiver_ids[i][2],
+                    settings_manager.settings.feed_receiver_ids[i][3],
+                    settings_manager.settings.feed_receiver_ids[i][4],
+                    settings_manager.settings.feed_receiver_ids[i][5],
+                    settings_manager.settings.feed_receiver_ids[i][6],
+                    settings_manager.settings.feed_receiver_ids[i][7]);
+            
             // Configure client
             ADSBeeMQTTClient::Config mqtt_config;
             mqtt_config.feed_index = i;
             mqtt_config.broker_uri = settings_manager.settings.feed_uris[i];
             mqtt_config.broker_port = settings_manager.settings.feed_ports[i];
             mqtt_config.client_id = client_id;
-            mqtt_config.base_topic = (char*)settings_manager.settings.feed_receiver_ids[i];
+            mqtt_config.device_id = device_id;  // Use receiver ID as device ID
             mqtt_config.format = static_cast<MQTTProtocol::Format>(
                 settings_manager.settings.feed_mqtt_formats[i]);
             

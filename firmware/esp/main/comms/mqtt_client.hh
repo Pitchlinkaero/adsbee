@@ -18,7 +18,7 @@ public:
         const char* broker_uri;       // From settings feed_uris
         uint16_t broker_port;         // From settings feed_ports
         const char* client_id;        // Unique client ID
-        const char* base_topic;       // From feed_receiver_ids (optional)
+        const char* device_id;        // Device identifier for topic hierarchy
         MQTTProtocol::Format format;  // JSON or BINARY
     };
     
@@ -64,8 +64,22 @@ public:
      * @param[in] band Frequency band source (1090 MHz or 978 MHz UAT)
      * @return true on success
      */
-    bool PublishAircraft(const Aircraft& aircraft,
+    bool PublishAircraft(const Aircraft1090& aircraft,
                         MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ);
+    
+    /**
+     * Publish device telemetry
+     * @param[in] telemetry Device health and status data
+     * @return true on success
+     */
+    bool PublishTelemetry(const MQTTProtocol::TelemetryData& telemetry);
+    
+    /**
+     * Publish GPS position
+     * @param[in] gps GPS location data
+     * @return true on success  
+     */
+    bool PublishGPS(const MQTTProtocol::GPSData& gps);
     
     /**
      * Get current format

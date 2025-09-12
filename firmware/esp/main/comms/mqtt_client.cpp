@@ -119,25 +119,17 @@ bool ADSBeeMQTTClient::PublishPacket(const Decoded1090Packet& packet,
         return false;
     }
     
-    // Get topic with band
+    // Get topic with band and device ID
     uint32_t icao24 = packet.transponder_packet.aa_or_vs & 0xFFFFFF;
     char topic[MQTTProtocol::kMaxTopicSize];
     bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
     
-    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), band, use_short)) {
+    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), band, use_short, config_.device_id)) {
         return false;
     }
     
-    // Add base topic if configured
-    char full_topic[128];
-    if (config_.base_topic && strlen(config_.base_topic) > 0) {
-        snprintf(full_topic, sizeof(full_topic), "%s/%s", config_.base_topic, topic);
-    } else {
-        strncpy(full_topic, topic, sizeof(full_topic));
-    }
-    
     // Publish immediately with QoS 0 for lowest latency
-    int msg_id = esp_mqtt_client_publish(client_, full_topic, (const char*)buffer, len, 0, false);
+    int msg_id = esp_mqtt_client_publish(client_, topic, (const char*)buffer, len, 0, false);
     
     if (msg_id >= 0) {
         messages_sent_++;
@@ -148,7 +140,7 @@ bool ADSBeeMQTTClient::PublishPacket(const Decoded1090Packet& packet,
     return false;
 }
 
-bool ADSBeeMQTTClient::PublishAircraft(const Aircraft& aircraft,
+bool ADSBeeMQTTClient::PublishAircraft(const Aircraft1090& aircraft,
                                        MQTTProtocol::FrequencyBand band) {
     if (!connected_) {
         return false;
@@ -162,24 +154,82 @@ bool ADSBeeMQTTClient::PublishAircraft(const Aircraft& aircraft,
         return false;
     }
     
-    // Get topic with band
+    // Get topic with band and device ID
     char topic[MQTTProtocol::kMaxTopicSize];
     bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
     
-    if (!MQTTProtocol::GetTopic(aircraft.icao_address, "status", topic, sizeof(topic), band, use_short)) {
+    if (!MQTTProtocol::GetTopic(aircraft.icao_address, "status", topic, sizeof(topic), band, use_short, config_.device_id)) {
         return false;
     }
     
-    // Add base topic if configured
-    char full_topic[128];
-    if (config_.base_topic && strlen(config_.base_topic) > 0) {
-        snprintf(full_topic, sizeof(full_topic), "%s/%s", config_.base_topic, topic);
-    } else {
-        strncpy(full_topic, topic, sizeof(full_topic));
+    // Publish immediately
+    int msg_id = esp_mqtt_client_publish(client_, topic, (const char*)buffer, len, 0, false);
+    
+    if (msg_id >= 0) {
+        messages_sent_++;
+        bytes_sent_ += len;
+        return true;
     }
     
-    // Publish immediately
-    int msg_id = esp_mqtt_client_publish(client_, full_topic, (const char*)buffer, len, 0, false);
+    return false;
+}
+
+bool ADSBeeMQTTClient::PublishTelemetry(const MQTTProtocol::TelemetryData& telemetry) {
+    if (!connected_) {
+        return false;
+    }
+    
+    // Format telemetry message
+    uint8_t buffer[MQTTProtocol::kMaxMessageSize];
+    uint16_t len = MQTTProtocol::FormatTelemetry(telemetry, buffer, sizeof(buffer), config_.format);
+    
+    if (len == 0) {
+        return false;
+    }
+    
+    // Get telemetry topic with device ID
+    char topic[MQTTProtocol::kMaxTopicSize];
+    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    
+    if (!MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "telemetry", use_short, config_.device_id)) {
+        return false;
+    }
+    
+    // Publish with QoS 0 for real-time delivery
+    int msg_id = esp_mqtt_client_publish(client_, topic, (const char*)buffer, len, 0, false);
+    
+    if (msg_id >= 0) {
+        messages_sent_++;
+        bytes_sent_ += len;
+        return true;
+    }
+    
+    return false;
+}
+
+bool ADSBeeMQTTClient::PublishGPS(const MQTTProtocol::GPSData& gps) {
+    if (!connected_) {
+        return false;
+    }
+    
+    // Format GPS message
+    uint8_t buffer[MQTTProtocol::kMaxMessageSize];
+    uint16_t len = MQTTProtocol::FormatGPS(gps, buffer, sizeof(buffer), config_.format);
+    
+    if (len == 0) {
+        return false;
+    }
+    
+    // Get GPS topic with device ID
+    char topic[MQTTProtocol::kMaxTopicSize];
+    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    
+    if (!MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "gps", use_short, config_.device_id)) {
+        return false;
+    }
+    
+    // Publish with QoS 0 for real-time delivery
+    int msg_id = esp_mqtt_client_publish(client_, topic, (const char*)buffer, len, 0, false);
     
     if (msg_id >= 0) {
         messages_sent_++;
