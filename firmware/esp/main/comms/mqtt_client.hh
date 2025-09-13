@@ -99,6 +99,11 @@ private:
     bool connected_;
     bool initialized_;
     
+    // Store strings persistently
+    char client_id_[64];
+    char device_id_[32];
+    char broker_uri_[256];
+    
     // Statistics
     uint32_t messages_sent_;
     uint32_t bytes_sent_;

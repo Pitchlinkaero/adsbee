@@ -1,6 +1,7 @@
 #include "mqtt_client.hh"
 #include "hal.hh"
 #include "comms.hh"  // For CONSOLE_* macros
+#include <string.h>  // For strncpy
 
 static const char* TAG = "MQTT";
 
@@ -51,14 +52,26 @@ bool ADSBeeMQTTClient::Init(const Config& config) {
     
     config_ = config;
     
-    // Build broker URI with port
-    char full_uri[256];
-    snprintf(full_uri, sizeof(full_uri), "mqtt://%s:%d", 
+    // Copy strings to persistent storage
+    if (config.client_id) {
+        strncpy(client_id_, config.client_id, sizeof(client_id_) - 1);
+        client_id_[sizeof(client_id_) - 1] = '\0';
+        config_.client_id = client_id_;
+    }
+    
+    if (config.device_id) {
+        strncpy(device_id_, config.device_id, sizeof(device_id_) - 1);
+        device_id_[sizeof(device_id_) - 1] = '\0';
+        config_.device_id = device_id_;
+    }
+    
+    // Build and store broker URI with port
+    snprintf(broker_uri_, sizeof(broker_uri_), "mqtt://%s:%d", 
              config.broker_uri, config.broker_port);
     
     esp_mqtt_client_config_t mqtt_cfg = {};
-    mqtt_cfg.broker.address.uri = full_uri;
-    mqtt_cfg.credentials.client_id = config.client_id;
+    mqtt_cfg.broker.address.uri = broker_uri_;
+    mqtt_cfg.credentials.client_id = client_id_;
     mqtt_cfg.session.keepalive = 60;
     mqtt_cfg.network.disable_auto_reconnect = false;
     mqtt_cfg.network.reconnect_timeout_ms = 5000;
