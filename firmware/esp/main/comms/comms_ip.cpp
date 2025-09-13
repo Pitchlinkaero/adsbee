@@ -66,7 +66,7 @@ bool CommsManager::IPInit() {
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &ip_event_handler, NULL));
     ip_event_handler_was_initialized_ = true;
 
-    xTaskCreatePinnedToCore(ip_wan_task, "ip_wan_task", 4096, &ip_wan_task_handle, kIPWANTaskPriority, NULL,
+    xTaskCreatePinnedToCore(ip_wan_task, "ip_wan_task", 8192, &ip_wan_task_handle, kIPWANTaskPriority, NULL,
                             kIPWANTaskCore);
 
     // Initialize mDNS service.
@@ -168,10 +168,29 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
     
+    // Wait a bit for system to stabilize before initializing MQTT
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    
     // Initialize MQTT clients for feeds configured with MQTT protocol
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+        // Only initialize MQTT if the feed is active AND configured for MQTT
+        if (settings_manager.settings.feed_is_active[i] &&
+            settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+            
+            // Validate feed configuration
+            if (!settings_manager.settings.feed_uris[i] || 
+                strlen(settings_manager.settings.feed_uris[i]) == 0) {
+                CONSOLE_WARNING("CommsManager::IPWANTask", 
+                               "Feed %d configured for MQTT but no URI set", i);
+                continue;
+            }
+            
             mqtt_clients[i] = new ADSBeeMQTTClient();
+            if (!mqtt_clients[i]) {
+                CONSOLE_ERROR("CommsManager::IPWANTask", 
+                             "Failed to allocate MQTT client for feed %d", i);
+                continue;
+            }
             
             // Generate unique client ID
             char client_id[32];

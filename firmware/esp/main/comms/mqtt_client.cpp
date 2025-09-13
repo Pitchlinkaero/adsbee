@@ -99,8 +99,13 @@ bool ADSBeeMQTTClient::Init(const Config& config) {
 }
 
 bool ADSBeeMQTTClient::Connect() {
-    if (!initialized_) {
+    if (!initialized_ || !client_) {
         return false;
+    }
+    
+    // Don't try to connect if already connected
+    if (connected_) {
+        return true;
     }
     
     esp_err_t err = esp_mqtt_client_start(client_);
@@ -121,7 +126,7 @@ void ADSBeeMQTTClient::Disconnect() {
 
 bool ADSBeeMQTTClient::PublishPacket(const Decoded1090Packet& packet,
                                      MQTTProtocol::FrequencyBand band) {
-    if (!connected_) {
+    if (!initialized_ || !client_ || !connected_) {
         return false;
     }
     
