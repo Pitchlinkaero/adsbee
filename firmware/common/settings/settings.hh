@@ -170,7 +170,10 @@ class SettingsManager {
             MQTT_FORMAT_JSON = 0,
             MQTT_FORMAT_BINARY = 1
         };
-        MQTTFormat feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON, 
+        MQTTFormat feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
                                                        MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
 
         /**
