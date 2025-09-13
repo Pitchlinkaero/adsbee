@@ -176,7 +176,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
             // Generate unique client ID
             char client_id[32];
             snprintf(client_id, sizeof(client_id), "ADSBee-%d-%06X", 
-                     i, esp_random() & 0xFFFFFF);
+                     i, (unsigned int)(esp_random() & 0xFFFFFF));
             
             // Convert receiver ID to hex string for device ID
             char device_id[17];  // 8 bytes * 2 + null terminator
