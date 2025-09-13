@@ -178,8 +178,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
             settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
             
             // Validate feed configuration
-            if (!settings_manager.settings.feed_uris[i] || 
-                strlen(settings_manager.settings.feed_uris[i]) == 0) {
+            if (strlen(settings_manager.settings.feed_uris[i]) == 0) {
                 CONSOLE_WARNING("CommsManager::IPWANTask", 
                                "Feed %d configured for MQTT but no URI set", i);
                 continue;
