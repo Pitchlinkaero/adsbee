@@ -60,11 +60,11 @@ bool MQTTProtocol::GetTopic(uint32_t icao24,
             else if (strcmp(msg_type, "raw") == 0) short_type = "r";
             
             written = snprintf(topic_buf, topic_size, "%s/%s/%06X/%s", 
-                             device_id, band_short, icao24, short_type);
+                             device_id, band_short, (unsigned int)icao24, short_type);
         } else {
             // Standard topics for JSON
             written = snprintf(topic_buf, topic_size, "%s/%s/%06X/%s", 
-                             device_id, band_str, icao24, msg_type);
+                             device_id, band_str, (unsigned int)icao24, msg_type);
         }
     } else {
         // No device ID - use original format for backward compatibility
@@ -75,10 +75,10 @@ bool MQTTProtocol::GetTopic(uint32_t icao24,
             else if (strcmp(msg_type, "raw") == 0) short_type = "r";
             
             written = snprintf(topic_buf, topic_size, "%s/%06X/%s", 
-                             band_short, icao24, short_type);
+                             band_short, (unsigned int)icao24, short_type);
         } else {
             written = snprintf(topic_buf, topic_size, "%s/%06X/%s", 
-                             band_str, icao24, msg_type);
+                             band_str, (unsigned int)icao24, msg_type);
         }
     }
     
@@ -90,8 +90,8 @@ uint16_t MQTTProtocol::FormatPacketJSON(const Decoded1090Packet& packet,
                                          char* buffer,
                                          uint16_t buffer_size,
                                          FrequencyBand band) {
-    uint32_t icao24 = packet.transponder_packet.aa_or_vs & 0xFFFFFF;
-    uint8_t df = packet.transponder_packet.format;
+    uint32_t icao24 = packet.GetICAOAddress();
+    uint8_t df = packet.GetDownlinkFormat();
     const char* band_str = (band == BAND_978_MHZ) ? "UAT" : "1090";
     
     // Build JSON with essential fields including band
@@ -102,11 +102,11 @@ uint16_t MQTTProtocol::FormatPacketJSON(const Decoded1090Packet& packet,
         "\"df\":%d,"
         "\"rssi\":%d,"
         "\"hex\":\"",
-        packet.timestamp_12mhz / 12000,  // Convert to ms
-        icao24,
+        (unsigned long long)(packet.GetMLAT12MHzCounter() / 12000),  // Convert to ms
+        (unsigned int)icao24,
         band_str,
         df,
-        packet.signal_level
+        packet.GetRSSIdBm()
     );
     
     if (written < 0 || written >= buffer_size) {
@@ -117,8 +117,12 @@ uint16_t MQTTProtocol::FormatPacketJSON(const Decoded1090Packet& packet,
     char* ptr = buffer + written;
     int remaining = buffer_size - written;
     
-    for (int i = 0; i < packet.transponder_packet.packet_len_bytes && remaining > 3; i++) {
-        int n = snprintf(ptr, remaining, "%02X", packet.transponder_packet.packet_buf[i]);
+    uint32_t packet_buf[Decoded1090Packet::kMaxPacketLenWords32];
+    uint16_t packet_len_bytes = packet.DumpPacketBuffer(packet_buf);
+    uint8_t* packet_bytes = (uint8_t*)packet_buf;
+    
+    for (int i = 0; i < packet_len_bytes && remaining > 3; i++) {
+        int n = snprintf(ptr, remaining, "%02X", packet_bytes[i]);
         if (n < 0 || n >= remaining) break;
         ptr += n;
         remaining -= n;
@@ -154,7 +158,7 @@ uint16_t MQTTProtocol::FormatAircraftJSON(const Aircraft1090& aircraft,
         "\"vr\":%d,"         // Vertical rate
         "\"sqk\":\"%04X\","
         "\"gnd\":%d}",       // 1/0 instead of true/false
-        aircraft.icao_address,
+        (unsigned int)aircraft.icao_address,
         band_str,
         aircraft.callsign,
         GetCategoryCode(aircraft.category_raw),  // Use standard category code
@@ -180,7 +184,7 @@ uint16_t MQTTProtocol::FormatPacketBinary(const Decoded1090Packet& packet,
                                            uint8_t* buffer,
                                            uint16_t buffer_size,
                                            FrequencyBand band) {
-    uint8_t df = packet.transponder_packet.format;
+    uint8_t df = packet.GetDownlinkFormat();
     uint8_t len = (df >= 16) ? 14 : 7;  // Long or short format
     
     if (buffer_size < len + 2) {
@@ -190,7 +194,9 @@ uint16_t MQTTProtocol::FormatPacketBinary(const Decoded1090Packet& packet,
     // Format: [Type:1][Band:2bits|Reserved:6bits][Data:7-14]
     buffer[0] = BINARY_RAW;
     buffer[1] = (band & 0x03) << 6;  // Band in upper 2 bits
-    memcpy(buffer + 2, packet.transponder_packet.packet_buf, len);
+    uint32_t packet_buf[Decoded1090Packet::kMaxPacketLenWords32];
+    packet.DumpPacketBuffer(packet_buf);
+    memcpy(buffer + 2, packet_buf, len);
     
     return len + 2;
 }
