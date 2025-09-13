@@ -9,6 +9,7 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include "mdns.h"
+#include "mqtt_client.hh"  // For MQTT support
 #include "task_priorities.hh"
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
@@ -160,8 +161,56 @@ void CommsManager::IPWANTask(void* pvParameters) {
     int feed_sock[SettingsManager::Settings::kMaxNumFeeds] = {0};
     bool feed_sock_is_connected[SettingsManager::Settings::kMaxNumFeeds] = {false};
     uint32_t feed_sock_last_connect_timestamp_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+    
+    // MQTT clients for each feed
+    ADSBeeMQTTClient* mqtt_clients[SettingsManager::Settings::kMaxNumFeeds] = {nullptr};
+    uint32_t mqtt_last_connect_attempt[SettingsManager::Settings::kMaxNumFeeds] = {0};
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
+    
+    // Initialize MQTT clients for feeds configured with MQTT protocol
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+            mqtt_clients[i] = new ADSBeeMQTTClient();
+            
+            // Generate unique client ID
+            char client_id[32];
+            snprintf(client_id, sizeof(client_id), "ADSBee-%d-%06X", 
+                     i, esp_random() & 0xFFFFFF);
+            
+            // Convert receiver ID to hex string for device ID
+            char device_id[17];  // 8 bytes * 2 + null terminator
+            snprintf(device_id, sizeof(device_id), "%02x%02x%02x%02x%02x%02x%02x%02x",
+                    settings_manager.settings.feed_receiver_ids[i][0],
+                    settings_manager.settings.feed_receiver_ids[i][1],
+                    settings_manager.settings.feed_receiver_ids[i][2],
+                    settings_manager.settings.feed_receiver_ids[i][3],
+                    settings_manager.settings.feed_receiver_ids[i][4],
+                    settings_manager.settings.feed_receiver_ids[i][5],
+                    settings_manager.settings.feed_receiver_ids[i][6],
+                    settings_manager.settings.feed_receiver_ids[i][7]);
+            
+            // Configure client
+            ADSBeeMQTTClient::Config mqtt_config;
+            mqtt_config.feed_index = i;
+            mqtt_config.broker_uri = settings_manager.settings.feed_uris[i];
+            mqtt_config.broker_port = settings_manager.settings.feed_ports[i];
+            mqtt_config.client_id = client_id;
+            mqtt_config.device_id = device_id;
+            mqtt_config.format = static_cast<MQTTProtocol::Format>(
+                settings_manager.settings.feed_mqtt_formats[i]);
+            
+            if (mqtt_clients[i]->Init(mqtt_config)) {
+                CONSOLE_INFO("CommsManager::IPWANTask", 
+                            "MQTT client initialized for feed %d", i);
+            } else {
+                delete mqtt_clients[i];
+                mqtt_clients[i] = nullptr;
+                CONSOLE_ERROR("CommsManager::IPWANTask", 
+                             "Failed to initialize MQTT for feed %d", i);
+            }
+        }
+    }
 
     while (true) {
         // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
@@ -203,26 +252,36 @@ void CommsManager::IPWANTask(void* pvParameters) {
         for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
             // Iterate through feeds, open/close and send message as required.
             if (!settings_manager.settings.feed_is_active[i]) {
-                // Socket should not be fed.
+                // Socket/MQTT should not be fed.
                 if (feed_sock_is_connected[i]) {
                     // Need to close the socket connection.
                     close(feed_sock[i]);
                     feed_sock_is_connected[i] = false;
                     CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", i);
                 }
+                // Disconnect MQTT if connected
+                if (mqtt_clients[i] && mqtt_clients[i]->IsConnected()) {
+                    mqtt_clients[i]->Disconnect();
+                    CONSOLE_INFO("CommsManager::IPWANTask", "Disconnected MQTT for feed %d.", i);
+                }
                 continue;  // Don't need to do anything else if socket should be closed and is closed.
             }
 
-            // Socket should be open.
-            if (!feed_sock_is_connected[i]) {
-                // Need to open the socket connection.
+            // For MQTT feeds, skip socket handling
+            if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+                // MQTT connection is handled in the protocol switch statement
+                // Just skip to packet sending
+            } else {
+                // Socket should be open.
+                if (!feed_sock_is_connected[i]) {
+                    // Need to open the socket connection.
 
-                // Meter reconnect attempt interval.
-                uint32_t timestamp_ms = get_time_since_boot_ms();
-                if (timestamp_ms - feed_sock_last_connect_timestamp_ms[i] <= kWiFiTCPSocketReconnectIntervalMs) {
-                    continue;
-                }
-                feed_sock_last_connect_timestamp_ms[i] = timestamp_ms;
+                    // Meter reconnect attempt interval.
+                    uint32_t timestamp_ms = get_time_since_boot_ms();
+                    if (timestamp_ms - feed_sock_last_connect_timestamp_ms[i] <= kWiFiTCPSocketReconnectIntervalMs) {
+                        continue;
+                    }
+                    feed_sock_last_connect_timestamp_ms[i] = timestamp_ms;
 
                 // Create socket.
                 // IPv4, TCP
@@ -308,6 +367,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         // No start of connections actions required for other protocols.
                         break;
                 }
+                }
             }
 
             // Send packet!
@@ -340,6 +400,45 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     } else {
                         // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
                         feed_mps_counter_[i]++;  // Log that a message was sent in statistics.
+                    }
+                    break;
+                }
+                case SettingsManager::ReportingProtocol::kMQTT: {
+                    if (!mqtt_clients[i]) {
+                        break;  // Client not initialized
+                    }
+                    
+                    // Check if valid packet
+                    if (!decoded_packet.IsValid()) {
+                        break;
+                    }
+                    
+                    // Connect if not connected
+                    if (!mqtt_clients[i]->IsConnected()) {
+                        // Only try to connect if we have network
+                        if (wifi_sta_has_ip_ || ethernet_has_ip_) {
+                            uint32_t now = get_time_since_boot_ms();
+                            
+                            // Retry every 5 seconds
+                            if (now - mqtt_last_connect_attempt[i] > 5000) {
+                                CONSOLE_INFO("CommsManager::IPWANTask", 
+                                            "Connecting MQTT feed %d to %s",
+                                            i, settings_manager.settings.feed_uris[i]);
+                                mqtt_clients[i]->Connect();
+                                mqtt_last_connect_attempt[i] = now;
+                            }
+                        }
+                        break;  // Not connected yet
+                    }
+                    
+                    // Publish immediately - no buffering!
+                    // TODO: Add band detection based on frequency
+                    MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ;
+                    if (mqtt_clients[i]->PublishPacket(decoded_packet, band)) {
+                        feed_mps_counter_[i]++;  // Update statistics
+                    } else {
+                        CONSOLE_WARNING("CommsManager::IPWANTask",
+                                       "Failed to publish to MQTT feed %d", i);
                     }
                     break;
                 }
