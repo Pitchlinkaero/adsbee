@@ -63,6 +63,8 @@ class SettingsManager {
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
     // firmware upgrade if the format of the settings struct changes.
     struct Settings {
+        // Fixed size for SPI communication - must match between ESP32 and Pico
+        static constexpr uint32_t kSettingsStructSize = 1060;
         static constexpr int kDefaultTLMV = 1300;  // [mV]
         static constexpr uint16_t kMaxNumTransponderPackets =
             100;  // Defines size of ADSBPacket circular buffer (PFBQueue).

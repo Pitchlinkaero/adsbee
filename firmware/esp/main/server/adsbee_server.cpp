@@ -83,7 +83,7 @@ bool ADSBeeServer::Init() {
             ObjectDictionary::SCCommandRequest{.command = ObjectDictionary::SCCommand::kCmdWriteToSlaveRequireAck,
                                                .addr = ObjectDictionary::Address::kAddrSettingsData,
                                                .offset = 0,
-                                               .len = sizeof(SettingsManager::Settings)},
+                                               .len = SettingsManager::Settings::kSettingsStructSize},
         .complete_callback =
             [settings_read_semaphore]() {
                 CONSOLE_INFO("ADSBeeServer::Init", "Settings data read from Pico.");
