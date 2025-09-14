@@ -13,7 +13,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 10;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 11;  // Change this when settings format changes!
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -175,6 +175,7 @@ class SettingsManager {
                                                        MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
                                                        MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
                                                        MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
+        uint8_t padding_for_alignment[2] = {0, 0};  // Explicit padding to ensure consistent struct size
 
         /**
          * Default constructor.
