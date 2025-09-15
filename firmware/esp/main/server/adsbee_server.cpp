@@ -78,6 +78,10 @@ bool ADSBeeServer::Init() {
         return false;
     }
 
+    // Debug: Log the size being requested
+    CONSOLE_INFO("ADSBeeServer::Init", "Requesting settings from Pico, size: %zu bytes",
+                 sizeof(SettingsManager::Settings));
+
     object_dictionary.RequestSCCommand(ObjectDictionary::SCCommandRequestWithCallback{
         .request =
             ObjectDictionary::SCCommandRequest{.command = ObjectDictionary::SCCommand::kCmdWriteToSlaveRequireAck,
