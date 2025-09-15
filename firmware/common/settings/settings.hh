@@ -62,7 +62,7 @@ class SettingsManager {
 
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
     // firmware upgrade if the format of the settings struct changes.
-    struct __attribute__((packed)) Settings {
+    struct Settings {
         static constexpr int kDefaultTLMV = 1300;  // [mV]
         static constexpr uint16_t kMaxNumTransponderPackets =
             100;  // Defines size of ADSBPacket circular buffer (PFBQueue).
