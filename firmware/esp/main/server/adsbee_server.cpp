@@ -78,16 +78,15 @@ bool ADSBeeServer::Init() {
         return false;
     }
 
-    // Debug: Log the actual sizes being used
-    CONSOLE_INFO("ADSBeeServer::Init", "Settings struct size - kSettingsStructSize: %lu, sizeof: %zu",
-                 (unsigned long)SettingsManager::Settings::kSettingsStructSize, sizeof(SettingsManager::Settings));
+    // Force ESP32 to always request 1060 bytes regardless of sizeof
+    constexpr uint32_t FORCED_SETTINGS_SIZE = 1060;
 
     object_dictionary.RequestSCCommand(ObjectDictionary::SCCommandRequestWithCallback{
         .request =
             ObjectDictionary::SCCommandRequest{.command = ObjectDictionary::SCCommand::kCmdWriteToSlaveRequireAck,
                                                .addr = ObjectDictionary::Address::kAddrSettingsData,
                                                .offset = 0,
-                                               .len = SettingsManager::Settings::kSettingsStructSize},
+                                               .len = FORCED_SETTINGS_SIZE},
         .complete_callback =
             [settings_read_semaphore]() {
                 CONSOLE_INFO("ADSBeeServer::Init", "Settings data read from Pico.");
