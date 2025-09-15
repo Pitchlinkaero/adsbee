@@ -416,6 +416,10 @@ bool SPICoprocessor::PartialRead(ObjectDictionary::Address addr, uint8_t *object
             goto PARTIAL_READ_FAILED;
         }
         if (!config_.interface.SPIWaitForHandshake()) {
+            // Debug: Add more context about the timeout
+            CONSOLE_WARNING("SPICoprocessor::PartialRead",
+                          "Handshake timeout for %s - addr:0x%x len:%d offset:%d",
+                          config_.tag_str, addr, len, offset);
             snprintf(error_message, kErrorMessageMaxLen,
                      "Timed out while waiting for handshake after sending read request.");
             goto PARTIAL_READ_FAILED;
