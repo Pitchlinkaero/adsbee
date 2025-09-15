@@ -13,7 +13,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 13;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 14;  // Change this when settings format changes!
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -62,6 +62,7 @@ class SettingsManager {
 
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
     // firmware upgrade if the format of the settings struct changes.
+#pragma pack(push, 1)  // Force 1-byte alignment for consistent size across platforms
     struct Settings {
         // Fixed size for SPI communication - must match between ESP32 and Pico
         static constexpr uint32_t kSettingsStructSize = 1060;
@@ -172,11 +173,12 @@ class SettingsManager {
             MQTT_FORMAT_JSON = 0,
             MQTT_FORMAT_BINARY = 1
         };
-        MQTTFormat feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                       MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
+        // Use plain uint8_t array to ensure consistent size across compilers
+        uint8_t feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
         uint8_t padding_for_alignment[2] = {0, 0};  // Explicit padding to ensure consistent struct size
 
         /**
@@ -239,6 +241,7 @@ class SettingsManager {
             feed_protocols[kMaxNumFeeds - 4] = kBeast;
         }
     };
+#pragma pack(pop)  // Restore default alignment
 
     // This struct contains device information that should persist across firmware upgrades.
     struct DeviceInfo {

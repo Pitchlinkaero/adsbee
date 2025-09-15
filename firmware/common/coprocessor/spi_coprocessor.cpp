@@ -271,10 +271,10 @@ bool SPICoprocessor::ExecuteSCCommandRequest(const ObjectDictionary::SCCommandRe
                         return false;
                     }
                     // Write settings data to ESP32.
-                    if (request.len != SettingsManager::Settings::kSettingsStructSize) {
+                    if (request.len != sizeof(settings_manager.settings)) {
                         CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
-                                      "Settings data write with invalid length (%d). Expected %u (sizeof=%zu).", request.len,
-                                      SettingsManager::Settings::kSettingsStructSize, sizeof(settings_manager.settings));
+                                      "Settings data write with invalid length (%d). Expected %zu.", request.len,
+                                      sizeof(settings_manager.settings));
                         return false;
                     }
                     if (!Write(request.addr, settings_manager.settings, write_requires_ack)) {
