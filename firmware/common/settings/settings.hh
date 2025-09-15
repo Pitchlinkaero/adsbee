@@ -179,7 +179,6 @@ class SettingsManager {
                                                     MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
                                                     MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
                                                     MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
-        uint8_t padding_for_alignment[2] = {0, 0};  // Explicit padding to ensure consistent struct size
 
         /**
          * Default constructor.
