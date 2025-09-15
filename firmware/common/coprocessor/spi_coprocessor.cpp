@@ -297,9 +297,15 @@ bool SPICoprocessor::ExecuteSCCommandRequest(const ObjectDictionary::SCCommandRe
                                       request.len, sizeof(settings_manager.settings));
                         return false;
                     }
-                    // Write only the number of bytes that were requested to avoid buffer overrun
-                    // The ESP32 may send fewer bytes due to different structure padding
-                    if (!PartialWrite(request.addr, reinterpret_cast<uint8_t*>(&settings_manager.settings), request.len, write_requires_ack)) {
+                    // Log size mismatch but continue
+                    if (request.len != sizeof(settings_manager.settings)) {
+                        CONSOLE_WARNING("SPICoprocessor::ExecuteSCCommandRequest",
+                                       "Settings size mismatch: received %d bytes, local structure is %zu bytes",
+                                       request.len, sizeof(settings_manager.settings));
+                    }
+                    // Write the full settings structure regardless of the size requested
+                    // The ESP32 will only read what it needs
+                    if (!Write(request.addr, settings_manager.settings, write_requires_ack)) {
                         CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
                                       "Unable to write settings data to ESP32.");
                         return false;
