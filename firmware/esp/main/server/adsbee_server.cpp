@@ -79,7 +79,7 @@ bool ADSBeeServer::Init() {
     }
 
     // Debug: Log the actual sizes being used
-    CONSOLE_INFO("ADSBeeServer::Init", "Settings struct size - kSettingsStructSize: %d, sizeof: %d",
+    CONSOLE_INFO("ADSBeeServer::Init", "Settings struct size - kSettingsStructSize: %u, sizeof: %zu",
                  SettingsManager::Settings::kSettingsStructSize, sizeof(SettingsManager::Settings));
 
     object_dictionary.RequestSCCommand(ObjectDictionary::SCCommandRequestWithCallback{
