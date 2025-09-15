@@ -299,7 +299,7 @@ bool SPICoprocessor::ExecuteSCCommandRequest(const ObjectDictionary::SCCommandRe
                     }
                     // Write only the number of bytes that were requested to avoid buffer overrun
                     // The ESP32 may send fewer bytes due to different structure padding
-                    if (!PartialWrite(request.addr, &settings_manager.settings, request.len, write_requires_ack)) {
+                    if (!PartialWrite(request.addr, reinterpret_cast<uint8_t*>(&settings_manager.settings), request.len, write_requires_ack)) {
                         CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
                                       "Unable to write settings data to ESP32.");
                         return false;
