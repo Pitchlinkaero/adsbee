@@ -180,6 +180,9 @@ class SettingsManager {
                                                     MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
                                                     MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
 
+        // Fixed structure size for SPI communication
+        static constexpr size_t kExpectedStructSize = 1048;
+
         /**
          * Default constructor.
          */

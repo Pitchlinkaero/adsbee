@@ -78,12 +78,16 @@ bool ADSBeeServer::Init() {
         return false;
     }
 
+    // Verify structure size matches expected size
+    static_assert(sizeof(SettingsManager::Settings) == SettingsManager::Settings::kExpectedStructSize,
+                  "Settings structure size mismatch! Check structure packing.");
+
     object_dictionary.RequestSCCommand(ObjectDictionary::SCCommandRequestWithCallback{
         .request =
             ObjectDictionary::SCCommandRequest{.command = ObjectDictionary::SCCommand::kCmdWriteToSlaveRequireAck,
                                                .addr = ObjectDictionary::Address::kAddrSettingsData,
                                                .offset = 0,
-                                               .len = sizeof(SettingsManager::Settings)},
+                                               .len = SettingsManager::Settings::kExpectedStructSize},
         .complete_callback =
             [settings_read_semaphore]() {
                 CONSOLE_INFO("ADSBeeServer::Init", "Settings data read from Pico.");
