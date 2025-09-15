@@ -62,8 +62,7 @@ class SettingsManager {
 
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
     // firmware upgrade if the format of the settings struct changes.
-#pragma pack(push, 1)  // Force 1-byte alignment for consistent size across platforms
-    struct Settings {
+    struct __attribute__((packed)) Settings {
         static constexpr int kDefaultTLMV = 1300;  // [mV]
         static constexpr uint16_t kMaxNumTransponderPackets =
             100;  // Defines size of ADSBPacket circular buffer (PFBQueue).
@@ -238,7 +237,6 @@ class SettingsManager {
             feed_protocols[kMaxNumFeeds - 4] = kBeast;
         }
     };
-#pragma pack(pop)  // Restore default alignment
 
     // This struct contains device information that should persist across firmware upgrades.
     struct DeviceInfo {
