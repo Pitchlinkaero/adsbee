@@ -78,6 +78,10 @@ bool ADSBeeServer::Init() {
         return false;
     }
 
+    // Debug: Log the actual sizes being used
+    CONSOLE_INFO("ADSBeeServer::Init", "Settings struct size - kSettingsStructSize: %d, sizeof: %d",
+                 SettingsManager::Settings::kSettingsStructSize, sizeof(SettingsManager::Settings));
+
     object_dictionary.RequestSCCommand(ObjectDictionary::SCCommandRequestWithCallback{
         .request =
             ObjectDictionary::SCCommandRequest{.command = ObjectDictionary::SCCommand::kCmdWriteToSlaveRequireAck,
