@@ -63,6 +63,9 @@ class CommsManager {
     CPP_AT_CALLBACK(ATEthernetCallback);
     CPP_AT_CALLBACK(ATFeedCallback);
     CPP_AT_CALLBACK(ATFeedProtocolCallback);
+    CPP_AT_CALLBACK(ATFeedURICallback);
+    CPP_AT_CALLBACK(ATFeedPortCallback);
+    CPP_AT_CALLBACK(ATFeedEnCallback);
     CPP_AT_CALLBACK(ATHostnameCallback);
     CPP_AT_CALLBACK(ATOTACallback);
     CPP_AT_HELP_CALLBACK(ATOTAHelpCallback);

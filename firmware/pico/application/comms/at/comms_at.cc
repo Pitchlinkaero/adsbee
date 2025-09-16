@@ -453,6 +453,128 @@ CPP_AT_CALLBACK(CommsManager::ATFeedProtocolCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+CPP_AT_CALLBACK(CommsManager::ATFeedURICallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed URI
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%s", index, settings_manager.settings.feed_uris[index]);
+            } else {
+                // Query all feed URIs
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%s", i, settings_manager.settings.feed_uris[i]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed URI
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDURI=<index>,<uri>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            strncpy(settings_manager.settings.feed_uris[index], args[1].data(),
+                    SettingsManager::Settings::kFeedURIMaxNumChars);
+            settings_manager.settings.feed_uris[index][SettingsManager::Settings::kFeedURIMaxNumChars] = '\0';
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATFeedPortCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed port
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%d", index, settings_manager.settings.feed_ports[index]);
+            } else {
+                // Query all feed ports
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%d", i, settings_manager.settings.feed_ports[i]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed port
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDPORT=<index>,<port>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            CPP_AT_TRY_ARG2NUM(1, settings_manager.settings.feed_ports[index]);
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATFeedEnCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed enable status
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%d", index, settings_manager.settings.feed_is_active[index]);
+            } else {
+                // Query all feed enable status
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%d", i, settings_manager.settings.feed_is_active[i]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed enable
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDEN=<index>,<enabled>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            CPP_AT_TRY_ARG2NUM(1, settings_manager.settings.feed_is_active[index]);
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {
     SettingsManager::Settings::CoreNetworkSettings &cns = settings_manager.settings.core_network_settings;
     switch (op) {
@@ -1169,6 +1291,21 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 2,
      .help_string_buf = "AT+FEEDPROTOCOL=<index>,<protocol>\r\n\tSet the protocol for a specific feed.\r\n\tAT+FEEDPROTOCOL?\r\n\tQuery all feed protocols.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedProtocolCallback, comms_manager)},
+    {.command_buf = "+FEEDURI",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+FEEDURI=<index>,<uri>\r\n\tSet the URI for a specific feed.\r\n\tAT+FEEDURI?\r\n\tQuery all feed URIs.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedURICallback, comms_manager)},
+    {.command_buf = "+FEEDPORT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+FEEDPORT=<index>,<port>\r\n\tSet the port for a specific feed.\r\n\tAT+FEEDPORT?\r\n\tQuery all feed ports.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedPortCallback, comms_manager)},
+    {.command_buf = "+FEEDEN",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+FEEDEN=<index>,<enabled>\r\n\tEnable/disable a specific feed.\r\n\tAT+FEEDEN?\r\n\tQuery all feed enable status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedEnCallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,
