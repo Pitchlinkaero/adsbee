@@ -135,10 +135,6 @@ AT+FEEDPROTOCOL? # Show protocol settings
 AT+FEEDURI?      # Show broker address
 ```
 
-Note: The firmware now tolerates small struct-size differences during SPI settings transfer between RP2040 and ESP32.
-The master (RP2040) writes at most the requested length, and the ESP32 applies settings on receipt. This prevents
-SPI FIFO overruns and ensures settings are applied even if compilers pad the struct differently.
-
 ## Dual-Band Support
 
 ADSBee supports both frequency bands used for ADS-B:
