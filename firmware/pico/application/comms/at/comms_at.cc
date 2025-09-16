@@ -377,12 +377,76 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
                 }
                 // Check that the selected prototcol is valid for use with feeders.
                 if (!(feed_protocol == SettingsManager::ReportingProtocol::kBeast ||
-                      feed_protocol == SettingsManager::ReportingProtocol::kNoReports)) {
+                      feed_protocol == SettingsManager::ReportingProtocol::kNoReports ||
+                      feed_protocol == SettingsManager::ReportingProtocol::kMQTT)) {
                     CPP_AT_ERROR("Protocol %s is not supported for network feeds.",
                                  SettingsManager::kReportingProtocolStrs[feed_protocol]);
                 }
                 settings_manager.settings.feed_protocols[index] = feed_protocol;
             }
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATFeedProtocolCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed protocol
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%s", index,
+                    SettingsManager::kReportingProtocolStrs[settings_manager.settings.feed_protocols[index]]);
+            } else {
+                // Query all feed protocols
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%s", i,
+                        SettingsManager::kReportingProtocolStrs[settings_manager.settings.feed_protocols[i]]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed protocol
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDPROTOCOL=<index>,<protocol>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            // Match the protocol string
+            SettingsManager::ReportingProtocol feed_protocol = SettingsManager::ReportingProtocol::kNumProtocols;
+            for (uint16_t i = 0; i < SettingsManager::ReportingProtocol::kNumProtocols; i++) {
+                if (args[1].compare(SettingsManager::kReportingProtocolStrs[i]) == 0) {
+                    feed_protocol = static_cast<SettingsManager::ReportingProtocol>(i);
+                    break;
+                }
+            }
+
+            if (feed_protocol == SettingsManager::kNumProtocols) {
+                CPP_AT_ERROR("Invalid protocol %s.", args[1].data());
+            }
+
+            // Check that the protocol is valid for feeds
+            if (!(feed_protocol == SettingsManager::ReportingProtocol::kBeast ||
+                  feed_protocol == SettingsManager::ReportingProtocol::kNoReports ||
+                  feed_protocol == SettingsManager::ReportingProtocol::kMQTT)) {
+                CPP_AT_ERROR("Protocol %s is not supported for network feeds.",
+                             SettingsManager::kReportingProtocolStrs[feed_protocol]);
+            }
+
+            settings_manager.settings.feed_protocols[index] = feed_protocol;
             CPP_AT_SUCCESS();
             break;
     }
@@ -1100,6 +1164,11 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 5,
      .help_callback = ATFeedHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedCallback, comms_manager)},
+    {.command_buf = "+FEEDPROTOCOL",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+FEEDPROTOCOL=<index>,<protocol>\r\n\tSet the protocol for a specific feed.\r\n\tAT+FEEDPROTOCOL?\r\n\tQuery all feed protocols.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedProtocolCallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,
