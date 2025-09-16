@@ -1023,6 +1023,42 @@ CPP_AT_CALLBACK(CommsManager::ATWiFiSTACallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+CPP_AT_CALLBACK(CommsManager::ATMQTTFormatCallback) {
+    using MQTTFmt = SettingsManager::Settings::MQTTFormat;
+    switch (op) {
+        case '?': {
+            // Query all feeds
+            for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                const char* fmt = (settings_manager.settings.feed_mqtt_formats[i] == MQTTFmt::MQTT_FORMAT_BINARY)
+                                      ? "BINARY"
+                                      : "JSON";
+                CPP_AT_CMD_PRINTF("=%d,%s", i, fmt);
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        }
+        case '=': {
+            // Set a specific feed
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Use AT+MQTTFORMAT=<feed>,<JSON|BINARY>");
+            }
+            uint16_t feed_index = 0xFFFF;
+            CPP_AT_TRY_ARG2NUM(0, feed_index);
+            if (feed_index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Invalid feed index (0-%d)", SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+            if (args[1].compare("BINARY") == 0) {
+                settings_manager.settings.feed_mqtt_formats[feed_index] = MQTTFmt::MQTT_FORMAT_BINARY;
+            } else {
+                settings_manager.settings.feed_mqtt_formats[feed_index] = MQTTFmt::MQTT_FORMAT_JSON;
+            }
+            CPP_AT_SUCCESS();
+            break;
+        }
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 const CppAT::ATCommandDef_t at_command_list[] = {
     {.command_buf = "+BAUD_RATE",
      .min_args = 0,
@@ -1174,6 +1210,11 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .help_string_buf = "Set WiFi station params.\r\n\tAT+WIFI_STA=<enabled>,<sta_ssid>,<sta_pwd>\r\n\t"
                         "Get WiFi station params.\r\n\tAT+WIFI_STA?\r\n\t+WIFI_STA=<enabled>,<sta_ssid>,<sta_pwd>",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATWiFiSTACallback, comms_manager)},
+    {.command_buf = "+MQTTFORMAT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+MQTTFORMAT=<feed>,<JSON|BINARY>\r\n\tSet MQTT output format per feed.\r\n\tAT+MQTTFORMAT?\r\n\tQuery all feed formats.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTFormatCallback, comms_manager)},
 };
 const uint16_t at_command_list_num_commands = sizeof(at_command_list) / sizeof(at_command_list[0]);
 

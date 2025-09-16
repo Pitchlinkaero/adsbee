@@ -27,14 +27,14 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             memcpy((uint8_t *)&scratch_ + offset, buf, buf_len);
             break;
         case kAddrSettingsData:
-            // Warning: printing here will cause a timeout and tests will fail.
-            // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,
-            // offset);
+            // Copy received settings bytes into local struct at the specified offset.
             memcpy((uint8_t *)&(settings_manager.settings) + offset, buf, buf_len);
-            if (offset + buf_len == sizeof(SettingsManager::Settings)) {
-                CONSOLE_INFO("SPICoprocessor::SetBytes", "Wrote last chunk of settings data. Applying new values.");
-                settings_manager.Apply();
-            }
+            // Apply settings immediately after a settings write, even if sizes differ across compilers.
+            // This avoids stalling when the requester expects a different total struct size.
+            CONSOLE_INFO("SPICoprocessor::SetBytes",
+                          "Received settings data: offset=%u len=%u (local_size=%zu)",
+                          offset, buf_len, sizeof(SettingsManager::Settings));
+            settings_manager.Apply();
             break;
         case kAddrRollQueue: {
             // Ignore offset since we only allow full writes for this command.

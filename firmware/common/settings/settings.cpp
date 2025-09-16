@@ -57,9 +57,10 @@ void SettingsManager::Print() {
 
     CONSOLE_PRINTF("\tFeed URIs:\r\n");
     for (uint16_t i = 0; i < Settings::kMaxNumFeeds; i++) {
-        CONSOLE_PRINTF("\t\t%d URI:%s Port:%d %s Protocol:%s ID:0x", i, settings.feed_uris[i], settings.feed_ports[i],
-                       settings.feed_is_active[i] ? "ACTIVE" : "INACTIVE",
-                       kReportingProtocolStrs[settings.feed_protocols[i]]);
+        const char* mqtt_fmt = (settings.feed_mqtt_formats[i] == Settings::MQTT_FORMAT_BINARY) ? "BINARY" : "JSON";
+        CONSOLE_PRINTF("\t\t%d URI:%s Port:%d %s Protocol:%s MQTT:%s ID:0x", i, settings.feed_uris[i],
+                       settings.feed_ports[i], settings.feed_is_active[i] ? "ACTIVE" : "INACTIVE",
+                       kReportingProtocolStrs[settings.feed_protocols[i]], mqtt_fmt);
         for (int16_t feeder_id_byte_index = 0; feeder_id_byte_index < Settings::kFeedReceiverIDNumBytes;
              feeder_id_byte_index++) {
             CONSOLE_PRINTF("%02x", settings.feed_receiver_ids[i][feeder_id_byte_index]);
@@ -90,6 +91,8 @@ void SettingsManager::PrintAT() {
     for (uint16_t i = 0; i < Settings::kMaxNumFeeds; i++) {
         CONSOLE_PRINTF("AT+FEED=%d,%s,%u,%d,%s\r\n", i, settings.feed_uris[i], settings.feed_ports[i],
                        settings.feed_is_active[i], kReportingProtocolStrs[settings.feed_protocols[i]]);
+        CONSOLE_PRINTF("AT+MQTTFORMAT=%d,%s\r\n", i,
+                       (settings.feed_mqtt_formats[i] == Settings::MQTT_FORMAT_BINARY) ? "BINARY" : "JSON");
     }
 
     // AT+LOG_LEVEL

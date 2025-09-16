@@ -288,31 +288,22 @@ bool SPICoprocessor::ExecuteSCCommandRequest(const ObjectDictionary::SCCommandRe
                                       "Settings data write with non-zero offset (%d) not supported.", request.offset);
                         return false;
                     }
-                    // Write settings data to ESP32.
-                    // Accept a range of sizes (1048-1060) to handle compiler alignment differences
-                    // The actual structure should be around this size, variations are due to padding
-                    if (request.len < 1048 || request.len > 1060) {
-                        CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
-                                      "Settings data write with invalid length (%d). Expected 1048-1060 bytes (local size: %zu).",
-                                      request.len, sizeof(settings_manager.settings));
-                        return false;
-                    }
-                    // Log size mismatch but continue
-                    if (request.len != sizeof(settings_manager.settings)) {
-                        CONSOLE_WARNING("SPICoprocessor::ExecuteSCCommandRequest",
-                                       "Settings size mismatch: received %d bytes, local structure is %zu bytes",
-                                       request.len, sizeof(settings_manager.settings));
-                    }
-
-                    // If we write more bytes than the ESP32 expects to read, those extra bytes
-                    // will remain in the buffer and corrupt the next SPI transaction
+                    // Write settings data to ESP32 with a robust length policy:
+                    // - Never write more bytes than we have locally
+                    // - If the requested length is larger than local size, cap to local size
+                    // - If the requested length is smaller, write exactly what was requested
                     uint16_t bytes_to_write = request.len;
-                    if (bytes_to_write > sizeof(settings_manager.settings)) {
-                        // Don't write more than we have
-                        bytes_to_write = sizeof(settings_manager.settings);
+                    size_t local_size = sizeof(settings_manager.settings);
+                    if (bytes_to_write > local_size) {
+                        CONSOLE_WARNING("SPICoprocessor::ExecuteSCCommandRequest",
+                                        "Capping settings write from %u to local size %zu bytes", bytes_to_write, local_size);
+                        bytes_to_write = static_cast<uint16_t>(local_size);
                     }
-
-                    // Use PartialWrite to write exactly the requested number of bytes
+                    if (bytes_to_write == 0) {
+                        CONSOLE_WARNING("SPICoprocessor::ExecuteSCCommandRequest",
+                                        "Skipping zero-length settings write request");
+                        return true;
+                    }
                     if (!PartialWrite(request.addr, reinterpret_cast<uint8_t*>(&settings_manager.settings),
                                      bytes_to_write, 0, write_requires_ack)) {
                         CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",

@@ -118,12 +118,26 @@ AT+MQTTFORMAT=0,JSON     # Human-readable
 AT+MQTTFORMAT=0,BINARY   # Bandwidth-optimized
 ```
 
+On the RP2040 (Pico) AT console, you can also:
+
+```bash
+# Query all feeds' formats
+AT+MQTTFORMAT?
+
+# Set a specific feed's format
+AT+MQTTFORMAT=1,BINARY
+```
+
 ### Query Settings
 ```bash
 AT+MQTTFORMAT?   # Show current format
 AT+FEEDPROTOCOL? # Show protocol settings
 AT+FEEDURI?      # Show broker address
 ```
+
+Note: The firmware now tolerates small struct-size differences during SPI settings transfer between RP2040 and ESP32.
+The master (RP2040) writes at most the requested length, and the ESP32 applies settings on receipt. This prevents
+SPI FIFO overruns and ensures settings are applied even if compilers pad the struct differently.
 
 ## Dual-Band Support
 
@@ -210,17 +224,6 @@ mosquitto_sub -h localhost -t "+/system/telemetry" -v
 
 # Binary format (if using short topics)
 mosquitto_sub -h localhost -t "+/a/+/s" -v
-```
-
-### Home Assistant
-```yaml
-mqtt:
-  broker: localhost
-
-sensor:
-  - platform: mqtt
-    name: "Aircraft Count"
-    state_topic: "adsb/stats/count"
 ```
 
 ### Python Client
