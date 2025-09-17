@@ -486,28 +486,71 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
 
                         if (decoded_packet.IsValid()) {
+                            // Get aircraft data from dictionary for complete information
+                            uint32_t icao_address = decoded_packet.GetICAOAddress();
+                            Aircraft1090* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr(icao_address);
+
                             // Convert to TransponderPacket for publishing
-                            // For now, we'll just send basic information from Decoded1090Packet
-                            // TODO: Extend this to extract more fields from ADSBPacket when available
                             TransponderPacket packet;
-                            packet.address = decoded_packet.GetICAOAddress();
+                            packet.address = icao_address;
                             packet.timestamp_ms = decoded_packet.GetTimestampMs();
 
-                            // TODO: Extract actual position, altitude, velocity data from ADSBPacket
-                            // For now, set minimal valid data
-                            packet.altitude = 0;
-                            packet.latitude = 0.0;
-                            packet.longitude = 0.0;
-                            packet.heading = 0.0;
-                            packet.velocity = 0.0;
-                            packet.vertical_rate = 0;
-                            packet.squawk = 0;
-                            packet.airborne = 1;  // Default to airborne
-                            packet.category = 0;
-                            memset(packet.callsign, 0, 9);
+                            if (aircraft != nullptr) {
+                                // We have aircraft data from the dictionary
+                                packet.latitude = aircraft->latitude_deg;
+                                packet.longitude = aircraft->longitude_deg;
+                                packet.altitude = aircraft->baro_altitude_ft;
+                                packet.heading = aircraft->direction_deg;
+                                packet.velocity = aircraft->velocity_kts;
+                                packet.vertical_rate = aircraft->vertical_rate_fpm;
+                                packet.squawk = aircraft->squawk;
+                                packet.airborne = (aircraft->baro_altitude_ft > 100) ? 1 : 0;  // Simple ground detection
+                                packet.category = aircraft->category_raw;
 
-                            // Set validity flags - for now, only address is valid
-                            packet.flags = 0;
+                                // Copy callsign
+                                strncpy(packet.callsign, aircraft->callsign, 8);
+                                packet.callsign[8] = '\0';
+
+                                // Set validity flags based on available data
+                                packet.flags = 0;
+                                if (aircraft->latitude_deg != 0.0 || aircraft->longitude_deg != 0.0) {
+                                    packet.flags |= TransponderPacket::FLAG_POSITION_VALID;
+                                }
+                                if (aircraft->baro_altitude_ft != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_ALTITUDE_VALID;
+                                }
+                                if (aircraft->velocity_kts > 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VELOCITY_VALID;
+                                }
+                                if (aircraft->direction_deg != 0.0) {
+                                    packet.flags |= TransponderPacket::FLAG_HEADING_VALID;
+                                }
+                                if (aircraft->vertical_rate_fpm != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VERTICAL_RATE_VALID;
+                                }
+                                if (strlen(aircraft->callsign) > 1 && strcmp(aircraft->callsign, "?") != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CALLSIGN_VALID;
+                                }
+                                if (aircraft->squawk != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_SQUAWK_VALID;
+                                }
+                                if (aircraft->category_raw != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CATEGORY_VALID;
+                                }
+                            } else {
+                                // No aircraft data in dictionary, use minimal data
+                                packet.altitude = 0;
+                                packet.latitude = 0.0;
+                                packet.longitude = 0.0;
+                                packet.heading = 0.0;
+                                packet.velocity = 0.0;
+                                packet.vertical_rate = 0;
+                                packet.squawk = 0;
+                                packet.airborne = 1;
+                                packet.category = 0;
+                                memset(packet.callsign, 0, 9);
+                                packet.flags = 0;  // Only address is valid
+                            }
 
                             if (mqtt_clients_[i]->PublishAircraftStatus(packet, band)) {
                                 feed_mps_counter_[i]++;  // Update statistics
