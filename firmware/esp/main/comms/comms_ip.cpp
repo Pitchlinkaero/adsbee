@@ -163,6 +163,30 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
 
+    // Initialize MQTT clients for feeds configured with MQTT protocol
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT &&
+            settings_manager.settings.mqtt_enabled) {
+
+            MQTT::MQTTClient::Config mqtt_config;
+            mqtt_config.broker_uri = settings_manager.settings.feed_uris[i];
+            mqtt_config.port = settings_manager.settings.feed_ports[i];
+            mqtt_config.username = settings_manager.settings.mqtt_usernames[i];
+            mqtt_config.password = settings_manager.settings.mqtt_passwords[i];
+            mqtt_config.client_id = settings_manager.settings.mqtt_client_ids[i];
+            mqtt_config.device_id = settings_manager.settings.mqtt_device_id;
+            mqtt_config.use_tls = (settings_manager.settings.feed_ports[i] == 8883);
+            mqtt_config.format = settings_manager.settings.mqtt_formats[i];
+            mqtt_config.report_mode = settings_manager.settings.mqtt_report_modes[i];
+            mqtt_config.telemetry_interval_sec = settings_manager.settings.mqtt_telemetry_interval_sec;
+            mqtt_config.gps_interval_sec = settings_manager.settings.mqtt_gps_interval_sec;
+            mqtt_config.status_rate_hz = settings_manager.settings.mqtt_status_rate_hz;
+
+            mqtt_clients_[i] = std::make_unique<MQTT::MQTTClient>(mqtt_config, i);
+            CONSOLE_INFO("CommsManager::IPWANTask", "Initialized MQTT client for feed %d", i);
+        }
+    }
+
     while (true) {
         // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
         while (!wifi_sta_has_ip_ && !ethernet_has_ip_) {
@@ -189,6 +213,57 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 strcat(feeds_stats_message, single_feed_stats_message);
             }
             CONSOLE_INFO("CommsManager::IPWANTask", "Feed msgs/s: %s", feeds_stats_message);
+        }
+
+        // Handle MQTT connections and periodic telemetry
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients_[i]) {
+                continue;  // No MQTT client for this feed
+            }
+
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT ||
+                !settings_manager.settings.feed_is_active[i]) {
+                // Feed is not MQTT or not active, disconnect if connected
+                if (mqtt_clients_[i]->IsConnected()) {
+                    mqtt_clients_[i]->Disconnect();
+                }
+                continue;
+            }
+
+            // Try to connect if not connected
+            if (!mqtt_clients_[i]->IsConnected()) {
+                uint32_t now = get_time_since_boot_ms();
+                if (now - mqtt_last_connect_attempt_[i] > 5000) {  // Try every 5 seconds
+                    CONSOLE_INFO("CommsManager::IPWANTask",
+                                 "Connecting MQTT feed %d to %s:%d",
+                                 i, settings_manager.settings.feed_uris[i],
+                                 settings_manager.settings.feed_ports[i]);
+                    mqtt_clients_[i]->Connect();
+                    mqtt_last_connect_attempt_[i] = now;
+                }
+            }
+
+            // Publish telemetry if connected
+            if (mqtt_clients_[i]->IsConnected()) {
+                MQTT::Telemetry telemetry = {};
+                telemetry.uptime_sec = get_time_since_boot_ms() / 1000;
+                telemetry.msgs_rx = 0;  // TODO: Get actual received message count
+                telemetry.msgs_tx = feed_mps_counter_[i];
+                telemetry.cpu_temp_c = 0;  // TODO: Get actual CPU temperature
+                telemetry.mem_free_kb = esp_get_free_heap_size() / 1024;
+                telemetry.noise_floor_dbm = -100;  // TODO: Get actual noise floor
+                telemetry.rx_1090 = true;
+                telemetry.rx_978 = false;  // TODO: Check if UAT is enabled
+                telemetry.wifi = wifi_sta_has_ip_;
+                telemetry.mqtt = true;
+                telemetry.fw_version = "0.8.0";  // TODO: Get actual firmware version
+                telemetry.mps_total = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    telemetry.mps_total += feed_mps[j];
+                }
+
+                mqtt_clients_[i]->PublishTelemetry(telemetry);
+            }
         }
 
         // Gather packet(s) to send.
@@ -341,6 +416,57 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
                         feed_mps_counter_[i]++;  // Log that a message was sent in statistics.
                     }
+                    break;
+                }
+                case SettingsManager::ReportingProtocol::kMQTT: {
+                    // Publish via MQTT
+                    if (!mqtt_clients_[i] || !mqtt_clients_[i]->IsConnected()) {
+                        // No client or not connected
+                        break;
+                    }
+
+                    // Determine band (1090 MHz or UAT)
+                    // TODO: Properly detect band from source
+                    uint8_t band = 1;  // Default to 1090 MHz
+
+                    // Publish based on report mode
+                    if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
+                        settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
+
+                        if (decoded_packet.IsValid()) {
+                            // Convert to TransponderPacket for publishing
+                            TransponderPacket packet;
+                            packet.address = decoded_packet.address;
+                            packet.timestamp_ms = decoded_packet.timestamp_ms;
+                            packet.altitude = decoded_packet.altitude;
+                            packet.latitude = decoded_packet.latitude;
+                            packet.longitude = decoded_packet.longitude;
+                            packet.heading = decoded_packet.heading;
+                            packet.velocity = decoded_packet.velocity;
+                            packet.vertical_rate = decoded_packet.vertical_rate;
+                            packet.squawk = decoded_packet.squawk;
+                            packet.airborne = decoded_packet.airborne;
+                            packet.category = decoded_packet.category;
+                            memcpy(packet.callsign, decoded_packet.callsign, 8);
+
+                            // Set validity flags based on decoded packet
+                            packet.flags = 0;
+                            if (decoded_packet.position_valid) packet.flags |= TransponderPacket::FLAG_POSITION_VALID;
+                            if (decoded_packet.altitude_valid) packet.flags |= TransponderPacket::FLAG_ALTITUDE_VALID;
+                            if (decoded_packet.velocity_valid) packet.flags |= TransponderPacket::FLAG_VELOCITY_VALID;
+                            if (decoded_packet.heading_valid) packet.flags |= TransponderPacket::FLAG_HEADING_VALID;
+                            if (decoded_packet.vertical_rate_valid) packet.flags |= TransponderPacket::FLAG_VERTICAL_RATE_VALID;
+                            if (decoded_packet.callsign_valid) packet.flags |= TransponderPacket::FLAG_CALLSIGN_VALID;
+                            if (decoded_packet.squawk_valid) packet.flags |= TransponderPacket::FLAG_SQUAWK_VALID;
+                            if (decoded_packet.category_valid) packet.flags |= TransponderPacket::FLAG_CATEGORY_VALID;
+
+                            if (mqtt_clients_[i]->PublishAircraftStatus(packet, band)) {
+                                feed_mps_counter_[i]++;  // Update statistics
+                            }
+                        }
+                    }
+
+                    // TODO: Add raw packet publishing if report_mode includes RAW
                     break;
                 }
                 // TODO: add other protocols here

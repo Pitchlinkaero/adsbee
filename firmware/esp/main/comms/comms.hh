@@ -1,6 +1,7 @@
 #ifndef COMMS_HH_
 #define COMMS_HH_
 
+#include <memory>
 #include "data_structures.hh"
 #include "driver/gpio.h"
 #include "esp_eth.h"
@@ -15,6 +16,7 @@
 #include "nvs_flash.h"
 #include "object_dictionary.hh"
 #include "settings.hh"
+#include "mqtt_client.hh"  // MQTT client support
 
 class CommsManager {
    public:
@@ -274,6 +276,10 @@ class CommsManager {
 
     uint16_t feed_mps_counter_[SettingsManager::Settings::kMaxNumFeeds] = {0};
     uint32_t feed_mps_last_update_timestamp_ms_ = 0;
+
+    // MQTT clients for feeds
+    std::unique_ptr<MQTT::MQTTClient> mqtt_clients_[SettingsManager::Settings::kMaxNumFeeds];
+    uint32_t mqtt_last_connect_attempt_[SettingsManager::Settings::kMaxNumFeeds] = {0};
 };
 
 extern CommsManager comms_manager;
