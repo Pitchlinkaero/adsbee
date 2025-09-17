@@ -507,9 +507,13 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
                         settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
 
-                        if (decoded_packet.IsValid()) {
+                        // For MQTT, we publish aircraft status even if the packet itself is invalid,
+                        // as long as we have aircraft data in the dictionary
+                        uint32_t icao_address = decoded_packet.GetICAOAddress();
+
+                        // Only proceed if we have a valid ICAO address
+                        if (icao_address != 0) {
                             // Get aircraft data from dictionary for complete information
-                            uint32_t icao_address = decoded_packet.GetICAOAddress();
                             Aircraft1090* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr(icao_address);
 
                             // Convert to TransponderPacket for publishing
