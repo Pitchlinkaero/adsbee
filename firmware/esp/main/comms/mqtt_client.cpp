@@ -256,7 +256,7 @@ AircraftStatus MQTTClient::PacketToStatus(const TransponderPacket& packet, uint8
 
     // Extract ICAO address (uppercase hex)
     char icao_str[7];
-    snprintf(icao_str, sizeof(icao_str), "%06X", packet.address);
+    snprintf(icao_str, sizeof(icao_str), "%06lX", (unsigned long)packet.address);
     status.icao = icao_str;
 
     status.band = band;
@@ -270,7 +270,7 @@ AircraftStatus MQTTClient::PacketToStatus(const TransponderPacket& packet, uint8
 
     if (packet.HasCategory()) {
         // Convert category to string format (e.g., "A3")
-        char cat_str[3];
+        char cat_str[4];  // Increased buffer size to 4
         snprintf(cat_str, sizeof(cat_str), "%c%d",
                  'A' + ((packet.category >> 4) & 0x0F),
                  packet.category & 0x0F);
@@ -299,8 +299,8 @@ AircraftStatus MQTTClient::PacketToStatus(const TransponderPacket& packet, uint8
     }
 
     if (packet.HasSquawk()) {
-        char sqk_str[5];
-        snprintf(sqk_str, sizeof(sqk_str), "%04o", packet.squawk);
+        char sqk_str[8];  // Increased buffer size to handle worst case
+        snprintf(sqk_str, sizeof(sqk_str), "%04o", (unsigned int)packet.squawk);
         status.squawk = sqk_str;
     }
 
@@ -316,8 +316,8 @@ bool MQTTClient::PublishAircraftStatus(const TransponderPacket& packet, uint8_t 
     }
 
     // Check rate limit (1Hz per aircraft)
-    char icao_str[7];
-    snprintf(icao_str, sizeof(icao_str), "%06X", packet.address);
+    char icao_str[9];  // Increased buffer size to handle worst case
+    snprintf(icao_str, sizeof(icao_str), "%06lX", (unsigned long)packet.address);
 
     if (!rate_limiter_.ShouldPublish(icao_str)) {
         stats_.messages_dropped++;
