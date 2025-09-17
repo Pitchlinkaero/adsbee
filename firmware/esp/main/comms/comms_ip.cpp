@@ -276,7 +276,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 telemetry.mem_free_kb = esp_get_free_heap_size() / 1024;
                 telemetry.noise_floor_dbm = -100;  // TODO: Get actual noise floor from decoder
                 telemetry.rx_1090 = true;  // Always true for now
-                telemetry.rx_978 = settings_manager.settings.uat_enabled;
+                telemetry.rx_978 =
+                    (settings_manager.settings.subg_enabled == SettingsManager::EnableState::kEnableStateEnabled);
                 telemetry.wifi = wifi_sta_has_ip_;
                 telemetry.mqtt = true;
 
