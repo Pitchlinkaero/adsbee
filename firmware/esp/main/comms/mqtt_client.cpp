@@ -554,74 +554,92 @@ std::string MQTTClient::SerializeGPSJSON(const GPS& gps) const {
 
 // Binary Serialization (compact format as specified)
 std::vector<uint8_t> MQTTClient::SerializeStatusBinary(const AircraftStatus& status) const {
-    // Fixed 31 bytes for status
+    // Fixed 31 bytes for status message
     std::vector<uint8_t> data(31, 0);
 
+    size_t offset = 0;
+
     // Byte 0: Message type (0 = status)
-    data[0] = 0;
+    data[offset++] = 0;
 
     // Byte 1: Band (1=1090, 2=UAT)
-    data[1] = status.band;
+    data[offset++] = status.band;
 
-    // Bytes 2-4: ICAO (24 bits)
-    uint32_t icao = std::stoul(status.icao, nullptr, 16);
-    data[2] = (icao >> 16) & 0xFF;
-    data[3] = (icao >> 8) & 0xFF;
-    data[4] = icao & 0xFF;
+    // Bytes 2-4: ICAO address (24 bits)
+    uint32_t icao = 0;
+    try {
+        icao = std::stoul(status.icao, nullptr, 16);
+    } catch (...) {
+        icao = 0;  // Default if parsing fails
+    }
+    data[offset++] = (icao >> 16) & 0xFF;
+    data[offset++] = (icao >> 8) & 0xFF;
+    data[offset++] = icao & 0xFF;
 
-    // Byte 5: RSSI (placeholder, set to -50 dBm)
-    data[5] = 206;  // -50 dBm in uint8 (256 - 50)
+    // Byte 5: RSSI (placeholder, -50 dBm as signed int8)
+    data[offset++] = static_cast<int8_t>(-50);
 
     // Bytes 6-9: Timestamp (ms, 32-bit)
     uint32_t t_ms = status.t_ms & 0xFFFFFFFF;
-    data[6] = (t_ms >> 24) & 0xFF;
-    data[7] = (t_ms >> 16) & 0xFF;
-    data[8] = (t_ms >> 8) & 0xFF;
-    data[9] = t_ms & 0xFF;
+    data[offset++] = (t_ms >> 24) & 0xFF;
+    data[offset++] = (t_ms >> 16) & 0xFF;
+    data[offset++] = (t_ms >> 8) & 0xFF;
+    data[offset++] = t_ms & 0xFF;
 
     // Bytes 10-13: Latitude (1e-5 degrees, signed 32-bit)
     int32_t lat = static_cast<int32_t>(status.lat * 100000);
-    data[10] = (lat >> 24) & 0xFF;
-    data[11] = (lat >> 16) & 0xFF;
-    data[12] = (lat >> 8) & 0xFF;
-    data[13] = lat & 0xFF;
+    data[offset++] = (lat >> 24) & 0xFF;
+    data[offset++] = (lat >> 16) & 0xFF;
+    data[offset++] = (lat >> 8) & 0xFF;
+    data[offset++] = lat & 0xFF;
 
     // Bytes 14-17: Longitude (1e-5 degrees, signed 32-bit)
     int32_t lon = static_cast<int32_t>(status.lon * 100000);
-    data[14] = (lon >> 24) & 0xFF;
-    data[15] = (lon >> 16) & 0xFF;
-    data[16] = (lon >> 8) & 0xFF;
-    data[17] = lon & 0xFF;
+    data[offset++] = (lon >> 24) & 0xFF;
+    data[offset++] = (lon >> 16) & 0xFF;
+    data[offset++] = (lon >> 8) & 0xFF;
+    data[offset++] = lon & 0xFF;
 
     // Bytes 18-19: Altitude (units of 25ft, unsigned 16-bit)
-    uint16_t alt_25ft = static_cast<uint16_t>(status.alt_ft / 25);
-    data[18] = (alt_25ft >> 8) & 0xFF;
-    data[19] = alt_25ft & 0xFF;
+    uint16_t alt_25ft = static_cast<uint16_t>(std::max(0, status.alt_ft) / 25);
+    data[offset++] = (alt_25ft >> 8) & 0xFF;
+    data[offset++] = alt_25ft & 0xFF;
 
     // Byte 20: Heading (units of 360/256 degrees)
-    data[20] = static_cast<uint8_t>((status.hdg_deg * 256) / 360);
+    data[offset++] = static_cast<uint8_t>((status.hdg_deg * 256) / 360);
 
     // Byte 21: Speed (knots, capped at 255)
-    data[21] = std::min(static_cast<uint8_t>(status.spd_kts), uint8_t(255));
+    data[offset++] = std::min(static_cast<uint8_t>(status.spd_kts), uint8_t(255));
 
     // Byte 22: Vertical rate (units of 64 fpm, signed)
     int8_t vr_64fpm = static_cast<int8_t>(status.vr_fpm / 64);
-    data[22] = vr_64fpm;
+    data[offset++] = static_cast<uint8_t>(vr_64fpm);
 
-    // Byte 23: Flags (bit 0 = on_ground)
-    data[23] = status.on_ground ? 1 : 0;
+    // Byte 23: Flags (bit 0 = on_ground) and Category
+    uint8_t flags_cat = (status.on_ground ? 1 : 0);
+    // Parse category if it's a string like "A3"
+    if (!status.category.empty() && status.category.length() >= 2) {
+        uint8_t cat_high = (status.category[0] - 'A') & 0x0F;
+        uint8_t cat_low = (status.category[1] - '0') & 0x0F;
+        flags_cat |= ((cat_high << 4) | cat_low) << 1;  // Shift left by 1 to leave bit 0 for on_ground
+    }
+    data[offset++] = flags_cat;
 
-    // Bytes 24-31: Callsign (8 chars, space-padded)
-    for (size_t i = 0; i < 8 && i < status.callsign.length(); i++) {
-        data[24 + i] = status.callsign[i];
+    // Bytes 24-30: Callsign (7 chars, space-padded)
+    for (size_t i = 0; i < 7; i++) {
+        if (i < status.callsign.length()) {
+            data[offset + i] = status.callsign[i];
+        } else {
+            data[offset + i] = ' ';  // Space padding
+        }
     }
 
     return data;
 }
 
 std::vector<uint8_t> MQTTClient::SerializeTelemetryBinary(const Telemetry& telemetry) const {
-    // Fixed 16 bytes for telemetry
-    std::vector<uint8_t> data(16, 0);
+    // Extended to 28 bytes to include decoder statistics
+    std::vector<uint8_t> data(28, 0);
 
     // Byte 0: Message type (1 = telemetry)
     data[0] = 1;
@@ -662,9 +680,39 @@ std::vector<uint8_t> MQTTClient::SerializeTelemetryBinary(const Telemetry& telem
     if (telemetry.mqtt) flags |= 0x08;
     data[13] = flags;
 
-    // Bytes 14-15: Reserved
-    data[14] = 0;
-    data[15] = 0;
+    // Bytes 14-15: Demodulations per second (16-bit)
+    uint16_t demods = std::min(telemetry.demods_1090, uint32_t(0xFFFF));
+    data[14] = (demods >> 8) & 0xFF;
+    data[15] = demods & 0xFF;
+
+    // Bytes 16-17: Raw squitter frames per second (16-bit)
+    uint16_t raw_sq = std::min(telemetry.raw_squitter_frames, uint32_t(0xFFFF));
+    data[16] = (raw_sq >> 8) & 0xFF;
+    data[17] = raw_sq & 0xFF;
+
+    // Bytes 18-19: Valid squitter frames per second (16-bit)
+    uint16_t valid_sq = std::min(telemetry.valid_squitter_frames, uint32_t(0xFFFF));
+    data[18] = (valid_sq >> 8) & 0xFF;
+    data[19] = valid_sq & 0xFF;
+
+    // Bytes 20-21: Raw extended squitter per second (16-bit)
+    uint16_t raw_ext = std::min(telemetry.raw_extended_squitter, uint32_t(0xFFFF));
+    data[20] = (raw_ext >> 8) & 0xFF;
+    data[21] = raw_ext & 0xFF;
+
+    // Bytes 22-23: Valid extended squitter per second (16-bit)
+    uint16_t valid_ext = std::min(telemetry.valid_extended_squitter, uint32_t(0xFFFF));
+    data[22] = (valid_ext >> 8) & 0xFF;
+    data[23] = valid_ext & 0xFF;
+
+    // Bytes 24-25: Total messages per second across all feeds (16-bit)
+    uint16_t mps = std::min(telemetry.mps_total, uint32_t(0xFFFF));
+    data[24] = (mps >> 8) & 0xFF;
+    data[25] = mps & 0xFF;
+
+    // Bytes 26-27: Reserved for future use
+    data[26] = 0;
+    data[27] = 0;
 
     return data;
 }
