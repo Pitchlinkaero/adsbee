@@ -93,7 +93,15 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             }
             break;
         }
-#ifdef ON_ESP32
+        default:
+            CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for writing to address 0x%x.", addr);
+            return false;
+    }
+    return true;
+}
+#elif defined(ON_ESP32)
+bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
+    switch (addr) {
         case kAddrPicoTemperatureC: {
             // ESP32 receiving Pico CPU temperature from RP2040
             if (buf_len >= sizeof(int16_t)) {
@@ -141,14 +149,22 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             xQueueSend(adsbee_server.rp2040_aircraft_dictionary_metrics_queue, &rp2040_metrics, 0);
             break;
         }
-#elif defined(ON_TI)
-#endif
         default:
             CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for writing to address 0x%x.", addr);
             return false;
     }
     return true;
 }
+#elif defined(ON_TI)
+bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
+    switch (addr) {
+        default:
+            CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for writing to address 0x%x.", addr);
+            return false;
+    }
+    return true;
+}
+#endif
 
 bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
