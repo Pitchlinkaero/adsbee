@@ -327,14 +327,9 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 t.wifi_connected = wifi_sta_has_ip_ ? 1 : 0;
                 t.mqtt_connected = 1;
 
-                // Pull Pico CPU temperature (if available via object dictionary)
-                if (pico.IsEnabled()) {
-                    int16_t pico_temp_c = INT16_MIN;
-                    if (pico.Read<int16_t>(ObjectDictionary::Address::kAddrPicoTemperatureC, pico_temp_c)) {
-                        if (pico_temp_c != INT16_MIN) {
-                            t.cpu_temp_c = pico_temp_c;
-                        }
-                    }
+                // Pull Pico CPU temperature from object dictionary if the RP2040 has written it
+                if (object_dictionary.pico_cpu_temp_c != INT16_MIN) {
+                    t.cpu_temp_c = object_dictionary.pico_cpu_temp_c;
                 }
 
                 if (mqtt_clients[i]->PublishTelemetry(t)) {
