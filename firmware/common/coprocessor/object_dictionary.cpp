@@ -168,22 +168,7 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
 }
 #endif
 
-#ifdef ON_PICO
-bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
-    switch (addr) {
-        case kAddrPicoTemperatureC:
-            // Allow ESP32 to read Pico temperature
-            memcpy(buf, (uint8_t *)(&pico_cpu_temp_c) + offset, buf_len);
-            break;
-        case kAddrFirmwareVersion:
-            memcpy(buf, (uint8_t *)(&kFirmwareVersion) + offset, buf_len);
-            break;
-        default:
-            return false;
-    }
-    return true;
-}
-#elif defined(ON_COPRO_SLAVE)
+#ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
         case kAddrFirmwareVersion:
