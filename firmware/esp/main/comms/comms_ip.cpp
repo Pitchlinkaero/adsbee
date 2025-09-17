@@ -230,6 +230,10 @@ void CommsManager::IPWANTask(void* pvParameters) {
         }
     }
 
+    // Telemetry publishing interval (ms)
+    static const uint32_t kTelemetryIntervalMs = 60000;
+    uint32_t last_telemetry_publish_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+
     while (true) {
         // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
         while (!wifi_sta_has_ip_ && !ethernet_has_ip_) {
@@ -256,6 +260,73 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 strcat(feeds_stats_message, single_feed_stats_message);
             }
             CONSOLE_INFO("CommsManager::IPWANTask", "Feed msgs/s: %s", feeds_stats_message);
+        }
+
+        // Proactively attempt MQTT connection for configured feeds, independent of packet flow.
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients[i]) {
+                continue;
+            }
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
+                continue;
+            }
+            if (!settings_manager.settings.feed_is_active[i]) {
+                continue;
+            }
+            if (!mqtt_clients[i]->IsConnected()) {
+                uint32_t now = get_time_since_boot_ms();
+                if (now - mqtt_last_connect_attempt[i] > 5000) {
+                    CONSOLE_INFO("CommsManager::IPWANTask",
+                                 "Connecting MQTT feed %d to %s",
+                                 i, settings_manager.settings.feed_uris[i]);
+                    mqtt_clients[i]->Connect();
+                    mqtt_last_connect_attempt[i] = now;
+                }
+            }
+        }
+
+        // Periodic telemetry publish on connected MQTT feeds
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients[i]) {
+                continue;
+            }
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
+                continue;
+            }
+            if (!settings_manager.settings.feed_is_active[i]) {
+                continue;
+            }
+            if (!mqtt_clients[i]->IsConnected()) {
+                continue;
+            }
+            uint32_t now = get_time_since_boot_ms();
+            if (now - last_telemetry_publish_ms[i] >= kTelemetryIntervalMs) {
+                MQTTProtocol::TelemetryData t = {};
+                t.uptime_sec = now / 1000;
+                // Use total messages received in the last second across feeds as a proxy
+                // (more detailed metrics could be wired in later)
+                uint32_t total_mps = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    total_mps += feed_mps[j];
+                }
+                t.messages_received = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
+                t.messages_sent = (uint16_t)MIN(feed_mps[i], (uint32_t)0xFFFF);
+                t.cpu_temp_c = 0;  // TODO: wire real CPU temp if available
+                t.memory_free_kb = 0;  // TODO: wire real free heap if desired
+                t.rssi_noise_floor_dbm = 0;  // TODO: wire measured noise floor if available
+                t.receiver_1090_enabled = 1;
+                t.receiver_978_enabled = 0;
+                t.wifi_connected = wifi_sta_has_ip_ ? 1 : 0;
+                t.mqtt_connected = 1;
+
+                if (mqtt_clients[i]->PublishTelemetry(t)) {
+                    // Published OK; no counter increment (feed_mps is packet traffic)
+                } else {
+                    CONSOLE_WARNING("CommsManager::IPWANTask",
+                                    "Failed to publish telemetry on MQTT feed %d", i);
+                }
+                last_telemetry_publish_ms[i] = now;
+            }
         }
 
         // Gather packet(s) to send.
@@ -425,33 +496,12 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     if (!mqtt_clients[i]) {
                         break;  // Client not initialized
                     }
-                    
-                    // Check if valid packet
-                    if (!decoded_packet.IsValid()) {
+                    // Require a valid packet to publish, but connection is handled above
+                    if (!decoded_packet.IsValid() || !mqtt_clients[i]->IsConnected()) {
                         break;
                     }
-                    
-                    // Connect if not connected
-                    if (!mqtt_clients[i]->IsConnected()) {
-                        // Only try to connect if we have network
-                        if (wifi_sta_has_ip_ || ethernet_has_ip_) {
-                            uint32_t now = get_time_since_boot_ms();
-                            
-                            // Retry every 5 seconds
-                            if (now - mqtt_last_connect_attempt[i] > 5000) {
-                                CONSOLE_INFO("CommsManager::IPWANTask", 
-                                            "Connecting MQTT feed %d to %s",
-                                            i, settings_manager.settings.feed_uris[i]);
-                                mqtt_clients[i]->Connect();
-                                mqtt_last_connect_attempt[i] = now;
-                            }
-                        }
-                        break;  // Not connected yet
-                    }
-                    
                     // Publish immediately - no buffering!
-                    // TODO: Add band detection based on frequency
-                    MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ;
+                    MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ;  // TODO: detect from source
                     if (mqtt_clients[i]->PublishPacket(decoded_packet, band)) {
                         feed_mps_counter_[i]++;  // Update statistics
                     } else {

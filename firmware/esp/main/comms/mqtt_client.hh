@@ -93,6 +93,12 @@ public:
         return MQTTProtocol::EstimateBandwidth(config_.format, messages_per_hour);
     }
     
+    /**
+     * Get statistics
+     */
+    uint32_t GetMessagesSent() const { return messages_sent_; }
+    uint32_t GetBytesSent() const { return bytes_sent_; }
+    
 private:
     esp_mqtt_client_handle_t client_;
     Config config_;
