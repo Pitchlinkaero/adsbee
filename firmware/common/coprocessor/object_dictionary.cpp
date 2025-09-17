@@ -109,7 +109,7 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
                 memcpy(&temp_c, buf + offset, sizeof(int16_t));
                 object_dictionary.pico_cpu_temp_c = temp_c;
                 // Log temperature update for debugging
-                CONSOLE_INFO("SPICoprocessor::SetBytes", "Received Pico temperature: %d°C", temp_c);
+                CONSOLE_INFO("SPICoprocessor::SetBytes", "[2025-01-17 FIX] Received Pico temp at 0x10: %d°C", temp_c);
                 return true;
             }
             return false;

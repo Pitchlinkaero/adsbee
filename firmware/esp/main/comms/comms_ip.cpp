@@ -332,6 +332,10 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 t.receiver_978_enabled = 0;
                 t.wifi_connected = wifi_sta_has_ip_ ? 1 : 0;
                 t.mqtt_connected = 1;
+                // Add firmware version
+                t.fw_major = ObjectDictionary::kFirmwareVersionMajor;
+                t.fw_minor = ObjectDictionary::kFirmwareVersionMinor;
+                t.fw_patch = ObjectDictionary::kFirmwareVersionPatch;
 
                 // Pull Pico CPU temperature from object dictionary if the RP2040 has written it
                 // Prefer unified telemetry packet if present, else legacy temp

@@ -334,7 +334,8 @@ uint16_t MQTTProtocol::FormatTelemetryJSON(const TelemetryData& telemetry,
         "\"rx_1090\":%d,"
         "\"rx_978\":%d,"
         "\"wifi\":%d,"
-        "\"mqtt\":%d",
+        "\"mqtt\":%d,"
+        "\"fw_ver\":\"%u.%u.%u\"",
         telemetry.uptime_sec,
         telemetry.messages_received,
         telemetry.messages_sent,
@@ -344,7 +345,10 @@ uint16_t MQTTProtocol::FormatTelemetryJSON(const TelemetryData& telemetry,
         telemetry.receiver_1090_enabled,
         telemetry.receiver_978_enabled,
         telemetry.wifi_connected,
-        telemetry.mqtt_connected
+        telemetry.mqtt_connected,
+        telemetry.fw_major,
+        telemetry.fw_minor,
+        telemetry.fw_patch
     );
     
     if (written < 0 || written >= buffer_size) {

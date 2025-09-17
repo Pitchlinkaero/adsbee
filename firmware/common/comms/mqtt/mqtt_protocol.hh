@@ -67,6 +67,10 @@ public:
         uint8_t receiver_978_enabled;  // 978 MHz receiver status
         uint8_t wifi_connected;        // WiFi connection status
         uint8_t mqtt_connected;        // MQTT connection status
+        // Firmware version info
+        uint8_t fw_major = 0;          // Firmware major version
+        uint8_t fw_minor = 0;          // Firmware minor version
+        uint8_t fw_patch = 0;          // Firmware patch version
         // Optional message rate reporting (JSON only)
         uint16_t mps_total = 0;        // Total messages per second across all feeds
         uint8_t mps_feed_count = 0;    // Number of per-feed entries populated in mps_feeds
