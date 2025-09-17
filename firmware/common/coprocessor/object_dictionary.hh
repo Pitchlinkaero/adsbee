@@ -51,6 +51,9 @@ class ObjectDictionary {
         kAddrLogMessages = 0x0D,   // Used to retrieve log messages from ESP32 and CC1312.
         kAddrRollQueue = 0x0E,     // Used to roll various queues on coprocessor slaves to confirm they have been read.
         kAddrSCCommandRequests = 0x0F,  // Used by slave to request commands from master.
+        // kAddrPicoTemperatureC = 0x10,   // REMOVED: Each processor uses its own temperature sensor
+        kAddrCapabilities = 0x11,       // Slave capability mask/structure (read by master)
+        kAddrTelemetry = 0x12,          // Unified telemetry packet from master to slave
         kNumAddrs
     };
 
@@ -266,6 +269,19 @@ class ObjectDictionary {
 
    private:
     uint32_t scratch_ = 0x0;  // Scratch register used for testing.
+
+   public:
+    // Temperature handling removed - each processor uses its own sensor
+
+    // Capabilities bitmask reported by slave (ESP32)
+    struct __attribute__((__packed__)) Capabilities {
+        // Bit 0: supports kAddrTelemetry writes
+        // Bit 1-7: reserved
+        uint8_t version = 1;     // Capabilities struct version
+        uint8_t features = 0;    // Bitmask
+    } capabilities = {};
+
+    // Telemetry packet removed - temperature handled locally by each processor
 
     // On Pico, this is a queue of log messages gathered from other devices. On other devices, this is a queue of log
     // messages waiting to be slurped up by the RP2040.

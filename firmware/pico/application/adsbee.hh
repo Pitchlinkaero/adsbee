@@ -183,6 +183,13 @@ class ADSBee {
      */
     int GetTLMilliVolts() { return tl_mv_; }
 
+    /**
+     * Read the RP2040 onboard temperature sensor (CPU temperature).
+     * @param[out] temp_c Temperature in degrees Celsius.
+     * @retval True if reading succeeded.
+     */
+    bool ReadOnboardTemperatureC(float &temp_c);
+
     inline uint32_t GetWatchdogTimeoutSec() { return watchdog_timeout_sec_; }
 
     /**

@@ -38,6 +38,11 @@ CommsManager comms_manager = CommsManager({});
 // Main application
 extern "C" void app_main(void) {
     ESP_LOGI("app_main", "Beginning ADSBee Server Application.");
+    ESP_LOGI("app_main", "=== FIRMWARE BUILD: 2025-01-17 with TEMP FIX ===");
+    ESP_LOGI("app_main", "Firmware Version: %d.%d.%d",
+             ObjectDictionary::kFirmwareVersionMajor,
+             ObjectDictionary::kFirmwareVersionMinor,
+             ObjectDictionary::kFirmwareVersionPatch);
     ESP_LOGI("app_main", "Default task priority: %d", uxTaskPriorityGet(NULL));
 
     // Print build version on startup

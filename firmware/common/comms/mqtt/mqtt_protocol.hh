@@ -58,8 +58,8 @@ public:
     // Telemetry data structure
     struct TelemetryData {
         uint32_t uptime_sec;           // Uptime in seconds
-        uint16_t messages_received;    // Messages in last minute
-        uint16_t messages_sent;        // MQTT messages sent
+        uint16_t messages_received;    // ADS-B messages per second (published/decoded)
+        uint16_t messages_sent;        // MQTT messages sent (cumulative)
         int16_t cpu_temp_c;           // CPU temperature (Celsius)
         uint16_t memory_free_kb;      // Free memory in KB
         int16_t rssi_noise_floor_dbm; // Current noise floor
@@ -67,6 +67,15 @@ public:
         uint8_t receiver_978_enabled;  // 978 MHz receiver status
         uint8_t wifi_connected;        // WiFi connection status
         uint8_t mqtt_connected;        // MQTT connection status
+        // Firmware version info
+        uint8_t fw_major = 0;          // Firmware major version
+        uint8_t fw_minor = 0;          // Firmware minor version
+        uint8_t fw_patch = 0;          // Firmware patch version
+        // Optional message rate reporting (JSON only)
+        uint16_t mps_total = 0;        // Total messages per second across all feeds
+        uint8_t mps_feed_count = 0;    // Number of per-feed entries populated in mps_feeds
+        static constexpr uint8_t kMaxFeedsForTelemetry = 10;
+        uint16_t mps_feeds[kMaxFeedsForTelemetry] = {0}; // Per-feed messages per second
     };
     
     // GPS data structure

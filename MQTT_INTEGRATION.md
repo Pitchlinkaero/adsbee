@@ -11,7 +11,7 @@ AT+FEEDPROTOCOL=0,MQTT
 AT+FEEDURI=0,mqtt.broker.com
 AT+FEEDPORT=0,1883
 AT+FEEDEN=0,1
-AT+WRITE
+AT+SETTINGS=SAVE
 ```
 
 ### Cellular/IoT Setup (Binary Format)
@@ -22,13 +22,13 @@ AT+FEEDURI=0,mqtt.broker.com
 AT+FEEDPORT=0,1883
 AT+MQTTFORMAT=0,BINARY
 AT+FEEDEN=0,1
-AT+WRITE
+AT+SETTINGS=SAVE
 ```
 
 ## Message Formats
 
 ### JSON Format (Default)
-Human-readable, ~250 bytes per message. Best for WiFi/Ethernet.
+Human-readable, ~250 bytes per message. Best for WiFi/Ethernet. Published at a steady 1 Hz per aircraft with low latency.
 
 **Aircraft Status:**
 ```json
@@ -88,7 +88,7 @@ Example with device ID `a1b2c3d4e5f67890`:
 - Telemetry: `a1b2c3d4e5f67890/system/telemetry`
 
 ### Binary Format
-Compact messages for bandwidth-limited connections.
+Compact messages for bandwidth-limited connections. Binary status is also published at a steady 1 Hz per aircraft, with the shortest possible end-to-end latency.
 
 - Aircraft: 31 bytes (includes category & callsign)
 - Telemetry: 16 bytes
@@ -298,12 +298,12 @@ client.loop_forever()
 Configure up to 4 simultaneous MQTT feeds:
 
 ```bash
-# Feed 0: Local broker (JSON)
+# Feed 0: Local broker (JSON @ 1 Hz)
 AT+FEEDPROTOCOL=0,MQTT
 AT+FEEDURI=0,192.168.1.100
 AT+MQTTFORMAT=0,JSON
 
-# Feed 1: Cloud broker (Binary for cellular)
+# Feed 1: Cloud broker (Binary for cellular @ 1 Hz)
 AT+FEEDPROTOCOL=1,MQTT  
 AT+FEEDURI=1,cloud.mqtt.com
 AT+MQTTFORMAT=1,BINARY

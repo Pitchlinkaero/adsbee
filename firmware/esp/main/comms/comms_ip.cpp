@@ -10,6 +10,9 @@
 #include "lwip/sys.h"
 #include "mdns.h"
 #include "mqtt_client.hh"  // For MQTT support
+#include "esp_heap_caps.h"  // For free memory
+// Temperature handling done locally, no ObjectDictionary dependency
+#include "driver/temperature_sensor.h"  // ESP32 internal temperature sensor (legacy driver API)
 #include "task_priorities.hh"
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
@@ -235,9 +238,14 @@ void CommsManager::IPWANTask(void* pvParameters) {
     uint32_t last_telemetry_publish_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
 
     while (true) {
-        // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
-        while (!wifi_sta_has_ip_ && !ethernet_has_ip_) {
-            vTaskDelay(1);  // Delay for 1 tick.
+        // If no WAN IP yet, keep running loop (for telemetry, logs, retries) instead of blocking entirely.
+        static uint32_t last_no_ip_log_ms = 0;
+        if (!wifi_sta_has_ip_ && !ethernet_has_ip_) {
+            uint32_t now = get_time_since_boot_ms();
+            if (now - last_no_ip_log_ms > 5000) {
+                CONSOLE_INFO("CommsManager::IPWANTask", "No WAN IP (WiFi STA/Ethernet). Retrying...");
+                last_no_ip_log_ms = now;
+            }
         }
 
         // Update feed statistics once per second and print them. Put this before the queue receive so that it runs even
@@ -303,21 +311,45 @@ void CommsManager::IPWANTask(void* pvParameters) {
             if (now - last_telemetry_publish_ms[i] >= kTelemetryIntervalMs) {
                 MQTTProtocol::TelemetryData t = {};
                 t.uptime_sec = now / 1000;
-                // Use total messages received in the last second across feeds as a proxy
-                // (more detailed metrics could be wired in later)
                 uint32_t total_mps = 0;
+                uint8_t mps_count = 0;
                 for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
                     total_mps += feed_mps[j];
+                    if (mps_count < MQTTProtocol::TelemetryData::kMaxFeedsForTelemetry) {
+                        t.mps_feeds[mps_count++] = feed_mps[j];
+                    }
                 }
                 t.messages_received = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
-                t.messages_sent = (uint16_t)MIN(feed_mps[i], (uint32_t)0xFFFF);
-                t.cpu_temp_c = 0;  // TODO: wire real CPU temp if available
-                t.memory_free_kb = 0;  // TODO: wire real free heap if desired
-                t.rssi_noise_floor_dbm = 0;  // TODO: wire measured noise floor if available
+                t.mps_total = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
+                t.mps_feed_count = mps_count;
+                // Use per-client cumulative MQTT messages sent
+                t.messages_sent = (uint16_t)MIN(mqtt_clients[i]->GetMessagesSent(), (uint32_t)0xFFFF);
+                // CPU temperature not available; leave at 0 for now
+                // Free heap (8-bit accessible)
+                t.memory_free_kb = (uint16_t)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+                // Noise floor not measured here
+                t.rssi_noise_floor_dbm = 0;
                 t.receiver_1090_enabled = 1;
                 t.receiver_978_enabled = 0;
                 t.wifi_connected = wifi_sta_has_ip_ ? 1 : 0;
                 t.mqtt_connected = 1;
+                // Use ESP32 internal temperature sensor for telemetry (decouples from RP2040)
+                static bool tsens_initialized = false;
+                static temperature_sensor_handle_t tsens_handle = NULL;
+                if (!tsens_initialized) {
+                    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
+                    if (temperature_sensor_install(&cfg, &tsens_handle) == ESP_OK && tsens_handle != NULL) {
+                        if (temperature_sensor_enable(tsens_handle) == ESP_OK) {
+                            tsens_initialized = true;
+                        }
+                    }
+                }
+                if (tsens_initialized && tsens_handle != NULL) {
+                    float temp_c = 0.0f;
+                    if (temperature_sensor_get_celsius(tsens_handle, &temp_c) == ESP_OK) {
+                        t.cpu_temp_c = (int16_t)temp_c;
+                    }
+                }
 
                 if (mqtt_clients[i]->PublishTelemetry(t)) {
                     // Published OK; no counter increment (feed_mps is packet traffic)
@@ -326,6 +358,19 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                     "Failed to publish telemetry on MQTT feed %d", i);
                 }
                 last_telemetry_publish_ms[i] = now;
+
+                // Optional: publish GPS if available (currently placeholder zeros)
+                MQTTProtocol::GPSData g = {};
+                g.latitude = 0.0;
+                g.longitude = 0.0;
+                g.altitude_m = 0.0f;
+                g.fix_status = 0;  // None
+                g.num_satellites = 0;
+                g.hdop = 0.0f;
+                g.timestamp = now / 1000;
+                (void)g;  // Avoid unused warning if GPS not enabled later
+                // Uncomment when real GPS wired in:
+                // mqtt_clients[i]->PublishGPS(g);
             }
         }
 
