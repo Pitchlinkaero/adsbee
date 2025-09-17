@@ -80,6 +80,33 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
         mqtt_cfg.credentials.client_id = generated_client_id.c_str();
     }
 
+    // TLS/SSL Configuration
+    if (config_.use_tls) {
+        // Option 1: Skip certificate verification (insecure but works for testing)
+        mqtt_cfg.broker.verification.skip_cert_common_name_check = true;
+        mqtt_cfg.broker.verification.certificate = nullptr;  // No CA cert verification
+
+        // Option 2: Use built-in certificate bundle (for public brokers)
+        // extern const uint8_t ca_cert_pem_start[] asm("_binary_ca_cert_pem_start");
+        // extern const uint8_t ca_cert_pem_end[] asm("_binary_ca_cert_pem_end");
+        // mqtt_cfg.broker.verification.certificate = (const char *)ca_cert_pem_start;
+        // mqtt_cfg.broker.verification.certificate_len = ca_cert_pem_end - ca_cert_pem_start;
+
+        // Option 3: Use custom CA certificate from settings (future implementation)
+        // if (!config_.ca_certificate.empty()) {
+        //     mqtt_cfg.broker.verification.certificate = config_.ca_certificate.c_str();
+        //     mqtt_cfg.broker.verification.certificate_len = config_.ca_certificate.length();
+        // }
+
+        // Client certificate authentication (if required by broker)
+        // if (!config_.client_cert.empty() && !config_.client_key.empty()) {
+        //     mqtt_cfg.credentials.authentication.certificate = config_.client_cert.c_str();
+        //     mqtt_cfg.credentials.authentication.certificate_len = config_.client_cert.length();
+        //     mqtt_cfg.credentials.authentication.key = config_.client_key.c_str();
+        //     mqtt_cfg.credentials.authentication.key_len = config_.client_key.length();
+        // }
+    }
+
     // Last Will and Testament (LWT)
     std::string lwt_topic = GetOnlineTopic();
     mqtt_cfg.session.last_will.topic = lwt_topic.c_str();

@@ -169,16 +169,31 @@ void CommsManager::IPWANTask(void* pvParameters) {
     // Initialize MQTT clients for feeds configured with MQTT protocol
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
         if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT &&
-            settings_manager.settings.mqtt_enabled) {
+            settings_manager.settings.feed_is_active[i]) {
 
             MQTT::MQTTClient::Config mqtt_config;
-            mqtt_config.broker_uri = settings_manager.settings.feed_uris[i];
+
+            // Parse URI to extract protocol and hostname
+            std::string full_uri = settings_manager.settings.feed_uris[i];
+            std::string broker_uri = full_uri;
+            bool use_tls = false;
+
+            // Determine TLS based on protocol prefix and extract hostname
+            if (full_uri.find("mqtt://") == 0) {
+                broker_uri = full_uri.substr(7);  // Remove "mqtt://"
+                use_tls = false;
+            } else if (full_uri.find("mqtts://") == 0) {
+                broker_uri = full_uri.substr(8);  // Remove "mqtts://"
+                use_tls = true;
+            }
+
+            mqtt_config.broker_uri = broker_uri;
             mqtt_config.port = settings_manager.settings.feed_ports[i];
             mqtt_config.username = settings_manager.settings.mqtt_usernames[i];
             mqtt_config.password = settings_manager.settings.mqtt_passwords[i];
             mqtt_config.client_id = settings_manager.settings.mqtt_client_ids[i];
             mqtt_config.device_id = settings_manager.settings.mqtt_device_id;
-            mqtt_config.use_tls = (settings_manager.settings.feed_ports[i] == 8883);
+            mqtt_config.use_tls = use_tls;
             mqtt_config.format = settings_manager.settings.mqtt_formats[i];
             mqtt_config.report_mode = settings_manager.settings.mqtt_report_modes[i];
             mqtt_config.telemetry_interval_sec = settings_manager.settings.mqtt_telemetry_interval_sec;
