@@ -30,8 +30,21 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             // Warning: printing here will cause a timeout and tests will fail.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,
             // offset);
-            memcpy((uint8_t *)&(settings_manager.settings) + offset, buf, buf_len);
-            if (offset + buf_len == sizeof(SettingsManager::Settings)) {
+            if (offset < sizeof(SettingsManager::Settings)) {
+                uint16_t copy_len = MIN(buf_len, static_cast<uint16_t>(sizeof(SettingsManager::Settings) - offset));
+                memcpy((uint8_t *)&(settings_manager.settings) + offset, buf, copy_len);
+                if (copy_len < buf_len) {
+                    CONSOLE_WARNING("ObjectDictionary::SetBytes",
+                                    "Truncated settings write: offset %d buf_len %d exceeds struct size %d.", offset,
+                                    buf_len, sizeof(SettingsManager::Settings));
+                }
+            } else {
+                // Ignore out-of-bounds write beyond end of struct.
+                CONSOLE_WARNING("ObjectDictionary::SetBytes",
+                                "Ignoring settings write entirely beyond struct: offset %d >= size %d.", offset,
+                                sizeof(SettingsManager::Settings));
+            }
+            if (offset + buf_len >= sizeof(SettingsManager::Settings)) {
                 CONSOLE_INFO("SPICoprocessor::SetBytes", "Wrote last chunk of settings data. Applying new values.");
                 settings_manager.Apply();
             }
