@@ -166,6 +166,7 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
 }
 #endif
 
+#ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
         case kAddrFirmwareVersion:
@@ -272,7 +273,6 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
             break;
         }
-#elif defined(ON_TI)
 #endif
         default:
             CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for reading from address 0x%x.", addr);
@@ -280,7 +280,9 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
     }
     return true;
 }
+#endif
 
+#ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::RequestSCCommand(const SCCommandRequestWithCallback &request_with_callback) {
     if (sc_command_request_queue.Push(request_with_callback)) {
         return true;

@@ -311,10 +311,16 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 MQTTProtocol::TelemetryData t = {};
                 t.uptime_sec = now / 1000;
                 uint32_t total_mps = 0;
+                uint8_t mps_count = 0;
                 for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
                     total_mps += feed_mps[j];
+                    if (mps_count < MQTTProtocol::TelemetryData::kMaxFeedsForTelemetry) {
+                        t.mps_feeds[mps_count++] = feed_mps[j];
+                    }
                 }
                 t.messages_received = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
+                t.mps_total = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
+                t.mps_feed_count = mps_count;
                 // Use per-client cumulative MQTT messages sent if available
                 t.messages_sent = (uint16_t)MIN(mqtt_clients[i]->GetMessagesSent(), (uint32_t)0xFFFF);
                 // CPU temperature not available; leave at 0 for now

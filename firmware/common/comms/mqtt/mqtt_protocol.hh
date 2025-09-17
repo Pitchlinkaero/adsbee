@@ -67,6 +67,11 @@ public:
         uint8_t receiver_978_enabled;  // 978 MHz receiver status
         uint8_t wifi_connected;        // WiFi connection status
         uint8_t mqtt_connected;        // MQTT connection status
+        // Optional message rate reporting (JSON only)
+        uint16_t mps_total = 0;        // Total messages per second across all feeds
+        uint8_t mps_feed_count = 0;    // Number of per-feed entries populated in mps_feeds
+        static constexpr uint8_t kMaxFeedsForTelemetry = 10;
+        uint16_t mps_feeds[kMaxFeedsForTelemetry] = {0}; // Per-feed messages per second
     };
     
     // GPS data structure

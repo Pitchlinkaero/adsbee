@@ -334,7 +334,7 @@ uint16_t MQTTProtocol::FormatTelemetryJSON(const TelemetryData& telemetry,
         "\"rx_1090\":%d,"
         "\"rx_978\":%d,"
         "\"wifi\":%d,"
-        "\"mqtt\":%d}",
+        "\"mqtt\":%d",
         telemetry.uptime_sec,
         telemetry.messages_received,
         telemetry.messages_sent,
@@ -350,7 +350,31 @@ uint16_t MQTTProtocol::FormatTelemetryJSON(const TelemetryData& telemetry,
     if (written < 0 || written >= buffer_size) {
         return 0;
     }
-    
+
+    // Append message rate info if present
+    int remaining = buffer_size - written;
+    char* ptr = buffer + written;
+
+    if (telemetry.mps_feed_count > 0 || telemetry.mps_total > 0) {
+        int n = snprintf(ptr, remaining, ",\"mps_total\":%u,\"mps\":[",
+                         telemetry.mps_total);
+        if (n < 0 || n >= remaining) return 0;
+        ptr += n; remaining -= n; written += n;
+
+        for (uint8_t i = 0; i < telemetry.mps_feed_count && i < TelemetryData::kMaxFeedsForTelemetry; i++) {
+            n = snprintf(ptr, remaining, "%s%u", (i == 0 ? "" : ","), telemetry.mps_feeds[i]);
+            if (n < 0 || n >= remaining) return 0;
+            ptr += n; remaining -= n; written += n;
+        }
+        n = snprintf(ptr, remaining, "]");
+        if (n < 0 || n >= remaining) return 0;
+        ptr += n; remaining -= n; written += n;
+    }
+
+    int n = snprintf(ptr, remaining, "}");
+    if (n < 0 || n >= remaining) return 0;
+    written += n;
+
     return written;
 }
 
