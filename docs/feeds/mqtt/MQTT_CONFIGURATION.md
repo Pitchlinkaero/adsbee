@@ -6,7 +6,15 @@ ADSBee supports MQTT protocol for publishing ADS-B/UAT aircraft data and receive
 
 ## Current Status
 
-**IMPORTANT**: MQTT implementation is in development. Core functionality is implemented but AT command configuration for authentication is pending.
+**Version**: 0.8.2-RC10
+**Status**: Production Ready
+
+MQTT implementation is complete with support for:
+- ✅ JSON and Binary message formats
+- ✅ Authentication (username/password)
+- ✅ TLS/SSL with configurable verification modes
+- ✅ Telemetry and aircraft status publishing
+- ✅ Automatic reconnection and error recovery
 
 ## Quick Start
 
@@ -34,6 +42,9 @@ AT+FEED=0,,,1
 
 # Query feed configuration
 AT+FEED?0
+
+# Set message format (JSON or BINARY)
+AT+MQTTFMT=0,JSON
 
 # Save settings
 AT+SETTINGS=SAVE
@@ -197,7 +208,48 @@ AT+SETTINGS=SAVE
 AT+REBOOT
 ```
 
-**Note**: Authentication (username/password) configuration via AT commands is pending implementation. Currently, only public brokers without authentication can be used.
+## Authentication
+
+### Configure Username/Password
+```bash
+# Set authentication for feed 0
+AT+MQTTAUTH=0,myusername,mypassword
+
+# Query authentication (password shown as ****)
+AT+MQTTAUTH?0
+
+# Clear authentication
+AT+MQTTAUTH=0
+```
+
+## TLS/SSL Security
+
+### Configure TLS Verification Mode
+```bash
+# Set TLS mode for feed 0
+AT+MQTTTLS=0,STRICT    # Full verification (recommended)
+AT+MQTTTLS=0,VERIFY    # CA verification only
+AT+MQTTTLS=0,NONE      # No verification (testing only)
+
+# Query TLS mode
+AT+MQTTTLS?0
+```
+
+**TLS Modes:**
+- `STRICT`: Full certificate and hostname verification (production)
+- `VERIFY`: CA certificate verification without hostname check
+- `NONE`: No verification (development/testing only, insecure)
+
+### Secure Connection Example
+```bash
+# Configure secure MQTT with authentication
+AT+FEED=0,mqtts://broker.hivemq.com,8883,1,MQTT
+AT+MQTTTLS=0,STRICT
+AT+MQTTAUTH=0,username,password
+AT+MQTTFMT=0,JSON
+AT+SETTINGS=SAVE
+AT+REBOOT
+```
 
 ## Testing Your Configuration
 
@@ -238,7 +290,7 @@ MQTT: Published telemetry (28 bytes)
 ### Binary vs JSON
 - **JSON**: Human-readable, larger (200-300 bytes per message)
 - **Binary**: Compact (15-31 bytes), better for bandwidth-limited connections
-- Set via `AT+MQTT_FORMAT0=BINARY`
+- Set via `AT+MQTTFMT=0,BINARY` or `AT+MQTTFMT=0,JSON`
 
 ### Connection Resilience
 - Automatic reconnection with exponential backoff
@@ -369,12 +421,77 @@ AT+MQTTFMT?          # Check all feed formats
 - **JSON**: ~200-300 bytes, human-readable, standard topics
 - **Binary**: 31 bytes (status), compact, requires decoder
 
-### Pending Implementation
+## Complete AT Command Reference
 
-The following AT commands are planned but not yet implemented:
-- MQTT authentication (username/password)
-- MQTT client ID configuration
-- MQTT report mode (Status/Raw/Both)
-- Global MQTT enable/disable
-- Telemetry/GPS intervals
-- Status update rate
+### Feed Configuration
+| Command | Description | Example |
+|---------|-------------|---------|
+| `AT+FEED?` | Query all feeds | `AT+FEED?` |
+| `AT+FEED?<n>` | Query specific feed | `AT+FEED?0` |
+| `AT+FEED=<n>,<uri>,<port>,<active>,<protocol>` | Configure feed | `AT+FEED=0,mqtt://broker.hivemq.com,1883,1,MQTT` |
+| `AT+FEEDEN=<n>,<0\|1>` | Enable/disable feed | `AT+FEEDEN=0,1` |
+| `AT+FEEDPROTOCOL=<n>,<protocol>` | Set protocol | `AT+FEEDPROTOCOL=0,MQTT` |
+
+### MQTT-Specific Configuration
+| Command | Description | Example |
+|---------|-------------|---------|
+| `AT+MQTTFMT?` | Query all format settings | `AT+MQTTFMT?` |
+| `AT+MQTTFMT?<n>` | Query feed format | `AT+MQTTFMT?0` |
+| `AT+MQTTFMT=<n>,<format>` | Set format (JSON/BINARY) | `AT+MQTTFMT=0,JSON` |
+| `AT+MQTTAUTH?` | Query all auth settings | `AT+MQTTAUTH?` |
+| `AT+MQTTAUTH?<n>` | Query feed auth | `AT+MQTTAUTH?0` |
+| `AT+MQTTAUTH=<n>,<user>,<pass>` | Set authentication | `AT+MQTTAUTH=0,user,pass` |
+| `AT+MQTTAUTH=<n>` | Clear authentication | `AT+MQTTAUTH=0` |
+| `AT+MQTTTLS?` | Query all TLS settings | `AT+MQTTTLS?` |
+| `AT+MQTTTLS?<n>` | Query feed TLS mode | `AT+MQTTTLS?0` |
+| `AT+MQTTTLS=<n>,<mode>` | Set TLS mode | `AT+MQTTTLS=0,STRICT` |
+
+### System Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `AT+SETTINGS=SAVE` | Save configuration to flash | `AT+SETTINGS=SAVE` |
+| `AT+REBOOT` | Reboot device | `AT+REBOOT` |
+| `AT+SETTINGS?` | Show all settings | `AT+SETTINGS?` |
+
+## Cloud Provider Examples
+
+### AWS IoT Core
+```bash
+AT+FEED=0,mqtts://xxx.iot.region.amazonaws.com,8883,1,MQTT
+AT+MQTTTLS=0,STRICT
+AT+MQTTAUTH=0,device-id,device-key
+AT+MQTTFMT=0,JSON
+AT+SETTINGS=SAVE
+AT+REBOOT
+```
+
+### Azure IoT Hub
+```bash
+AT+FEED=0,mqtts://iothub.azure-devices.net,8883,1,MQTT
+AT+MQTTTLS=0,STRICT
+AT+MQTTAUTH=0,device@sas.iothub,SharedAccessSignature
+AT+MQTTFMT=0,JSON
+AT+SETTINGS=SAVE
+AT+REBOOT
+```
+
+### HiveMQ Cloud
+```bash
+AT+FEED=0,mqtts://broker.hivemq.cloud,8883,1,MQTT
+AT+MQTTTLS=0,STRICT
+AT+MQTTAUTH=0,hivemq-user,secure-password
+AT+MQTTFMT=0,JSON
+AT+SETTINGS=SAVE
+AT+REBOOT
+```
+
+## Pending Features
+
+The following features are planned for future releases:
+- Custom client ID configuration
+- Raw packet publishing mode
+- GPS position publishing
+- Custom CA certificate upload
+- Client certificate authentication
+- Configurable QoS levels
+- Custom topic prefixes

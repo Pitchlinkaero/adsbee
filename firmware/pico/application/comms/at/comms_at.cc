@@ -457,6 +457,186 @@ CPP_AT_CALLBACK(CommsManager::ATMQTTFormatCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+void ATMQTTAuthHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTAUTH=<index>,<username>,<password>\r\n\tSet MQTT authentication for a feed.\r\n"
+        "\tindex = [0-%d], username = max %d chars, password = max %d chars.\r\n"
+        "\tLeave username empty to clear authentication.\r\n"
+        "\t\r\n\tAT+MQTTAUTH?\r\n\tShow MQTT authentication status for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTAUTH?<index>\r\n\tShow MQTT authentication status for a specific feed.\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1,
+        SettingsManager::Settings::kMQTTUsernameMaxLen,
+        SettingsManager::Settings::kMQTTPasswordMaxLen);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTAuthCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed authentication
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                // Show if authentication is configured (don't show actual password)
+                bool has_auth = strlen(settings_manager.settings.mqtt_usernames[index]) > 0;
+                CPP_AT_CMD_PRINTF("=%d,%s,%s", index,
+                                  settings_manager.settings.mqtt_usernames[index],
+                                  has_auth ? "****" : "");
+            } else {
+                // Query all feeds authentication
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    bool has_auth = strlen(settings_manager.settings.mqtt_usernames[i]) > 0;
+                    CPP_AT_CMD_PRINTF("=%d,%s,%s", i,
+                                      settings_manager.settings.mqtt_usernames[i],
+                                      has_auth ? "****" : "");
+                    CPP_AT_PRINTF("\r\n");
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set MQTT authentication
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTAUTH=<index>,<username>,<password>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            // Username (optional - empty string clears authentication)
+            if (CPP_AT_HAS_ARG(1)) {
+                if (strlen(args[1].c_str()) > SettingsManager::Settings::kMQTTUsernameMaxLen) {
+                    CPP_AT_ERROR("Username too long (max %d chars)",
+                                 SettingsManager::Settings::kMQTTUsernameMaxLen);
+                }
+                strncpy(settings_manager.settings.mqtt_usernames[index], args[1].c_str(),
+                        SettingsManager::Settings::kMQTTUsernameMaxLen);
+                settings_manager.settings.mqtt_usernames[index][SettingsManager::Settings::kMQTTUsernameMaxLen] = '\0';
+
+                // Password (required if username is provided)
+                if (strlen(args[1].c_str()) > 0 && !CPP_AT_HAS_ARG(2)) {
+                    CPP_AT_ERROR("Password required when username is provided");
+                }
+
+                if (CPP_AT_HAS_ARG(2)) {
+                    if (strlen(args[2].c_str()) > SettingsManager::Settings::kMQTTPasswordMaxLen) {
+                        CPP_AT_ERROR("Password too long (max %d chars)",
+                                     SettingsManager::Settings::kMQTTPasswordMaxLen);
+                    }
+                    strncpy(settings_manager.settings.mqtt_passwords[index], args[2].c_str(),
+                            SettingsManager::Settings::kMQTTPasswordMaxLen);
+                    settings_manager.settings.mqtt_passwords[index][SettingsManager::Settings::kMQTTPasswordMaxLen] = '\0';
+                }
+            } else {
+                // Clear authentication
+                memset(settings_manager.settings.mqtt_usernames[index], '\0',
+                       SettingsManager::Settings::kMQTTUsernameMaxLen + 1);
+                memset(settings_manager.settings.mqtt_passwords[index], '\0',
+                       SettingsManager::Settings::kMQTTPasswordMaxLen + 1);
+            }
+
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+void ATMQTTTLSHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTTLS=<index>,<mode>\r\n\tSet MQTT TLS verification mode for a feed.\r\n"
+        "\tindex = [0-%d], mode = [NONE VERIFY STRICT].\r\n"
+        "\t  NONE   - No certificate verification (testing only)\r\n"
+        "\t  VERIFY - Verify server certificate with CA\r\n"
+        "\t  STRICT - Strict verification including hostname\r\n"
+        "\t\r\n\tAT+MQTTTLS?\r\n\tShow TLS mode for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTTLS?<index>\r\n\tShow TLS mode for a specific feed.\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTTLSCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed TLS mode
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                const char* mode_str = "NONE";
+                switch (settings_manager.settings.mqtt_tls_modes[index]) {
+                    case SettingsManager::MQTTTLSMode::kMQTTTLSModeNoVerify:
+                        mode_str = "NONE";
+                        break;
+                    case SettingsManager::MQTTTLSMode::kMQTTTLSModeVerifyCA:
+                        mode_str = "VERIFY";
+                        break;
+                    case SettingsManager::MQTTTLSMode::kMQTTTLSModeStrict:
+                        mode_str = "STRICT";
+                        break;
+                }
+                CPP_AT_CMD_PRINTF("=%d,%s", index, mode_str);
+            } else {
+                // Query all feeds TLS modes
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    const char* mode_str = "NONE";
+                    switch (settings_manager.settings.mqtt_tls_modes[i]) {
+                        case SettingsManager::MQTTTLSMode::kMQTTTLSModeNoVerify:
+                            mode_str = "NONE";
+                            break;
+                        case SettingsManager::MQTTTLSMode::kMQTTTLSModeVerifyCA:
+                            mode_str = "VERIFY";
+                            break;
+                        case SettingsManager::MQTTTLSMode::kMQTTTLSModeStrict:
+                            mode_str = "STRICT";
+                            break;
+                    }
+                    CPP_AT_CMD_PRINTF("=%d,%s", i, mode_str);
+                    CPP_AT_PRINTF("\r\n");
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set MQTT TLS mode
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTTLS=<index>,<mode>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            if (CPP_AT_HAS_ARG(1)) {
+                if (args[1].compare("NONE") == 0) {
+                    settings_manager.settings.mqtt_tls_modes[index] = SettingsManager::MQTTTLSMode::kMQTTTLSModeNoVerify;
+                    CPP_AT_SUCCESS();
+                } else if (args[1].compare("VERIFY") == 0) {
+                    settings_manager.settings.mqtt_tls_modes[index] = SettingsManager::MQTTTLSMode::kMQTTTLSModeVerifyCA;
+                    CPP_AT_SUCCESS();
+                } else if (args[1].compare("STRICT") == 0) {
+                    settings_manager.settings.mqtt_tls_modes[index] = SettingsManager::MQTTTLSMode::kMQTTTLSModeStrict;
+                    CPP_AT_SUCCESS();
+                } else {
+                    CPP_AT_ERROR("Invalid TLS mode. Use NONE, VERIFY, or STRICT");
+                }
+            } else {
+                CPP_AT_ERROR("TLS mode required. Usage: AT+MQTTTLS=<index>,<mode>");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {
     SettingsManager::Settings::CoreNetworkSettings &cns = settings_manager.settings.core_network_settings;
     switch (op) {
@@ -1137,6 +1317,16 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 2,
      .help_callback = ATMQTTFormatHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTFormatCallback, comms_manager)},
+    {.command_buf = "+MQTTAUTH",
+     .min_args = 0,
+     .max_args = 3,
+     .help_callback = ATMQTTAuthHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTAuthCallback, comms_manager)},
+    {.command_buf = "+MQTTTLS",
+     .min_args = 0,
+     .max_args = 2,
+     .help_callback = ATMQTTTLSHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTTLSCallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,

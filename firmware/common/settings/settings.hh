@@ -13,7 +13,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 12;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 13;  // Change this when settings format changes!
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -70,6 +70,12 @@ class SettingsManager {
         kMQTTReportModeStatus = 0,
         kMQTTReportModeRaw = 1,
         kMQTTReportModeBoth = 2
+    };
+
+    enum MQTTTLSMode : uint8_t {
+        kMQTTTLSModeNoVerify = 0,      // Skip certificate verification (testing only)
+        kMQTTTLSModeVerifyCA = 1,      // Verify server certificate with CA
+        kMQTTTLSModeStrict = 2         // Strict verification including hostname
     };
 
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
@@ -189,6 +195,7 @@ class SettingsManager {
         char mqtt_client_ids[kMaxNumFeeds][kMQTTClientIDMaxLen + 1];
         MQTTFormat mqtt_formats[kMaxNumFeeds];
         MQTTReportMode mqtt_report_modes[kMaxNumFeeds];
+        MQTTTLSMode mqtt_tls_modes[kMaxNumFeeds];  // TLS verification mode per feed
 
         // Global MQTT settings
         bool mqtt_enabled = false;
@@ -234,6 +241,7 @@ class SettingsManager {
                 memset(mqtt_client_ids[i], '\0', kMQTTClientIDMaxLen + 1);
                 mqtt_formats[i] = kMQTTFormatJSON;
                 mqtt_report_modes[i] = kMQTTReportModeStatus;
+                mqtt_tls_modes[i] = kMQTTTLSModeNoVerify;  // Default to no verification for compatibility
             }
 
             // Initialize global MQTT device ID from receiver ID

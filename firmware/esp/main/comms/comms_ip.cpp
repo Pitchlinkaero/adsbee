@@ -507,9 +507,15 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         break;
                     }
 
+                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT client %d is connected", i);
+
                     // Determine band (1090 MHz or UAT)
                     // TODO: Properly detect band from source
                     uint8_t band = 1;  // Default to 1090 MHz
+
+                    // Check report mode
+                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT report mode for feed %d is %d",
+                                 i, settings_manager.settings.mqtt_report_modes[i]);
 
                     // Publish based on report mode
                     if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
@@ -519,10 +525,21 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         // as long as we have aircraft data in the dictionary
                         uint32_t icao_address = decoded_packet.GetICAOAddress();
 
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Processing ICAO 0x%06lx for MQTT feed %d",
+                                     (unsigned long)icao_address, i);
+
                         // Only proceed if we have a valid ICAO address
                         if (icao_address != 0) {
                             // Get aircraft data from dictionary for complete information
                             Aircraft1090* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr(icao_address);
+
+                            if (aircraft != nullptr) {
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Found aircraft 0x%06lx in dictionary",
+                                             (unsigned long)icao_address);
+                            } else {
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Aircraft 0x%06lx NOT in dictionary",
+                                             (unsigned long)icao_address);
+                            }
 
                             // Convert to TransponderPacket for publishing
                             TransponderPacket packet;
@@ -586,10 +603,23 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 packet.flags = 0;  // Only address is valid
                             }
 
+                            CONSOLE_INFO("CommsManager::IPWANTask", "Attempting to publish aircraft 0x%06lx to MQTT",
+                                         (unsigned long)icao_address);
+
                             if (mqtt_clients_[i]->PublishAircraftStatus(packet, band)) {
                                 feed_mps_counter_[i]++;  // Update statistics
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Successfully published aircraft 0x%06lx",
+                                             (unsigned long)icao_address);
+                            } else {
+                                CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to publish aircraft 0x%06lx",
+                                              (unsigned long)icao_address);
                             }
+                        } else {
+                            CONSOLE_INFO("CommsManager::IPWANTask", "Skipping ICAO 0 (invalid address)");
                         }
+                    } else {
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d report mode %d doesn't include status",
+                                     i, settings_manager.settings.mqtt_report_modes[i]);
                     }
 
                     // TODO: Add raw packet publishing if report_mode includes RAW
