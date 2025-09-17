@@ -7,6 +7,9 @@
 #include "spi_coprocessor.hh"
 #include "task_priorities.hh"
 #include "unit_conversions.hh"
+#include "mqtt_client.hh"
+#include "mqtt_pacer.hh"
+#include "mqtt/mqtt_protocol.hh"
 
 // #define VERBOSE_DEBUG
 
@@ -143,6 +146,66 @@ bool ADSBeeServer::Init() {
 
 bool ADSBeeServer::Update() {
     bool ret = true;
+    // Lazy-init MQTT clients once network is up and global MQTT gate is enabled
+    static bool mqtt_initialized = false;
+    static ADSBeeMQTTClient* mqtt_clients[SettingsManager::Settings::kMaxNumFeeds] = {nullptr};
+    static uint32_t mqtt_last_connect_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+    static MQTTPacer mqtt_pacers[SettingsManager::Settings::kMaxNumFeeds];
+    static uint32_t last_mqtt_publish_ms = 0;
+    const bool mqtt_enabled = settings_manager.settings.mqtt_enable_global;
+    if (mqtt_enabled && (comms_manager.WiFiStationHasIP() || comms_manager.EthernetHasIP()) && !mqtt_initialized) {
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!settings_manager.settings.feed_is_active[i]) continue;
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+            if (strlen(settings_manager.settings.feed_uris[i]) == 0) continue;
+
+            // Build device_id from receiver_id
+            char device_id[17];
+            snprintf(device_id, sizeof(device_id), "%02x%02x%02x%02x%02x%02x%02x%02x",
+                     settings_manager.settings.feed_receiver_ids[i][0],
+                     settings_manager.settings.feed_receiver_ids[i][1],
+                     settings_manager.settings.feed_receiver_ids[i][2],
+                     settings_manager.settings.feed_receiver_ids[i][3],
+                     settings_manager.settings.feed_receiver_ids[i][4],
+                     settings_manager.settings.feed_receiver_ids[i][5],
+                     settings_manager.settings.feed_receiver_ids[i][6],
+                     settings_manager.settings.feed_receiver_ids[i][7]);
+
+            // Unique client id
+            char client_id[32];
+            snprintf(client_id, sizeof(client_id), "ADSBee-%d-%lu", i, (unsigned long)(get_time_since_boot_ms() & 0xFFFFFF));
+
+            ADSBeeMQTTClient::Config cfg{};
+            cfg.broker_host = settings_manager.settings.feed_uris[i];
+            cfg.broker_port = settings_manager.settings.feed_ports[i] ? settings_manager.settings.feed_ports[i] : 1883;
+            cfg.client_id = client_id;
+            cfg.device_id = device_id;
+            cfg.use_short_topics = false;
+
+            mqtt_clients[i] = new ADSBeeMQTTClient();
+            if (mqtt_clients[i] && mqtt_clients[i]->Init(cfg)) {
+                CONSOLE_INFO("MQTT", "Initialized client for feed %d host %s:%u", i,
+                             settings_manager.settings.feed_uris[i], cfg.broker_port);
+            } else {
+                CONSOLE_ERROR("MQTT", "Failed to initialize client for feed %d", i);
+                if (mqtt_clients[i]) { delete mqtt_clients[i]; mqtt_clients[i] = nullptr; }
+            }
+        }
+        mqtt_initialized = true;
+    }
+
+    // Attempt connections periodically
+    if (mqtt_enabled) {
+        uint32_t now = get_time_since_boot_ms();
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients[i]) continue;
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+            if (now - mqtt_last_connect_ms[i] >= 5000 && !mqtt_clients[i]->IsConnected()) {
+                (void)mqtt_clients[i]->Connect();
+                mqtt_last_connect_ms[i] = now;
+            }
+        }
+    }
     // Do NOT call pico.Update() from here since that's already taken care of by the SPIReceiveTask.
     // Update the LED here so it has better time resolution than it would in the SPI task, which blocks frequently.
     pico.UpdateLED();
@@ -246,6 +309,24 @@ bool ADSBeeServer::Update() {
         if (comms_manager.WiFiAccessPointHasClients() && !ReportGDL90()) {
             CONSOLE_ERROR("ADSBeeServer::Update", "Encountered error while reporting GDL90.");
             ret = false;
+        }
+    }
+
+    // Publish MQTT AircraftStatus at 1 Hz per aircraft (JSON), low latency, drop intermediates
+    if (mqtt_enabled && (timestamp_ms - last_mqtt_publish_ms >= 1000)) {
+        last_mqtt_publish_ms = timestamp_ms;
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients[i]) continue;
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+            if (!mqtt_clients[i]->IsConnected()) continue;
+
+            // Iterate aircraft dictionary and publish status
+            for (auto &itr : aircraft_dictionary.dict) {
+                const Aircraft1090 &ac = itr.second;
+                if (!mqtt_pacers[i].ShouldPublish(ac.icao_address, timestamp_ms, 1000)) continue;
+                // Currently only 1090 MHz band supported here; wire UAT when available
+                (void)mqtt_clients[i]->PublishAircraftJSON(ac, MQTTProtocol::BAND_1090);
+            }
         }
     }
 
