@@ -47,6 +47,13 @@ message Telemetry {
   string fw_version = 11;      // e.g., "1.2.3"
   uint32 mps_total = 12;       // Optional: messages per second total
   repeated uint32 mps_feeds = 13; // Optional: per-feed messages per second
+
+  // Decoder statistics (optional)
+  uint32 demods_1090 = 14;              // Total demodulation attempts
+  uint32 raw_squitter_frames = 15;      // Raw Mode S squitter frames (short)
+  uint32 valid_squitter_frames = 16;    // Valid Mode S squitter frames after CRC
+  uint32 raw_extended_squitter = 17;    // Raw extended squitter frames (long)
+  uint32 valid_extended_squitter = 18;  // Valid extended squitter after CRC
 }
 
 // GPS position (JSON topic: {device_id}/system/gps)

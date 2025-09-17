@@ -4,7 +4,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "hal.hh"  // For get_time_since_boot_ms
-#include <cJSON.h>
+#include "cJSON.h"  // ESP-IDF's cJSON component
 #include <cstring>
 #include <algorithm>
 
@@ -504,6 +504,23 @@ std::string MQTTClient::SerializeTelemetryJSON(const Telemetry& telemetry) const
             cJSON_AddItemToArray(feeds_array, cJSON_CreateNumber(mps));
         }
         cJSON_AddItemToObject(root, "mps_feeds", feeds_array);
+    }
+
+    // Add decoder statistics if available
+    if (telemetry.demods_1090 > 0) {
+        cJSON_AddNumberToObject(root, "demods_1090", telemetry.demods_1090);
+    }
+    if (telemetry.raw_squitter_frames > 0) {
+        cJSON_AddNumberToObject(root, "raw_squitter_frames", telemetry.raw_squitter_frames);
+    }
+    if (telemetry.valid_squitter_frames > 0) {
+        cJSON_AddNumberToObject(root, "valid_squitter_frames", telemetry.valid_squitter_frames);
+    }
+    if (telemetry.raw_extended_squitter > 0) {
+        cJSON_AddNumberToObject(root, "raw_extended_squitter", telemetry.raw_extended_squitter);
+    }
+    if (telemetry.valid_extended_squitter > 0) {
+        cJSON_AddNumberToObject(root, "valid_extended_squitter", telemetry.valid_extended_squitter);
     }
 
     char* json_str = cJSON_PrintUnformatted(root);

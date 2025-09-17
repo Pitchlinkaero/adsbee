@@ -10,6 +10,9 @@
 #include "lwip/sys.h"
 #include "mdns.h"
 #include "task_priorities.hh"
+#include "driver/temperature_sensor.h"  // For CPU temperature
+#include "esp_app_desc.h"  // For firmware version
+#include "server/adsbee_server.hh"  // For aircraft_dictionary metrics
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
 
@@ -247,20 +250,68 @@ void CommsManager::IPWANTask(void* pvParameters) {
             if (mqtt_clients_[i]->IsConnected()) {
                 MQTT::Telemetry telemetry = {};
                 telemetry.uptime_sec = get_time_since_boot_ms() / 1000;
-                telemetry.msgs_rx = 0;  // TODO: Get actual received message count
-                telemetry.msgs_tx = feed_mps_counter_[i];
-                telemetry.cpu_temp_c = 0;  // TODO: Get actual CPU temperature
+
+                // msgs_rx should be total messages received per second across all feeds
+                uint32_t total_rx_mps = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    total_rx_mps += feed_mps[j];
+                }
+                telemetry.msgs_rx = total_rx_mps;
+
+                // msgs_tx is messages sent by this MQTT feed per second
+                telemetry.msgs_tx = feed_mps[i];
+
+                // Get CPU temperature (ESP32-S3 specific)
+                float temp_celsius = 0.0f;
+                temperature_sensor_handle_t temp_sensor = NULL;
+                temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+                if (temperature_sensor_install(&temp_sensor_config, &temp_sensor) == ESP_OK) {
+                    temperature_sensor_enable(temp_sensor);
+                    temperature_sensor_get_celsius(temp_sensor, &temp_celsius);
+                    temperature_sensor_disable(temp_sensor);
+                    temperature_sensor_uninstall(temp_sensor);
+                }
+                telemetry.cpu_temp_c = (int32_t)temp_celsius;
+
                 telemetry.mem_free_kb = esp_get_free_heap_size() / 1024;
-                telemetry.noise_floor_dbm = -100;  // TODO: Get actual noise floor
-                telemetry.rx_1090 = true;
-                telemetry.rx_978 = false;  // TODO: Check if UAT is enabled
+                telemetry.noise_floor_dbm = -100;  // TODO: Get actual noise floor from decoder
+                telemetry.rx_1090 = true;  // Always true for now
+                telemetry.rx_978 = settings_manager.settings.uat_enabled;
                 telemetry.wifi = wifi_sta_has_ip_;
                 telemetry.mqtt = true;
-                telemetry.fw_version = "0.8.0";  // TODO: Get actual firmware version
+
+                // Get firmware version from app descriptor
+                const esp_app_desc_t* app_desc = esp_app_get_description();
+                telemetry.fw_version = app_desc ? app_desc->version : "unknown";
+
                 telemetry.mps_total = 0;
                 for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
                     telemetry.mps_total += feed_mps[j];
                 }
+
+                // Add per-feed message rates
+                telemetry.mps_feeds.clear();
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    if (settings_manager.settings.feed_is_active[j]) {
+                        telemetry.mps_feeds.push_back(feed_mps[j]);
+                    }
+                }
+
+                // Add decoder statistics from aircraft dictionary
+                // Note: ESP32 uses combined metrics (ESP32 + RP2040)
+                AircraftDictionary::Metrics combined_metrics = adsbee_server.aircraft_dictionary.metrics;
+
+                // Add RP2040 metrics for demodulations and raw frames
+                combined_metrics.demods_1090 = adsbee_server.rp2040_aircraft_dictionary_metrics.demods_1090;
+                combined_metrics.raw_squitter_frames = adsbee_server.rp2040_aircraft_dictionary_metrics.raw_squitter_frames;
+                combined_metrics.raw_extended_squitter_frames =
+                    adsbee_server.rp2040_aircraft_dictionary_metrics.raw_extended_squitter_frames;
+
+                telemetry.demods_1090 = combined_metrics.demods_1090;
+                telemetry.raw_squitter_frames = combined_metrics.raw_squitter_frames;
+                telemetry.valid_squitter_frames = combined_metrics.valid_squitter_frames;
+                telemetry.raw_extended_squitter = combined_metrics.raw_extended_squitter_frames;
+                telemetry.valid_extended_squitter = combined_metrics.valid_extended_squitter_frames;
 
                 mqtt_clients_[i]->PublishTelemetry(telemetry);
             }

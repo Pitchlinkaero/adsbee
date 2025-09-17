@@ -43,6 +43,13 @@ struct Telemetry {
     std::string fw_version;
     uint32_t mps_total;
     std::vector<uint32_t> mps_feeds;
+
+    // Decoder statistics
+    uint32_t demods_1090;
+    uint32_t raw_squitter_frames;
+    uint32_t valid_squitter_frames;
+    uint32_t raw_extended_squitter;
+    uint32_t valid_extended_squitter;
 };
 
 struct GPS {
