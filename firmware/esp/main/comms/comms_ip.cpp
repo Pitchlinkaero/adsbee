@@ -340,6 +340,10 @@ void CommsManager::IPWANTask(void* pvParameters) {
             continue;
         }
 
+        // Debug: Log that we received a packet for processing
+        CONSOLE_INFO("CommsManager::IPWANTask", "Processing packet for ICAO 0x%06x, valid=%d",
+                     decoded_packet.GetICAOAddress(), decoded_packet.IsValid());
+
         // NOTE: Construct packets that are shared between feeds here!
 
         for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
@@ -493,9 +497,13 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     break;
                 }
                 case SettingsManager::ReportingProtocol::kMQTT: {
+                    // Debug: Log that we're in MQTT case
+                    CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d is MQTT, checking connection", i);
+
                     // Publish via MQTT
                     if (!mqtt_clients_[i] || !mqtt_clients_[i]->IsConnected()) {
                         // No client or not connected
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d MQTT client not connected", i);
                         break;
                     }
 
