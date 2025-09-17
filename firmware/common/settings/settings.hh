@@ -13,8 +13,8 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 9;  // Change this when settings format changes!
-static constexpr uint32_t kDeviceInfoVersion = 2;
+static constexpr uint32_t kSettingsVersion = 20;  // Change this when settings format changes!
+static constexpr uint32_t kDeviceInfoVersion = 3;
 
 class SettingsManager {
    public:
@@ -39,6 +39,7 @@ class SettingsManager {
         kMAVLINK1,
         kMAVLINK2,
         kGDL90,
+        kMQTT,
         kNumProtocols
     };
     static constexpr uint16_t kReportingProtocolStrMaxLen = 30;
@@ -163,6 +164,21 @@ class SettingsManager {
         bool feed_is_active[kMaxNumFeeds];
         ReportingProtocol feed_protocols[kMaxNumFeeds];
         uint8_t feed_receiver_ids[kMaxNumFeeds][kFeedReceiverIDNumBytes];
+        
+        // MQTT-specific settings
+        enum MQTTFormat : uint8_t {
+            MQTT_FORMAT_JSON = 0,
+            MQTT_FORMAT_BINARY = 1
+        };
+        // Use plain uint8_t array to ensure consistent size across compilers
+        uint8_t feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
+                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
+
+        // Global feature gate for MQTT functionality
+        bool mqtt_enable_global = false;  // MUST be enabled before any MQTT client initializes
 
         /**
          * Default constructor.

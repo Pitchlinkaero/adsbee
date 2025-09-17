@@ -1023,6 +1023,28 @@ CPP_AT_CALLBACK(CommsManager::ATWiFiSTACallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+CPP_AT_CALLBACK(CommsManager::ATMQTTEnableCallback) {
+    switch (op) {
+        case '?': {
+            uint8_t enabled = settings_manager.settings.mqtt_enable_global ? 1 : 0;
+            CPP_AT_CMD_PRINTF("=%d", enabled);
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        }
+        case '=': {
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Requires an argument: AT+MQTT_ENABLE=<0|1>");
+            }
+            uint16_t enabled = 0;
+            CPP_AT_TRY_ARG2NUM(0, enabled);
+            settings_manager.settings.mqtt_enable_global = (enabled != 0);
+            CPP_AT_SUCCESS();
+            break;
+        }
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 const CppAT::ATCommandDef_t at_command_list[] = {
     {.command_buf = "+BAUD_RATE",
      .min_args = 0,
@@ -1115,6 +1137,11 @@ const CppAT::ATCommandDef_t at_command_list[] = {
                         "Display nonvolatile settings.\r\n\tAT+SETTINGS?\r\n\t+SETTINGS=...\r\n\tDump settings in AT "
                         "command format.\r\n\tAT+SETTINGS?DUMP\r\n\t+SETTINGS=...",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATSettingsCallback, comms_manager)},
+    {.command_buf = "+MQTT_ENABLE",
+     .min_args = 0,
+     .max_args = 1,
+     .help_string_buf = "AT+MQTT_ENABLE=<0|1>\r\n\tGlobally enable/disable MQTT feature gate.\r\n\tAT+MQTT_ENABLE?\r\n\tQuery current state.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTEnableCallback, comms_manager)},
     {.command_buf = "+SUBG_ENABLE",
      .min_args = 0,
      .max_args = 2,

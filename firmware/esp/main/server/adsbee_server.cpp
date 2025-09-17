@@ -94,6 +94,12 @@ bool ADSBeeServer::Init() {
     // Wait for the callback to complete
     xSemaphoreTake(settings_read_semaphore, portMAX_DELAY);
     vSemaphoreDelete(settings_read_semaphore);
+    // Settings version handshake and fail-safe
+    if (settings_manager.settings.settings_version != kSettingsVersion) {
+        CONSOLE_ERROR("ADSBeeServer::Init", "Settings version mismatch (got %lu, expected %lu). Running with safe defaults. Reset settings to recover.",
+                      settings_manager.settings.settings_version, (unsigned long)kSettingsVersion);
+        settings_manager.ResetToDefaults();
+    }
     settings_manager.Print();
     settings_manager.Apply();
 

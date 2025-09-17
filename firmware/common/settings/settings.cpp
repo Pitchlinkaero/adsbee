@@ -66,6 +66,9 @@ void SettingsManager::Print() {
         }
         CONSOLE_PRINTF("\r\n");
     }
+
+    // Global feature gates
+    CONSOLE_PRINTF("\tMQTT Global: %s\r\n", settings.mqtt_enable_global ? "ENABLED" : "DISABLED");
 }
 
 void SettingsManager::PrintAT() {

@@ -163,6 +163,9 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
 
+    // MQTT feature gate (global) — do not initialize any MQTT-related clients unless enabled
+    const bool mqtt_enabled_globally = settings_manager.settings.mqtt_enable_global;
+
     while (true) {
         // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
         while (!wifi_sta_has_ip_ && !ethernet_has_ip_) {
