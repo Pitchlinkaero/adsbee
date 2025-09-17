@@ -94,6 +94,18 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             break;
         }
 #ifdef ON_ESP32
+        case kAddrPicoTemperatureC: {
+            // ESP32 receiving Pico CPU temperature from RP2040
+            if (buf_len >= sizeof(int16_t)) {
+                int16_t temp_c;
+                memcpy(&temp_c, buf + offset, sizeof(int16_t));
+                object_dictionary.pico_cpu_temp_c = temp_c;
+                // Log temperature update for debugging
+                CONSOLE_INFO("SPICoprocessor::SetBytes", "Received Pico temperature: %d°C", temp_c);
+                return true;
+            }
+            return false;
+        }
         case kAddrConsole: {
             // RP2040 writing to the ESP32's network console interface.
             char message[kNetworkConsoleMessageMaxLenBytes + 1] = {'\0'};
