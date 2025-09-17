@@ -337,13 +337,17 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 t.fw_minor = ObjectDictionary::kFirmwareVersionMinor;
                 t.fw_patch = ObjectDictionary::kFirmwareVersionPatch;
 
-                // Pull Pico CPU temperature from object dictionary if the RP2040 has written it
-                // Prefer unified telemetry packet if present, else legacy temp
-                if (object_dictionary.telemetry_packet.version >= 1 &&
-                    object_dictionary.telemetry_packet.pico_cpu_temp_c != INT16_MIN) {
-                    t.cpu_temp_c = object_dictionary.telemetry_packet.pico_cpu_temp_c;
-                } else if (object_dictionary.pico_cpu_temp_c != INT16_MIN) {
-                    t.cpu_temp_c = object_dictionary.pico_cpu_temp_c;
+                // Read Pico CPU temperature directly from RP2040
+                int16_t pico_temp = INT16_MIN;
+                if (pico.Read<int16_t>(ObjectDictionary::Address::kAddrPicoTemperatureC, pico_temp)) {
+                    t.cpu_temp_c = pico_temp;
+                    // Cache it in object dictionary for other uses
+                    object_dictionary.pico_cpu_temp_c = pico_temp;
+                } else {
+                    // Fall back to cached value if read fails
+                    if (object_dictionary.pico_cpu_temp_c != INT16_MIN) {
+                        t.cpu_temp_c = object_dictionary.pico_cpu_temp_c;
+                    }
                 }
 
                 if (mqtt_clients[i]->PublishTelemetry(t)) {
