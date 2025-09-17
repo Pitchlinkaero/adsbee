@@ -346,13 +346,20 @@ void CommsManager::IPWANTask(void* pvParameters) {
             // Iterate through feeds, open/close and send message as required.
             if (!settings_manager.settings.feed_is_active[i]) {
                 // Socket should not be fed.
-                if (feed_sock_is_connected[i]) {
+                // Only close raw sockets, not MQTT connections (handled by MQTT client)
+                if (feed_sock_is_connected[i] &&
+                    settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
                     // Need to close the socket connection.
                     close(feed_sock[i]);
                     feed_sock_is_connected[i] = false;
                     CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", i);
                 }
                 continue;  // Don't need to do anything else if socket should be closed and is closed.
+            }
+
+            // Skip MQTT feeds - they are handled by MQTT client
+            if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+                continue;  // MQTT feeds don't use raw sockets
             }
 
             // Socket should be open.
@@ -584,9 +591,10 @@ void CommsManager::IPWANTask(void* pvParameters) {
         }
     }
 
-    // Close all sockets while exiting.
+    // Close all sockets while exiting (skip MQTT feeds).
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        if (feed_sock_is_connected[i]) {
+        if (feed_sock_is_connected[i] &&
+            settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
             // Need to close the socket connection.
             close(feed_sock[i]);
             feed_sock_is_connected[i] = false;  // Not necessary but leaving this here in case of refactor.
