@@ -20,6 +20,16 @@ const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24
 #ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
+        case kAddrPicoTemperatureC: {
+            // Update cached Pico CPU temperature (slave writes its own temp into the dictionary)
+            if (buf_len >= sizeof(int16_t)) {
+                int16_t temp_c;
+                memcpy(&temp_c, buf + offset, sizeof(int16_t));
+                object_dictionary.pico_cpu_temp_c = temp_c;
+                return true;
+            }
+            return false;
+        }
         case kAddrScratch:
             // Warning: printing here will cause a timeout and tests will fail.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,

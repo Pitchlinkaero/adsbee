@@ -51,6 +51,7 @@ class ObjectDictionary {
         kAddrLogMessages = 0x0D,   // Used to retrieve log messages from ESP32 and CC1312.
         kAddrRollQueue = 0x0E,     // Used to roll various queues on coprocessor slaves to confirm they have been read.
         kAddrSCCommandRequests = 0x0F,  // Used by slave to request commands from master.
+        kAddrPicoTemperatureC = 0x10,   // RP2040 internal temperature in degrees Celsius (int16_t)
         kNumAddrs
     };
 
@@ -266,6 +267,10 @@ class ObjectDictionary {
 
    private:
     uint32_t scratch_ = 0x0;  // Scratch register used for testing.
+
+   public:
+    // Latest temperature reported by the RP2040 (Pico). Units: Celsius. INT16_MIN if unknown.
+    int16_t pico_cpu_temp_c = INT16_MIN;
 
     // On Pico, this is a queue of log messages gathered from other devices. On other devices, this is a queue of log
     // messages waiting to be slurped up by the RP2040.
