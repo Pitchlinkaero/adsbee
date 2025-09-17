@@ -20,10 +20,7 @@ const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24
 #ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
-        case kAddrPicoTemperatureC: {
-            // Legacy path disabled: ESP32 will not accept temp writes from Pico in this mode
-            return false;
-        }
+        // Temperature handling removed - each processor uses its own sensor
         case kAddrScratch:
             // Warning: printing here will cause a timeout and tests will fail.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,
@@ -96,18 +93,7 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
 #elif defined(ON_ESP32)
 bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
-        case kAddrPicoTemperatureC: {
-            // ESP32 receiving Pico CPU temperature from RP2040
-            if (buf_len >= sizeof(int16_t)) {
-                int16_t temp_c;
-                memcpy(&temp_c, buf + offset, sizeof(int16_t));
-                object_dictionary.pico_cpu_temp_c = temp_c;
-                // Log temperature update for debugging
-                CONSOLE_INFO("SPICoprocessor::SetBytes", "[2025-01-17 FIX] Received Pico temp at 0x10: %d°C", temp_c);
-                return true;
-            }
-            return false;
-        }
+        // Temperature handling removed - ESP32 uses its own sensor directly
         case kAddrConsole: {
             // RP2040 writing to the ESP32's network console interface.
             char message[kNetworkConsoleMessageMaxLenBytes + 1] = {'\0'};

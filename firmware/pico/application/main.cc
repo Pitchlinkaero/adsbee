@@ -157,18 +157,8 @@ int main() {
         esp32.Update();
 
         // Periodically sample RP2040 internal temperature for local use only (do not write over SPI)
-        static uint32_t last_temp_sample_ms = 0;
-        uint32_t now_ms = get_time_since_boot_ms();
-        if (now_ms - last_temp_sample_ms > 5000) {
-            last_temp_sample_ms = now_ms;
-            // Use Pico SDK to read onboard temperature sensor via ADC
-            // Note: this assumes HAL initialized ADC and temp sensor as part of BSP
-            float temp_c = 0.0f;
-            bool temp_ok = adsbee.ReadOnboardTemperatureC(temp_c);  // Provide via ADSBee HAL
-            int16_t temp_i16 = temp_ok ? static_cast<int16_t>(temp_c) : static_cast<int16_t>(INT16_MIN);
-            object_dictionary.pico_cpu_temp_c = temp_i16;
-            // Do not write temperature to ESP32 over SPI; ESP32 reports its own CPU temperature
-        }
+        // Temperature handling removed - causes SPI bus crashes with 0x10 address
+        // ESP32 now handles its own temperature sensing independently
 
         // Poke the watchdog to keep things alive if the ESP32 is responding or if it's disabled.
         uint32_t old_esp32_last_heartbeat_timestamp_ms = esp32_last_heartbeat_timestamp_ms;

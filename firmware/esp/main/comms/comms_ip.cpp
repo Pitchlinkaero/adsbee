@@ -11,7 +11,7 @@
 #include "mdns.h"
 #include "mqtt_client.hh"  // For MQTT support
 #include "esp_heap_caps.h"  // For free memory
-#include "object_dictionary.hh"  // For kAddrPicoTemperatureC
+// Temperature handling done locally, no ObjectDictionary dependency
 #include "driver/temperature_sensor.h"  // ESP32 internal temperature sensor (legacy driver API)
 #include "task_priorities.hh"
 

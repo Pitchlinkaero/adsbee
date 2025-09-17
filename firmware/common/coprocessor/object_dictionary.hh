@@ -51,7 +51,7 @@ class ObjectDictionary {
         kAddrLogMessages = 0x0D,   // Used to retrieve log messages from ESP32 and CC1312.
         kAddrRollQueue = 0x0E,     // Used to roll various queues on coprocessor slaves to confirm they have been read.
         kAddrSCCommandRequests = 0x0F,  // Used by slave to request commands from master.
-        kAddrPicoTemperatureC = 0x10,   // RP2040 internal temperature in degrees Celsius (int16_t)
+        // kAddrPicoTemperatureC = 0x10,   // REMOVED: Each processor uses its own temperature sensor
         kAddrCapabilities = 0x11,       // Slave capability mask/structure (read by master)
         kAddrTelemetry = 0x12,          // Unified telemetry packet from master to slave
         kNumAddrs
@@ -271,8 +271,7 @@ class ObjectDictionary {
     uint32_t scratch_ = 0x0;  // Scratch register used for testing.
 
    public:
-    // Latest temperature reported by the RP2040 (Pico). Units: Celsius. INT16_MIN if unknown.
-    int16_t pico_cpu_temp_c = INT16_MIN;
+    // Temperature handling removed - each processor uses its own sensor
 
     // Capabilities bitmask reported by slave (ESP32)
     struct __attribute__((__packed__)) Capabilities {
@@ -282,12 +281,7 @@ class ObjectDictionary {
         uint8_t features = 0;    // Bitmask
     } capabilities = {};
 
-    // Unified telemetry packet cached on slave when written by master
-    struct __attribute__((__packed__)) TelemetryPacket {
-        uint8_t version = 1;     // Packet version for backward compatibility
-        int16_t pico_cpu_temp_c; // Celsius; INT16_MIN if unknown
-        // Future fields can be appended; versioned for safe expansion
-    } telemetry_packet = {.version = 1, .pico_cpu_temp_c = INT16_MIN};
+    // Telemetry packet removed - temperature handled locally by each processor
 
     // On Pico, this is a queue of log messages gathered from other devices. On other devices, this is a queue of log
     // messages waiting to be slurped up by the RP2040.
