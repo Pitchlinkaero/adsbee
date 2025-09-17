@@ -326,8 +326,8 @@ uint16_t MQTTProtocol::FormatTelemetryJSON(const TelemetryData& telemetry,
                                             uint16_t buffer_size) {
     int written = snprintf(buffer, buffer_size,
         "{\"uptime\":%lu,"
-        "\"msgs_rx\":%u,"
-        "\"msgs_tx\":%u,"
+        "\"msgs_adsb_ps\":%u,"
+        "\"msgs_mqtt_tx\":%u,"
         "\"cpu_temp\":%d,"
         "\"mem_free\":%u,"
         "\"noise_floor\":%d,"

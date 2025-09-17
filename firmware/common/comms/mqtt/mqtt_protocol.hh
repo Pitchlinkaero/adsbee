@@ -58,8 +58,8 @@ public:
     // Telemetry data structure
     struct TelemetryData {
         uint32_t uptime_sec;           // Uptime in seconds
-        uint16_t messages_received;    // Messages in last minute
-        uint16_t messages_sent;        // MQTT messages sent
+        uint16_t messages_received;    // ADS-B messages per second (published/decoded)
+        uint16_t messages_sent;        // MQTT messages sent (cumulative)
         int16_t cpu_temp_c;           // CPU temperature (Celsius)
         uint16_t memory_free_kb;      // Free memory in KB
         int16_t rssi_noise_floor_dbm; // Current noise floor

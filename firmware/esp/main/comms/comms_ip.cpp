@@ -321,7 +321,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 t.messages_received = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
                 t.mps_total = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
                 t.mps_feed_count = mps_count;
-                // Use per-client cumulative MQTT messages sent if available
+                // Use per-client cumulative MQTT messages sent
                 t.messages_sent = (uint16_t)MIN(mqtt_clients[i]->GetMessagesSent(), (uint32_t)0xFFFF);
                 // CPU temperature not available; leave at 0 for now
                 // Free heap (8-bit accessible)
