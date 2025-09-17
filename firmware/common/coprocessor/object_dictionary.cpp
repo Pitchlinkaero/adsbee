@@ -367,8 +367,10 @@ uint16_t ObjectDictionary::UnpackLogMessages(uint8_t *buf, uint16_t buf_len,
                                              uint16_t max_num_messages) {
     uint16_t bytes_read = 0;
     uint16_t num_messages = 0;
+    uint16_t consecutive_errors = 0;
+    const uint16_t kMaxConsecutiveErrors = 10;  // Limit resync attempts
 
-    while (bytes_read < buf_len && num_messages < max_num_messages) {
+    while (bytes_read < buf_len && num_messages < max_num_messages && consecutive_errors < kMaxConsecutiveErrors) {
         LogMessage log_message;
         if (buf_len - bytes_read < LogMessage::kHeaderSize) {
             break;  // Not enough data for header.
@@ -379,12 +381,27 @@ uint16_t ObjectDictionary::UnpackLogMessages(uint8_t *buf, uint16_t buf_len,
         if (log_message.num_chars > kLogMessageMaxNumChars) {
             CONSOLE_ERROR("ObjectDictionary::UnpackLogMessages", "Invalid log message length: %d",
                           log_message.num_chars);
-            break;  // Invalid length.
+            // Skip corrupted data and try to recover
+            bytes_read++;  // Move forward one byte to try to resync
+            consecutive_errors++;
+            continue;  // Try next position instead of breaking completely
         }
 
         if (buf_len - bytes_read < LogMessage::kHeaderSize + log_message.num_chars + 1) {
             break;  // Not enough data for the full message.
         }
+
+        // Additional sanity check before memcpy to prevent buffer overflow
+        if (log_message.num_chars > sizeof(log_message.message) - 1) {
+            CONSOLE_ERROR("ObjectDictionary::UnpackLogMessages", "Message length %d exceeds buffer size",
+                          log_message.num_chars);
+            bytes_read++;
+            consecutive_errors++;
+            continue;
+        }
+
+        // Reset error counter on successful message
+        consecutive_errors = 0;
 
         memcpy(log_message.message, buf + bytes_read + LogMessage::kHeaderSize, log_message.num_chars);
         log_message.message[log_message.num_chars] = '\0';  // Null terminate the message.
