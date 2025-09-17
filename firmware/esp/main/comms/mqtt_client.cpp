@@ -7,6 +7,7 @@
 #include "cJSON.h"  // ESP-IDF's cJSON component
 #include <cstring>
 #include <algorithm>
+#include <cstdlib>
 
 static const char* TAG = "MQTT";
 
@@ -567,9 +568,12 @@ std::vector<uint8_t> MQTTClient::SerializeStatusBinary(const AircraftStatus& sta
 
     // Bytes 2-4: ICAO address (24 bits)
     uint32_t icao = 0;
-    try {
-        icao = std::stoul(status.icao, nullptr, 16);
-    } catch (...) {
+    const char* icao_cstr = status.icao.c_str();
+    char* icao_end = nullptr;
+    unsigned long icao_parsed = std::strtoul(icao_cstr, &icao_end, 16);
+    if (icao_end != icao_cstr && *icao_end == '\0') {
+        icao = static_cast<uint32_t>(icao_parsed);
+    } else {
         icao = 0;  // Default if parsing fails
     }
     data[offset++] = (icao >> 16) & 0xFF;
@@ -601,7 +605,7 @@ std::vector<uint8_t> MQTTClient::SerializeStatusBinary(const AircraftStatus& sta
     data[offset++] = lon & 0xFF;
 
     // Bytes 18-19: Altitude (units of 25ft, unsigned 16-bit)
-    uint16_t alt_25ft = static_cast<uint16_t>(std::max(0, status.alt_ft) / 25);
+    uint16_t alt_25ft = static_cast<uint16_t>(std::max<int32_t>(0, status.alt_ft) / 25);
     data[offset++] = (alt_25ft >> 8) & 0xFF;
     data[offset++] = alt_25ft & 0xFF;
 
