@@ -271,14 +271,15 @@ bool SPICoprocessor::ExecuteSCCommandRequest(const ObjectDictionary::SCCommandRe
                         return false;
                     }
                     // Write settings data to ESP32.
+                    uint16_t len_to_send = request.len;
                     if (request.len != sizeof(settings_manager.settings)) {
-                        // Len can differ across toolchains if structure packing/alignment changes. Proceed with
-                        // master's authoritative size to keep systems interoperable.
+                        // Prefer the slave-requested length to avoid overruns and reduce transfer time.
+                        uint16_t preferred = MIN(request.len, (uint16_t)sizeof(settings_manager.settings));
                         CONSOLE_WARNING("SPICoprocessor::ExecuteSCCommandRequest",
-                                         "Settings write requested with len %d, sending %d instead.", request.len,
-                                         sizeof(settings_manager.settings));
+                                         "Settings write requested with len %d, sending %d.", request.len, preferred);
+                        len_to_send = preferred;
                     }
-                    if (!Write(request.addr, settings_manager.settings, write_requires_ack)) {
+                    if (!Write(request.addr, settings_manager.settings, write_requires_ack, len_to_send)) {
                         CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
                                       "Unable to write settings data to ESP32.");
                         return false;
