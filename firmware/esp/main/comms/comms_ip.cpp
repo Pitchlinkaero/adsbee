@@ -334,7 +334,11 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 t.mqtt_connected = 1;
 
                 // Pull Pico CPU temperature from object dictionary if the RP2040 has written it
-                if (object_dictionary.pico_cpu_temp_c != INT16_MIN) {
+                // Prefer unified telemetry packet if present, else legacy temp
+                if (object_dictionary.telemetry_packet.version >= 1 &&
+                    object_dictionary.telemetry_packet.pico_cpu_temp_c != INT16_MIN) {
+                    t.cpu_temp_c = object_dictionary.telemetry_packet.pico_cpu_temp_c;
+                } else if (object_dictionary.pico_cpu_temp_c != INT16_MIN) {
                     t.cpu_temp_c = object_dictionary.pico_cpu_temp_c;
                 }
 

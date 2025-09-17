@@ -149,6 +149,14 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             xQueueSend(adsbee_server.rp2040_aircraft_dictionary_metrics_queue, &rp2040_metrics, 0);
             break;
         }
+        case kAddrTelemetry: {
+            // Cache unified telemetry packet
+            if (buf_len >= sizeof(ObjectDictionary::TelemetryPacket)) {
+                memcpy(&object_dictionary.telemetry_packet, buf + offset, sizeof(ObjectDictionary::TelemetryPacket));
+                return true;
+            }
+            return false;
+        }
         default:
             CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for writing to address 0x%x.", addr);
             return false;
@@ -211,6 +219,16 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
                 }
             }
             memcpy(buf, &device_status + offset, buf_len);
+            break;
+        }
+        case kAddrCapabilities: {
+            // Advertise support for unified telemetry packet
+            ObjectDictionary::Capabilities caps = object_dictionary.capabilities;
+            caps.version = 1;
+            caps.features = 0;
+            // Bit 0 = telemetry supported
+            caps.features |= 0x01;
+            memcpy(buf, &caps + offset, buf_len);
             break;
         }
         case kAddrLogMessages: {
