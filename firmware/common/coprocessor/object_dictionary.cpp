@@ -21,13 +21,7 @@ const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24
 bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
         case kAddrPicoTemperatureC: {
-            // Update cached Pico CPU temperature (slave writes its own temp into the dictionary)
-            if (buf_len >= sizeof(int16_t)) {
-                int16_t temp_c;
-                memcpy(&temp_c, buf + offset, sizeof(int16_t));
-                object_dictionary.pico_cpu_temp_c = temp_c;
-                return true;
-            }
+            // Legacy path disabled: ESP32 will not accept temp writes from Pico in this mode
             return false;
         }
         case kAddrScratch:

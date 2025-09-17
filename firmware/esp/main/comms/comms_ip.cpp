@@ -12,6 +12,7 @@
 #include "mqtt_client.hh"  // For MQTT support
 #include "esp_heap_caps.h"  // For free memory
 #include "object_dictionary.hh"  // For kAddrPicoTemperatureC
+#include "driver/temperature_sensor.h"  // ESP32 internal temperature sensor (legacy driver API)
 #include "task_priorities.hh"
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
@@ -332,21 +333,21 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 t.receiver_978_enabled = 0;
                 t.wifi_connected = wifi_sta_has_ip_ ? 1 : 0;
                 t.mqtt_connected = 1;
-                // Add firmware version
-                t.fw_major = ObjectDictionary::kFirmwareVersionMajor;
-                t.fw_minor = ObjectDictionary::kFirmwareVersionMinor;
-                t.fw_patch = ObjectDictionary::kFirmwareVersionPatch;
-
-                // Read Pico CPU temperature directly from RP2040
-                int16_t pico_temp = INT16_MIN;
-                if (pico.Read<int16_t>(ObjectDictionary::Address::kAddrPicoTemperatureC, pico_temp)) {
-                    t.cpu_temp_c = pico_temp;
-                    // Cache it in object dictionary for other uses
-                    object_dictionary.pico_cpu_temp_c = pico_temp;
-                } else {
-                    // Fall back to cached value if read fails
-                    if (object_dictionary.pico_cpu_temp_c != INT16_MIN) {
-                        t.cpu_temp_c = object_dictionary.pico_cpu_temp_c;
+                // Use ESP32 internal temperature sensor for telemetry (decouples from RP2040)
+                static bool tsens_initialized = false;
+                static temperature_sensor_handle_t tsens_handle = NULL;
+                if (!tsens_initialized) {
+                    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
+                    if (temperature_sensor_install(&cfg, &tsens_handle) == ESP_OK && tsens_handle != NULL) {
+                        if (temperature_sensor_enable(tsens_handle) == ESP_OK) {
+                            tsens_initialized = true;
+                        }
+                    }
+                }
+                if (tsens_initialized && tsens_handle != NULL) {
+                    float temp_c = 0.0f;
+                    if (temperature_sensor_get_celsius(tsens_handle, &temp_c) == ESP_OK) {
+                        t.cpu_temp_c = (int16_t)temp_c;
                     }
                 }
 
