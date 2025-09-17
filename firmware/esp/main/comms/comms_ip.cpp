@@ -341,8 +341,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
         }
 
         // Debug: Log that we received a packet for processing
-        CONSOLE_INFO("CommsManager::IPWANTask", "Processing packet for ICAO 0x%06x, valid=%d",
-                     decoded_packet.GetICAOAddress(), decoded_packet.IsValid());
+        CONSOLE_INFO("CommsManager::IPWANTask", "Processing packet for ICAO 0x%06lx, valid=%d",
+                     (unsigned long)decoded_packet.GetICAOAddress(), decoded_packet.IsValid());
 
         // NOTE: Construct packets that are shared between feeds here!
 

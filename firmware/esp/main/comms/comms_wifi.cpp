@@ -252,7 +252,7 @@ bool CommsManager::IPWANSendDecoded1090Packet(Decoded1090Packet& decoded_packet)
 
     // Debug: Log packet being queued
     CONSOLE_INFO("CommsManager::IPWANSendDecoded1090Packet",
-                 "Queueing packet for ICAO 0x%06x", decoded_packet.GetICAOAddress());
+                 "Queueing packet for ICAO 0x%06lx", (unsigned long)decoded_packet.GetICAOAddress());
 
     int err = xQueueSend(ip_wan_decoded_transponder_packet_queue_, &decoded_packet, 0);
     if (err == errQUEUE_FULL) {
