@@ -40,14 +40,36 @@ extern "C" void app_main(void) {
     ESP_LOGI("app_main", "Beginning ADSBee Server Application.");
     ESP_LOGI("app_main", "Default task priority: %d", uxTaskPriorityGet(NULL));
 
+    // Print build version on startup
+    ESP_LOGW("app_main", "ESP32 BUILD VERSION: %d.%d.%d-RC%d (DEBUG from 9b7ac304)",
+             ObjectDictionary::kFirmwareVersionMajor,
+             ObjectDictionary::kFirmwareVersionMinor,
+             ObjectDictionary::kFirmwareVersionPatch,
+             ObjectDictionary::kFirmwareVersionReleaseCandidate);
+
     adsbee_server.Init();
 
 #ifdef HARDWARE_UNIT_TESTS
     RunHardwareUnitTests();
 #endif
 
+    uint32_t last_version_print_ms = 0;
+    const uint32_t version_print_interval_ms = 60000; // 60 seconds
+
     while (1) {
         adsbee_server.Update();
+
+        // Print version every 60 seconds
+        uint32_t now_ms = esp_timer_get_time() / 1000;
+        if (now_ms - last_version_print_ms >= version_print_interval_ms) {
+            ESP_LOGW("app_main", "ESP32 VERSION CHECK: %d.%d.%d-RC%d (DEBUG from 9b7ac304) - Uptime: %lu sec",
+                     ObjectDictionary::kFirmwareVersionMajor,
+                     ObjectDictionary::kFirmwareVersionMinor,
+                     ObjectDictionary::kFirmwareVersionPatch,
+                     ObjectDictionary::kFirmwareVersionReleaseCandidate,
+                     now_ms / 1000);
+            last_version_print_ms = now_ms;
+        }
 
         // Yield to the idle task to avoid a watchdog trigger. Note: Delay must be >= 10ms since 100Hz tick is typical.
         vTaskDelay(1);  // Delay 1 tick (10ms).

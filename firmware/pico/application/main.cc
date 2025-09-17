@@ -74,9 +74,9 @@ int main() {
 
     adsbee.Init();
     comms_manager.Init();
-    comms_manager.console_printf("ADSBee 1090\r\nSoftware Version %d.%d.%d\r\n",
+    comms_manager.console_printf("ADSBee 1090\r\nSoftware Version %d.%d.%d-RC%d (DEBUG from 9b7ac304)\r\n",
                                  object_dictionary.kFirmwareVersionMajor, object_dictionary.kFirmwareVersionMinor,
-                                 object_dictionary.kFirmwareVersionPatch);
+                                 object_dictionary.kFirmwareVersionPatch, object_dictionary.kFirmwareVersionReleaseCandidate);
 
     settings_manager.Load();
 
@@ -147,6 +147,8 @@ int main() {
     multicore_launch_core1(main_core1);
 
     uint32_t esp32_last_heartbeat_timestamp_ms = 0;
+    uint32_t last_version_print_ms = 0;
+    const uint32_t version_print_interval_ms = 60000; // 60 seconds
 
     while (true) {
         // Loop forever.
@@ -155,6 +157,18 @@ int main() {
         adsbee.Update();
 
         esp32.Update();
+
+        // Print version every 60 seconds
+        uint32_t now_ms = get_time_since_boot_ms();
+        if (now_ms - last_version_print_ms >= version_print_interval_ms) {
+            CONSOLE_WARNING("main", "PICO VERSION CHECK: %d.%d.%d-RC%d (DEBUG from 9b7ac304) - Uptime: %lu sec",
+                           object_dictionary.kFirmwareVersionMajor,
+                           object_dictionary.kFirmwareVersionMinor,
+                           object_dictionary.kFirmwareVersionPatch,
+                           object_dictionary.kFirmwareVersionReleaseCandidate,
+                           now_ms / 1000);
+            last_version_print_ms = now_ms;
+        }
 
         // Poke the watchdog to keep things alive if the ESP32 is responding or if it's disabled.
         uint32_t old_esp32_last_heartbeat_timestamp_ms = esp32_last_heartbeat_timestamp_ms;
