@@ -2,6 +2,8 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_random.h"
+#include "esp_timer.h"
+#include "hal.hh"  // For get_time_since_boot_ms
 #include <cJSON.h>
 #include <cstring>
 #include <algorithm>

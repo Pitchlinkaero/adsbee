@@ -2,13 +2,13 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <chrono>
 #include <functional>
 #include "mqtt_client.h"  // ESP-IDF MQTT client
 #include "transponder_packet.hh"
 #include "settings.hh"
-#include "console.hh"
 
 namespace MQTT {
 
