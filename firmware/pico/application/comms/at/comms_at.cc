@@ -390,6 +390,73 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+void ATMQTTFormatHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTFMT=<index>,<format>\r\n\tSet MQTT message format for a feed.\r\n"
+        "\tindex = [0-%d], format = [JSON BINARY].\r\n"
+        "\t\r\n\tAT+MQTTFMT?\r\n\tPrint MQTT format for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTFMT?<index>\r\n\tPrint MQTT format for a specific feed.\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTFormatCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed format
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                const char* format = (settings_manager.settings.mqtt_formats[index] ==
+                                      SettingsManager::MQTTFormat::kMQTTFormatJSON) ?
+                                     "JSON" : "BINARY";
+                CPP_AT_CMD_PRINTF("=%d(INDEX),%s(FORMAT)", index, format);
+            } else {
+                // Query all feed formats
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    const char* format = (settings_manager.settings.mqtt_formats[i] ==
+                                          SettingsManager::MQTTFormat::kMQTTFormatJSON) ?
+                                         "JSON" : "BINARY";
+                    CPP_AT_CMD_PRINTF("=%d(INDEX),%s(FORMAT)", i, format);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+
+        case '=':
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTFMT=<index>,<format>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            if (CPP_AT_HAS_ARG(1)) {
+                if (args[1].compare("JSON") == 0) {
+                    settings_manager.settings.mqtt_formats[index] =
+                        SettingsManager::MQTTFormat::kMQTTFormatJSON;
+                    CPP_AT_SUCCESS();
+                } else if (args[1].compare("BINARY") == 0) {
+                    settings_manager.settings.mqtt_formats[index] =
+                        SettingsManager::MQTTFormat::kMQTTFormatBinary;
+                    CPP_AT_SUCCESS();
+                } else {
+                    CPP_AT_ERROR("Format must be JSON or BINARY");
+                }
+            } else {
+                CPP_AT_ERROR("Format required. Usage: AT+MQTTFMT=<index>,<format>");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {
     SettingsManager::Settings::CoreNetworkSettings &cns = settings_manager.settings.core_network_settings;
     switch (op) {
@@ -1065,6 +1132,11 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 5,
      .help_callback = ATFeedHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedCallback, comms_manager)},
+    {.command_buf = "+MQTTFMT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_callback = ATMQTTFormatHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTFormatCallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,
