@@ -99,6 +99,9 @@ bool MQTTOTAHandler::HandleCommand(const std::string& command) {
 }
 
 bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len) {
+    CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
+                 "Processing chunk %" PRIu32 " with %zu bytes", index, len);
+
     if (state_ != OTAState::DOWNLOADING) {
         CONSOLE_WARNING("MQTTOTAHandler::HandleChunk",
                         "Ignoring chunk %" PRIu32 " - not in download state", index);
@@ -458,12 +461,18 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
         return false;
     }
 
+    // Wait a bit for the Pico to process the command before sending data
+    vTaskDelay(pdMS_TO_TICKS(10));
+
     // Send binary data after command
     if (!SendDataToPico(data, len)) {
         CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
                       "Failed to send chunk data to Pico");
         return false;
     }
+
+    // Wait for Pico to process the chunk
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
                  "Sent chunk to Pico: offset=0x%08lX len=%zu crc=0x%08lX",

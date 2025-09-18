@@ -352,6 +352,16 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
         std::string chunk_idx_str = ota_topic.substr(12);  // "/data/chunk/".length() = 12
         uint32_t chunk_index = std::stoul(chunk_idx_str);
 
+        // Debug: Log chunk reception
+        ESP_LOGI(TAG, "Received chunk %lu: data_len=%d, topic_len=%d, total_data_len=%d",
+                 (unsigned long)chunk_index, event->data_len, event->topic_len, event->total_data_len);
+
+        // Check if this is a partial message
+        if (event->data_len != event->total_data_len) {
+            ESP_LOGW(TAG, "Received partial MQTT message: got %d of %d bytes",
+                     event->data_len, event->total_data_len);
+        }
+
         // Process chunk
         bool success = ota_handler_->HandleChunk(chunk_index,
                                                  (const uint8_t*)event->data,
