@@ -442,7 +442,7 @@ void NetworkConsolePostConnectCallback(WebSocketServer *ws_server, int client_fd
                  settings_manager.settings.core_network_settings.wifi_ap_ssid);
     }
 
-    welcome_message[kNetworkConsoleWelcomeMessageMaxLen] = '\0';  // Null terminate for safety.
+    welcome_message[kNetworkConsoleWelcomeMessageMaxLen - 1] = '\0';  // Null terminate for safety.
     ws_server->SendMessage(client_fd, welcome_message);
 }
 
