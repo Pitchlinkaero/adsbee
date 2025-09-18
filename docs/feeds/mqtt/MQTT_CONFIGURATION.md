@@ -1,5 +1,23 @@
 # MQTT Configuration Guide for ADSBee
 
+## ⚠️ CRITICAL: URI Format - NO Protocol Prefix!
+
+**DO NOT include `mqtt://` or `mqtts://` in the AT+FEED URI field!**
+
+✅ **CORRECT Format:**
+```
+AT+FEED=0,192.168.7.65,1883,1,MQTT           # IP address only
+AT+FEED=0,broker.example.com,1883,1,MQTT     # Hostname only
+```
+
+❌ **INCORRECT Format (causes DNS errors):**
+```
+AT+FEED=0,192.168.7.65,1883,1,MQTT    # WRONG!
+AT+FEED=0,mqtts://broker.com,8883,1,MQTT     # WRONG!
+```
+
+The protocol is specified by the last parameter (`MQTT`). The firmware automatically adds the appropriate prefix.
+
 ## Overview
 
 ADSBee supports MQTT protocol for publishing ADS-B/UAT aircraft data and receiver telemetry to MQTT brokers. This guide covers configuration, setup, and usage.
@@ -13,11 +31,11 @@ MQTT is configured using the existing feed system. Use one of the 10 available f
 **Via AT Commands:**
 ```bash
 # Configure feed 0 for MQTT (all parameters at once)
-AT+FEED=0,mqtt://broker.hivemq.com,1883,1,MQTT
+AT+FEED=0,broker.hivemq.com,1883,1,MQTT
 
 # Or configure parameters individually (use commas to skip):
-# Just set URI
-AT+FEED=0,mqtt://broker.hivemq.com
+# Just set URI (NO mqtt:// prefix!)
+AT+FEED=0,broker.hivemq.com
 
 # Just set port (skip URI)
 AT+FEED=0,,1883
@@ -145,7 +163,7 @@ ADSBee publishes to the following topics (where `{device_id}` is your 16-charact
 ### Step-by-step MQTT Setup
 ```bash
 # 1. Configure MQTT feed
-AT+FEED=0,mqtt://192.168.7.65,1883,1,MQTT
+AT+FEED=0,192.168.7.65,1883,1,MQTT
 
 # 2. Set format (optional, defaults to JSON)
 AT+MQTTFMT=0,JSON      # For human-readable
@@ -171,7 +189,7 @@ AT+REBOOT
 ### Mosquitto Test Server (Public, No Auth)
 ```bash
 # Configure feed 0 for public Mosquitto test server
-AT+FEED=0,mqtt://test.mosquitto.org,1883,1,MQTT
+AT+FEED=0,test.mosquitto.org,1883,1,MQTT
 
 # Query to verify
 AT+FEED?0
@@ -186,7 +204,7 @@ AT+REBOOT
 ### Local Mosquitto Server
 ```bash
 # Configure feed 2 for local broker
-AT+FEED=2,mqtt://192.168.1.100,1883,1,MQTT
+AT+FEED=2,192.168.1.100,1883,1,MQTT
 
 
 # Save settings
@@ -231,7 +249,7 @@ AT+MQTTTLS?0
 ### Secure Connection Example
 ```bash
 # Configure secure MQTT with authentication
-AT+FEED=0,mqtts://broker.hivemq.com,8883,1,MQTT
+AT+FEED=0,broker.hivemq.com,8883,1,MQTT
 AT+MQTTTLS=0,STRICT
 AT+MQTTAUTH=0,username,password
 AT+MQTTFMT=0,JSON
@@ -360,7 +378,7 @@ client.loop_forever()
 |---------|-------------|---------|
 | `AT+FEED?` | Query all feed configurations | `AT+FEED?` |
 | `AT+FEED?<n>` | Query specific feed | `AT+FEED?0` |
-| `AT+FEED=` | Set feed configuration | `AT+FEED=0,mqtt://broker,1883,1,MQTT` |
+| `AT+FEED=` | Set feed configuration | `AT+FEED=0,broker,1883,1,MQTT` |
 | `AT+MQTTFMT?` | Query all feed formats | `AT+MQTTFMT?` |
 | `AT+MQTTFMT?<n>` | Query specific feed format | `AT+MQTTFMT?0` |
 | `AT+MQTTFMT=` | Set MQTT message format | `AT+MQTTFMT=0,JSON` or `AT+MQTTFMT=0,BINARY` |
@@ -405,7 +423,7 @@ AT+MQTTFMT?          # Check all feed formats
 |---------|-------------|---------|
 | `AT+FEED?` | Query all feeds | `AT+FEED?` |
 | `AT+FEED?<n>` | Query specific feed | `AT+FEED?0` |
-| `AT+FEED=<n>,<uri>,<port>,<active>,<protocol>` | Configure feed | `AT+FEED=0,mqtt://broker.hivemq.com,1883,1,MQTT` |
+| `AT+FEED=<n>,<uri>,<port>,<active>,<protocol>` | Configure feed | `AT+FEED=0,broker.hivemq.com,1883,1,MQTT` |
 | `AT+FEEDEN=<n>,<0\|1>` | Enable/disable feed | `AT+FEEDEN=0,1` |
 | `AT+FEEDPROTOCOL=<n>,<protocol>` | Set protocol | `AT+FEEDPROTOCOL=0,MQTT` |
 
@@ -508,7 +526,7 @@ AT+MQTTOTA?0
 
 ```bash
 # Secure OTA setup
-AT+FEED=0,mqtts://broker.example.com,8883,1,MQTT
+AT+FEED=0,broker.example.com,8883,1,MQTT
 AT+MQTTTLS=0,STRICT
 AT+MQTTAUTH=0,device-ota,secure-password
 AT+MQTTOTA=0,1
