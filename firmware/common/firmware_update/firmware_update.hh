@@ -574,7 +574,7 @@ class FirmwareUpdateManager {
                           reinterpret_cast<uint8_t*>(&header), sizeof(header));
 
         FlashUtils::FlashUnsafe();
-        EnableInterrupts();
+        RestoreInterrupts();
 
         CONSOLE_INFO("FirmwareUpdateManager::WriteFlashPartitionHeader",
                     "Wrote header for partition %u: magic=0x%x, size=%u, crc=0x%x",
