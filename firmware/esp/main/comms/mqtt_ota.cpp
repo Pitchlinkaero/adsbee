@@ -117,38 +117,50 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         return true;
     }
 
-    // Parse chunk header
-    if (len < sizeof(ChunkHeader)) {
+    // Parse chunk header (16 bytes: session_id(4) + index(4) + size(2) + crc16(2) + flags(4))
+    const size_t kHeaderSize = 16;
+    if (len < kHeaderSize) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Chunk too small for header: %zu bytes", len);
+                      "Chunk too small for header: %zu bytes (need %zu)", len, kHeaderSize);
         PublishAck(index, false);
         return false;
     }
 
-    ChunkHeader header;
-    memcpy(&header, data, sizeof(ChunkHeader));
+    // Parse header fields (big-endian from Python)
+    uint32_t session_id = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+    uint32_t chunk_index = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+    uint16_t chunk_size = (data[8] << 8) | data[9];
+    uint16_t crc16 = (data[10] << 8) | data[11];
+    uint32_t flags = (data[12] << 24) | (data[13] << 16) | (data[14] << 8) | data[15];
 
-    // Validate session ID
-    // TODO: Check session ID matches current session
+    // Validate chunk index matches
+    if (chunk_index != index) {
+        CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
+                      "Chunk index mismatch: expected %" PRIu32 ", got %" PRIu32,
+                      index, chunk_index);
+        PublishAck(index, false);
+        return false;
+    }
 
     // Extract chunk data
-    const uint8_t* chunk_data = data + sizeof(ChunkHeader);
-    size_t chunk_data_len = len - sizeof(ChunkHeader);
+    const uint8_t* chunk_data = data + kHeaderSize;
+    size_t chunk_data_len = len - kHeaderSize;
 
-    if (chunk_data_len != header.chunk_size) {
+    if (chunk_data_len != chunk_size) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Chunk size mismatch: expected %" PRIu16 ", got %zu",
-                      header.chunk_size, chunk_data_len);
+                      "Chunk size mismatch: expected %u, got %zu",
+                      chunk_size, chunk_data_len);
         PublishAck(index, false);
         return false;
     }
 
-    // Verify CRC
+    // Verify CRC (using lower 16 bits of CRC32)
     uint32_t calculated_crc = CalculateCRC32(chunk_data, chunk_data_len);
-    if (calculated_crc != header.crc32) {
+    uint16_t calculated_crc16 = calculated_crc & 0xFFFF;
+    if (calculated_crc16 != crc16) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "CRC mismatch for chunk %" PRIu32 ": expected 0x%08" PRIx32 ", got 0x%08" PRIx32,
-                      index, header.crc32, calculated_crc);
+                      "CRC mismatch for chunk %" PRIu32 ": expected 0x%04X, got 0x%04X",
+                      index, crc16, calculated_crc16);
         PublishAck(index, false);
         return false;
     }

@@ -353,7 +353,9 @@ class ADSBeeOTAPublisher:
 
         # Wait for ACKs
         print("Waiting for acknowledgments...")
-        timeout = 60  # 60 seconds timeout
+        # Calculate timeout based on number of chunks (1 second per 10 chunks, min 60s)
+        timeout = max(60, self.total_chunks // 10)
+        print(f"  Timeout: {timeout}s for {self.total_chunks} chunks")
         while len(self.acked_chunks) < self.total_chunks and timeout > 0:
             time.sleep(1)
             timeout -= 1
@@ -397,7 +399,7 @@ class ADSBeeOTAPublisher:
 
         # Check device is online first
         print("Checking device connectivity...")
-        if not self.wait_for_device_online(timeout=10):
+        if not self.wait_for_device_online(timeout=70):  # Telemetry publishes every 60s, wait a bit longer
             print("Device not responding. Is it online and connected to MQTT?")
             return False
         print("✓ Device is online")
@@ -408,8 +410,8 @@ class ADSBeeOTAPublisher:
             self.send_command("REBOOT")
             time.sleep(5)  # Wait for device to start rebooting
 
-            print("Waiting for device to come back online (up to 60s)...")
-            if not self.wait_for_device_online(timeout=60):
+            print("Waiting for device to come back online (up to 90s)...")
+            if not self.wait_for_device_online(timeout=90):  # Give more time after reboot
                 print("Device failed to come back online after reboot")
                 return False
             print("✓ Device back online after reboot")
@@ -449,7 +451,7 @@ class ADSBeeOTAPublisher:
 
         # Wait for verification
         print("Waiting for device to verify firmware...")
-        timeout = 60
+        timeout = 120  # Verification can take time for large firmwares
         while self.ota_state not in ["READY_TO_BOOT", "ERROR"] and timeout > 0:
             time.sleep(1)
             timeout -= 1
@@ -476,11 +478,11 @@ class ADSBeeOTAPublisher:
             print(f"Update failed (state: {self.ota_state})")
             return False
 
-    def wait_for_device_online(self, timeout: int = 30) -> bool:
+    def wait_for_device_online(self, timeout: int = 70) -> bool:
         """Wait for device to come online by monitoring telemetry
 
         Args:
-            timeout: Maximum seconds to wait
+            timeout: Maximum seconds to wait (default 70s, telemetry publishes every 60s)
 
         Returns:
             True if device comes online within timeout
@@ -492,12 +494,21 @@ class ADSBeeOTAPublisher:
         telemetry_topic = f"{self.device_id}/telemetry"
         self.client.subscribe(telemetry_topic, qos=0)
 
+        print(f"Waiting up to {timeout}s for telemetry (publishes every 60s)...")
+        dots = 0
         while time.time() - start_time < timeout:
             # Check if we received recent telemetry
-            if self.device_online or (time.time() - self.last_telemetry_time < 5):
+            if self.device_online or (time.time() - self.last_telemetry_time < 65):  # Within last 65 seconds
                 return True
+
+            # Progress indicator
+            if dots % 10 == 0:
+                remaining = int(timeout - (time.time() - start_time))
+                print(f"  Waiting... {remaining}s remaining", end="\r")
+            dots += 1
             time.sleep(1)
 
+        print()  # New line after progress
         return False
 
     def _crc32(self, data: bytes) -> int:
