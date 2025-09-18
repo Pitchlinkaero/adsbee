@@ -288,6 +288,26 @@ bool MQTTOTAHandler::BootNewFirmware() {
     return true;
 }
 
+// Public JSON getters used by MQTTClient for publishing
+std::string MQTTOTAHandler::GetStateJSON() const {
+    return CreateStatusJson();
+}
+
+std::string MQTTOTAHandler::GetProgressJSON() const {
+    return CreateProgressJson();
+}
+
+// Optional pause/resume controls (no-op for now; state machine continues)
+bool MQTTOTAHandler::PauseOTA() {
+    CONSOLE_INFO("MQTTOTAHandler::PauseOTA", "Pause requested");
+    return true;
+}
+
+bool MQTTOTAHandler::ResumeOTA() {
+    CONSOLE_INFO("MQTTOTAHandler::ResumeOTA", "Resume requested");
+    return true;
+}
+
 void MQTTOTAHandler::PublishStatus() {
     if (!mqtt_client_ || !mqtt_client_->IsConnected()) {
         return;
