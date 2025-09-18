@@ -5,8 +5,7 @@
 #include <vector>
 #include <map>
 #include <cstdint>
-#include "esp_partition.h"
-#include "esp_ota_ops.h"
+// Pass-through OTA - no ESP flash operations needed
 
 // Forward declaration to avoid circular include with mqtt_client.hh
 namespace MQTT {
@@ -105,9 +104,8 @@ private:
     static constexpr size_t kMaxChunkSize = 4096;
     uint8_t chunk_buffer_[kMaxChunkSize];
 
-    // OTA partition handle
-    const esp_partition_t* ota_partition_;
-    esp_ota_handle_t ota_handle_;
+    // Pass-through mode - no local storage needed
+    // Pico handles all flash operations
 
     // Helper functions
     bool EraseFlashPartition();

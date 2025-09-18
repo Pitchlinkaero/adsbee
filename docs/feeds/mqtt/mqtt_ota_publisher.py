@@ -31,7 +31,8 @@ class ADSBeeOTAPublisher:
     def __init__(self, broker: str, port: int = 1883,
                  username: Optional[str] = None,
                  password: Optional[str] = None,
-                 use_tls: bool = False):
+                 use_tls: bool = False,
+                 keepalive: int = 60):
         """Initialize OTA publisher
 
         Args:
@@ -46,6 +47,7 @@ class ADSBeeOTAPublisher:
         self.username = username
         self.password = password
         self.use_tls = use_tls
+        self.keepalive = keepalive
 
         self.client = mqtt.Client()
         self.client.on_connect = self._on_connect
@@ -58,6 +60,7 @@ class ADSBeeOTAPublisher:
         self.firmware_data = None
         self.firmware_size = 0
         self.total_chunks = 0
+        self.auto_boot = False
 
         # Track ACKs
         self.acked_chunks = set()
@@ -78,7 +81,7 @@ class ADSBeeOTAPublisher:
             self.client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
 
         try:
-            self.client.connect(self.broker, self.port, 60)
+            self.client.connect(self.broker, self.port, self.keepalive)
             self.client.loop_start()
 
             # Wait for connection
@@ -118,7 +121,7 @@ class ADSBeeOTAPublisher:
         if topic.endswith("/ota/status/state"):
             try:
                 status = json.loads(msg.payload.decode())
-                self.ota_state = status.get("state", "UNKNOWN")
+                self.ota_state = str(status.get("state", "UNKNOWN")).upper()
                 print(f"Device state: {self.ota_state}")
 
                 if status.get("error"):
@@ -133,11 +136,23 @@ class ADSBeeOTAPublisher:
                 progress = json.loads(msg.payload.decode())
                 self.last_progress = progress
 
-                percent = progress.get("percent", 0)
-                chunks_received = progress.get("chunks_received", 0)
-                total_chunks = progress.get("total_chunks", 0)
+                # Coerce values to safe types for printing
+                try:
+                    percent_val = float(progress.get("percent", 0) or 0)
+                except (TypeError, ValueError):
+                    percent_val = 0.0
 
-                print(f"Progress: {percent:.1f}% ({chunks_received}/{total_chunks} chunks)")
+                try:
+                    chunks_received = int(progress.get("chunks_received", 0) or 0)
+                except (TypeError, ValueError):
+                    chunks_received = 0
+
+                try:
+                    total_chunks = int(progress.get("total_chunks", 0) or 0)
+                except (TypeError, ValueError):
+                    total_chunks = 0
+
+                print(f"Progress: {percent_val:.1f}% ({chunks_received}/{total_chunks} chunks)")
 
             except json.JSONDecodeError:
                 pass
@@ -279,15 +294,16 @@ class ADSBeeOTAPublisher:
         chunk_data = self.firmware_data[offset:offset + self.chunk_size]
         chunk_len = len(chunk_data)
 
-        # Calculate CRC32
+        # Calculate CRC32 and store lower 16 bits to match header format
         crc32 = self._crc32(chunk_data)
+        crc16 = crc32 & 0xFFFF
 
         # Create chunk header
         header = struct.pack(">IIHHI",
             int(self.session_id[:8], 16) & 0xFFFFFFFF,  # Session ID (first 8 chars as hex)
             chunk_index,
             chunk_len,
-            crc32,
+            crc16,
             0  # Flags
         )
 
@@ -413,10 +429,17 @@ class ADSBeeOTAPublisher:
             print("Firmware verified successfully!")
 
             # Optional: Send BOOT command
-            response = input("Send BOOT command to reboot device? (y/n): ")
-            if response.lower() == 'y':
+            if self.auto_boot:
                 self.send_command("BOOT")
                 print("Device rebooting with new firmware...")
+            else:
+                try:
+                    response = input("Send BOOT command to reboot device? (y/n): ")
+                except EOFError:
+                    response = 'n'
+                if response.lower() == 'y':
+                    self.send_command("BOOT")
+                    print("Device rebooting with new firmware...")
 
             return True
 
@@ -469,6 +492,10 @@ Examples:
     parser.add_argument("--tls", action="store_true", help="Use TLS/SSL")
     parser.add_argument("--chunk-size", type=int, default=4096,
                        help="Chunk size in bytes (default: 4096)")
+    parser.add_argument("--keepalive", type=int, default=60,
+                       help="MQTT keepalive seconds (default: 60)")
+    parser.add_argument("--auto-boot", action="store_true",
+                       help="Automatically send BOOT after READY_TO_BOOT")
 
     args = parser.parse_args()
 
@@ -483,10 +510,17 @@ Examples:
         port=args.port,
         username=args.username,
         password=args.password,
-        use_tls=args.tls
+        use_tls=args.tls,
+        keepalive=args.keepalive
     )
 
     publisher.chunk_size = args.chunk_size
+    publisher.auto_boot = args.auto_boot
+
+    # Validate chunk size to fit header (H for length and CRC16)
+    if publisher.chunk_size <= 0 or publisher.chunk_size > 65535:
+        print("Error: --chunk-size must be between 1 and 65535")
+        return 1
 
     # Connect to broker
     print(f"Connecting to {args.broker}:{args.port}...")

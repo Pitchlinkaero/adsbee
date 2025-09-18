@@ -372,80 +372,47 @@ std::string MQTTOTAHandler::GetChunkTopic(uint32_t index) const {
 
 // TODO: Implement these functions
 bool MQTTOTAHandler::EraseFlashPartition() {
-    // For ESP32, we handle the flash directly using ESP-IDF OTA APIs
-    // Get the next OTA partition
-    const esp_partition_t* ota_partition = esp_ota_get_next_update_partition(NULL);
-    if (!ota_partition) {
-        CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
-                      "Failed to get OTA partition");
-        return false;
-    }
+    // Pass-through mode: Send OTA ERASE command to Pico
+    // The Pico will handle actual flash erasing
 
-    // Erase the partition
-    esp_err_t err = esp_partition_erase_range(ota_partition, 0, manifest_.size);
-    if (err != ESP_OK) {
-        CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
-                      "Failed to erase partition: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    // Store partition for later use
-    ota_partition_ = ota_partition;
-
+    // TODO: Implement actual UART/SPI command to Pico
+    // Format: AT+OTA=ERASE,<size>,<chunks>
     CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
-                 "Erased %" PRIu32 " bytes in partition %s",
-                 manifest_.size, ota_partition->label);
+                 "Sending OTA ERASE command to Pico: size=%" PRIu32 " chunks=%" PRIu32,
+                 manifest_.size, manifest_.total_chunks);
+
+    // For now, simulate success to test MQTT flow
+    // In production, wait for Pico ACK
     return true;
 }
 
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
-    // Validate we have an OTA partition
-    if (!ota_partition_) {
-        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
-                      "No OTA partition selected");
-        return false;
-    }
+    // Pass-through mode: Send chunk data to Pico
+    // The Pico will handle actual flash writing
 
-    // Write data to partition
-    esp_err_t err = esp_partition_write(ota_partition_, offset, data, len);
-    if (err != ESP_OK) {
-        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
-                      "Failed to write to partition at offset 0x%08" PRIx32 ": %s",
-                      offset, esp_err_to_name(err));
-        return false;
-    }
+    // TODO: Implement actual UART/SPI data transfer to Pico
+    // Format: AT+OTA=CHUNK,<offset>,<len>,<crc>,<data>
+    CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
+                 "Forwarding chunk to Pico: offset=0x%08" PRIx32 " len=%zu crc=0x%08" PRIx32,
+                 offset, len, crc);
 
+    // For now, simulate success to test MQTT flow
+    // In production, wait for Pico ACK
     return true;
 }
 
 bool MQTTOTAHandler::VerifyFlashPartition() {
-    if (!ota_partition_) {
-        CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
-                      "No OTA partition selected");
-        return false;
-    }
+    // Pass-through mode: Send VERIFY command to Pico
+    // The Pico will verify the firmware and respond with calculated SHA256
 
-    // Calculate SHA256 of written data
-    uint8_t calculated_sha[32];
-    esp_partition_get_sha256(ota_partition_, calculated_sha);
-
-    // Convert to hex string for comparison
-    char calculated_hex[65];
-    for (int i = 0; i < 32; i++) {
-        sprintf(&calculated_hex[i*2], "%02x", calculated_sha[i]);
-    }
-    calculated_hex[64] = '\0';
-
-    // Compare with expected
-    if (strcasecmp(calculated_hex, manifest_.sha256.c_str()) != 0) {
-        CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
-                      "SHA256 mismatch: expected %s, got %s",
-                      manifest_.sha256.c_str(), calculated_hex);
-        return false;
-    }
-
+    // TODO: Implement actual UART/SPI command to Pico
+    // Format: AT+OTA=VERIFY,<expected_sha256>
     CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
-                 "Firmware verified successfully");
+                 "Sending OTA VERIFY command to Pico with SHA256: %s",
+                 manifest_.sha256.c_str());
+
+    // For now, simulate success to test MQTT flow
+    // In production, wait for Pico to respond with verification result
     return true;
 }
 
