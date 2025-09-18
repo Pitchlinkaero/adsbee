@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ADSBee MQTT OTA Publisher
+ADSBee MQTT OTA Publisher Example
 Publishes firmware updates to ADSBee devices via MQTT
 
 Usage:

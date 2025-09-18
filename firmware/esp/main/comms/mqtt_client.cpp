@@ -1047,14 +1047,59 @@ size_t MQTTClient::SerializeStatusBinaryToBuffer(const AircraftStatus& status, u
 }
 
 size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, char* buf, size_t buf_size) const {
-    return snprintf(buf, buf_size,
-        "{\"up\":%lu,\"rx\":%lu,\"tx\":%lu,\"cpu\":%ld,\"mem\":%lu,\"fw\":\"%d.%d.%d\"}",
-        (unsigned long)telemetry.uptime_sec, (unsigned long)telemetry.msgs_rx,
-        (unsigned long)telemetry.msgs_tx, (long)telemetry.cpu_temp_c,
+    // Use shortened keys to save space but include all fields
+    int written = snprintf(buf, buf_size,
+        "{\"up\":%lu,\"rx\":%lu,\"tx\":%lu,\"cpu\":%ld,\"mem\":%lu,"
+        "\"nf\":%d,\"r1090\":%s,\"r978\":%s,\"wifi\":%s,\"mqtt\":%s,"
+        "\"fw\":\"%d.%d.%d\"",
+        (unsigned long)telemetry.uptime_sec,
+        (unsigned long)telemetry.msgs_rx,
+        (unsigned long)telemetry.msgs_tx,
+        (long)telemetry.cpu_temp_c,
         (unsigned long)telemetry.mem_free_kb,
+        telemetry.noise_floor_dbm,
+        telemetry.rx_1090 ? "true" : "false",
+        telemetry.rx_978 ? "true" : "false",
+        telemetry.wifi ? "true" : "false",
+        telemetry.mqtt ? "true" : "false",
         object_dictionary.kFirmwareVersionMajor,
         object_dictionary.kFirmwareVersionMinor,
         object_dictionary.kFirmwareVersionPatch);
+
+    // Add optional fields if present and buffer space allows
+    if (telemetry.mps_total > 0 && written < buf_size - 20) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"mps\":%lu", (unsigned long)telemetry.mps_total);
+    }
+
+    // Add decoder stats if present
+    if (telemetry.demods_1090 > 0 && written < buf_size - 30) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"d1090\":%lu", (unsigned long)telemetry.demods_1090);
+    }
+    if (telemetry.raw_squitter_frames > 0 && written < buf_size - 30) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"rsq\":%lu", (unsigned long)telemetry.raw_squitter_frames);
+    }
+    if (telemetry.valid_squitter_frames > 0 && written < buf_size - 30) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"vsq\":%lu", (unsigned long)telemetry.valid_squitter_frames);
+    }
+    if (telemetry.raw_extended_squitter > 0 && written < buf_size - 30) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"res\":%lu", (unsigned long)telemetry.raw_extended_squitter);
+    }
+    if (telemetry.valid_extended_squitter > 0 && written < buf_size - 30) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"ves\":%lu", (unsigned long)telemetry.valid_extended_squitter);
+    }
+
+    // Close JSON object
+    if (written < buf_size - 1) {
+        written += snprintf(buf + written, buf_size - written, "}");
+    }
+
+    return written;
 }
 
 size_t MQTTClient::SerializeTelemetryBinaryToBuffer(const Telemetry& telemetry, uint8_t* buf, size_t buf_size) const {
