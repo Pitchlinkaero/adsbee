@@ -4,18 +4,6 @@
 
 ADSBee supports MQTT protocol for publishing ADS-B/UAT aircraft data and receiver telemetry to MQTT brokers. This guide covers configuration, setup, and usage.
 
-## Current Status
-
-**Version**: 0.8.2-RC10
-**Status**: Production Ready
-
-MQTT implementation is complete with support for:
-- ✅ JSON and Binary message formats
-- ✅ Authentication (username/password)
-- ✅ TLS/SSL with configurable verification modes
-- ✅ Telemetry and aircraft status publishing
-- ✅ Automatic reconnection and error recovery
-
 ## Quick Start
 
 ### Configure MQTT Feed
@@ -364,17 +352,6 @@ client.subscribe("0123456789abcdef/#")
 client.loop_forever()
 ```
 
-### Home Assistant
-```yaml
-# configuration.yaml
-mqtt:
-  sensor:
-    - name: "ADSBee Aircraft Count"
-      state_topic: "0123456789abcdef/system/telemetry"
-      value_template: "{{ value_json.mps_total }}"
-      unit_of_measurement: "aircraft/sec"
-```
-
 ## AT Command Reference
 
 ### Current AT Commands for MQTT
@@ -453,45 +430,3 @@ AT+MQTTFMT?          # Check all feed formats
 | `AT+REBOOT` | Reboot device | `AT+REBOOT` |
 | `AT+SETTINGS?` | Show all settings | `AT+SETTINGS?` |
 
-## Cloud Provider Examples
-
-### AWS IoT Core
-```bash
-AT+FEED=0,mqtts://xxx.iot.region.amazonaws.com,8883,1,MQTT
-AT+MQTTTLS=0,STRICT
-AT+MQTTAUTH=0,device-id,device-key
-AT+MQTTFMT=0,JSON
-AT+SETTINGS=SAVE
-AT+REBOOT
-```
-
-### Azure IoT Hub
-```bash
-AT+FEED=0,mqtts://iothub.azure-devices.net,8883,1,MQTT
-AT+MQTTTLS=0,STRICT
-AT+MQTTAUTH=0,device@sas.iothub,SharedAccessSignature
-AT+MQTTFMT=0,JSON
-AT+SETTINGS=SAVE
-AT+REBOOT
-```
-
-### HiveMQ Cloud
-```bash
-AT+FEED=0,mqtts://broker.hivemq.cloud,8883,1,MQTT
-AT+MQTTTLS=0,STRICT
-AT+MQTTAUTH=0,hivemq-user,secure-password
-AT+MQTTFMT=0,JSON
-AT+SETTINGS=SAVE
-AT+REBOOT
-```
-
-## Pending Features
-
-The following features are planned for future releases:
-- Custom client ID configuration
-- Raw packet publishing mode
-- GPS position publishing
-- Custom CA certificate upload
-- Client certificate authentication
-- Configurable QoS levels
-- Custom topic prefixes

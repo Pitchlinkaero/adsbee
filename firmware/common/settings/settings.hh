@@ -13,7 +13,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 13;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 14;  // Change this when settings format changes!
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -204,6 +204,11 @@ class SettingsManager {
         uint16_t mqtt_gps_interval_sec = 60;  // Default 60s
         uint8_t mqtt_status_rate_hz = 1;  // 1 Hz per aircraft by default
 
+        // MQTT OTA settings
+        bool mqtt_ota_enabled[kMaxNumFeeds];  // Enable OTA via MQTT per feed
+        uint16_t mqtt_ota_chunk_size = 4096;  // Default 4KB chunks
+        uint16_t mqtt_ota_timeout_sec = 30;  // Timeout per chunk
+
         /**
          * Default constructor.
          */
@@ -242,6 +247,7 @@ class SettingsManager {
                 mqtt_formats[i] = kMQTTFormatJSON;
                 mqtt_report_modes[i] = kMQTTReportModeStatus;
                 mqtt_tls_modes[i] = kMQTTTLSModeNoVerify;  // Default to no verification for compatibility
+                mqtt_ota_enabled[i] = false;  // OTA disabled by default for safety
             }
 
             // Initialize global MQTT device ID from receiver ID

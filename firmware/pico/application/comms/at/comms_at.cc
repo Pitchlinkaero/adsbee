@@ -637,6 +637,68 @@ CPP_AT_CALLBACK(CommsManager::ATMQTTTLSCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+void ATMQTTOTAHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTOTA=<index>,<enable>\r\n\tEnable/disable MQTT OTA for a feed.\r\n"
+        "\tindex = [0-%d], enable = [0|1].\r\n"
+        "\t\r\n\tAT+MQTTOTA?\r\n\tShow OTA status for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTOTA?<index>\r\n\tShow OTA status for a specific feed.\r\n"
+        "\t\r\nWARNING: OTA updates can brick your device if interrupted!\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTOTACallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed OTA status
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%d", index,
+                                  settings_manager.settings.mqtt_ota_enabled[index] ? 1 : 0);
+            } else {
+                // Query all feeds OTA status
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%d", i,
+                                      settings_manager.settings.mqtt_ota_enabled[i] ? 1 : 0);
+                    CPP_AT_PRINTF("\r\n");
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Enable/disable MQTT OTA
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTOTA=<index>,<0|1>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            if (CPP_AT_HAS_ARG(1)) {
+                uint16_t enable = 0;
+                CPP_AT_TRY_ARG2NUM(1, enable);
+                settings_manager.settings.mqtt_ota_enabled[index] = (enable != 0);
+
+                if (enable) {
+                    CPP_AT_PRINTF("WARNING: OTA enabled for feed %d. Ensure stable connection!\r\n", index);
+                }
+                CPP_AT_SUCCESS();
+            } else {
+                CPP_AT_ERROR("Enable flag required. Usage: AT+MQTTOTA=<index>,<0|1>");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {
     SettingsManager::Settings::CoreNetworkSettings &cns = settings_manager.settings.core_network_settings;
     switch (op) {
@@ -1327,6 +1389,11 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 2,
      .help_callback = ATMQTTTLSHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTTLSCallback, comms_manager)},
+    {.command_buf = "+MQTTOTA",
+     .min_args = 0,
+     .max_args = 2,
+     .help_callback = ATMQTTOTAHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTOTACallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,

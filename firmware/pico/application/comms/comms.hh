@@ -65,6 +65,7 @@ class CommsManager {
     CPP_AT_CALLBACK(ATMQTTFormatCallback);
     CPP_AT_CALLBACK(ATMQTTAuthCallback);
     CPP_AT_CALLBACK(ATMQTTTLSCallback);
+    CPP_AT_CALLBACK(ATMQTTOTACallback);
     CPP_AT_CALLBACK(ATHostnameCallback);
     CPP_AT_CALLBACK(ATOTACallback);
     CPP_AT_HELP_CALLBACK(ATOTAHelpCallback);
