@@ -25,9 +25,17 @@
 #define CONFIG_MQTT_RAW_PACKETS 0     // Raw packet publishing (not implemented)
 #define CONFIG_MQTT_GPS_PUBLISH 0     // GPS position publishing (not implemented)
 
+// MQTT Lite Mode - Ultra compact implementation
+// Enable this to use simplified MQTT with static buffers (saves ~10KB)
+#define CONFIG_MQTT_LITE_MODE 0
+
 // Memory optimization settings
-#define MQTT_MAX_TOPIC_LEN 128        // Maximum topic length
-#define MQTT_MAX_PAYLOAD_LEN 4096     // Maximum payload size
-#define MQTT_CHUNK_SIZE 1024           // Reduced from 4096 for OTA chunks
+#define MQTT_MAX_TOPIC_LEN 96          // Reduced from 128
+#define MQTT_MAX_PAYLOAD_LEN 2048      // Reduced from 4096
+#define MQTT_CHUNK_SIZE 512            // Reduced from 1024 for OTA chunks
+
+// Buffer pool sizes (only used if not in LITE mode)
+#define MQTT_JSON_BUFFER_SIZE 512      // For JSON serialization
+#define MQTT_BINARY_BUFFER_SIZE 128    // For binary messages
 
 #endif // MQTT_CONFIG_H

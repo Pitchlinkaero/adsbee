@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "hal.hh"  // For get_time_since_boot_ms
 #include "cJSON.h"  // ESP-IDF's cJSON component
+#include "object_dictionary.hh"  // For firmware version
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
@@ -506,23 +507,27 @@ bool MQTTClient::PublishAircraftStatus(const TransponderPacket& packet, uint8_t 
     // Convert packet to status
     AircraftStatus status = PacketToStatus(packet, band);
 
-    // Generate topic
-    std::string topic = GetStatusTopic(status.icao, band);
+    // Generate topic using stack buffer
+    char topic_buf[MQTT_MAX_TOPIC_LEN];
+    snprintf(topic_buf, sizeof(topic_buf), "%s/aircraft/%s/status",
+             config_.device_id.c_str(), status.icao.c_str());
 
     // Serialize based on format
     int msg_id = -1;
     if (config_.format == SettingsManager::MQTTFormat::kMQTTFormatBinary) {
-        std::vector<uint8_t> binary_data = SerializeStatusBinary(status);
-        msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
-                                          (const char*)binary_data.data(),
-                                          binary_data.size(), 0, false);
-        stats_.bytes_sent += binary_data.size();
+        uint8_t binary_buf[MQTT_BINARY_BUFFER_SIZE];
+        size_t binary_len = SerializeStatusBinaryToBuffer(status, binary_buf, sizeof(binary_buf));
+        msg_id = esp_mqtt_client_publish(client_, topic_buf,
+                                          (const char*)binary_buf,
+                                          binary_len, 0, false);
+        stats_.bytes_sent += binary_len;
     } else {
-        std::string json_data = SerializeStatusJSON(status);
-        msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
-                                          json_data.c_str(),
-                                          json_data.length(), 0, false);
-        stats_.bytes_sent += json_data.length();
+        char json_buf[MQTT_JSON_BUFFER_SIZE];
+        size_t json_len = SerializeStatusJSONToBuffer(status, json_buf, sizeof(json_buf));
+        msg_id = esp_mqtt_client_publish(client_, topic_buf,
+                                          json_buf,
+                                          json_len, 0, false);
+        stats_.bytes_sent += json_len;
     }
 
     if (msg_id >= 0) {
@@ -550,21 +555,25 @@ bool MQTTClient::PublishTelemetry(const Telemetry& telemetry) {
 
     last_telemetry_publish_ = now;
 
-    std::string topic = GetTelemetryTopic();
+    // Use stack buffer for topic
+    char topic_buf[MQTT_MAX_TOPIC_LEN];
+    snprintf(topic_buf, sizeof(topic_buf), "%s/telemetry", config_.device_id.c_str());
 
     int msg_id = -1;
     if (config_.format == SettingsManager::MQTTFormat::kMQTTFormatBinary) {
-        std::vector<uint8_t> binary_data = SerializeTelemetryBinary(telemetry);
-        msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
-                                          (const char*)binary_data.data(),
-                                          binary_data.size(), 1, false);  // QoS 1
-        stats_.bytes_sent += binary_data.size();
+        uint8_t binary_buf[256];
+        size_t binary_len = SerializeTelemetryBinaryToBuffer(telemetry, binary_buf, sizeof(binary_buf));
+        msg_id = esp_mqtt_client_publish(client_, topic_buf,
+                                          (const char*)binary_buf,
+                                          binary_len, 1, false);  // QoS 1
+        stats_.bytes_sent += binary_len;
     } else {
-        std::string json_data = SerializeTelemetryJSON(telemetry);
-        msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
-                                          json_data.c_str(),
-                                          json_data.length(), 1, false);  // QoS 1
-        stats_.bytes_sent += json_data.length();
+        char json_buf[MQTT_JSON_BUFFER_SIZE];
+        size_t json_len = SerializeTelemetryJSONToBuffer(telemetry, json_buf, sizeof(json_buf));
+        msg_id = esp_mqtt_client_publish(client_, topic_buf,
+                                          json_buf,
+                                          json_len, 1, false);  // QoS 1
+        stats_.bytes_sent += json_len;
     }
 
     return msg_id >= 0;
@@ -586,17 +595,25 @@ bool MQTTClient::PublishGPS(const GPS& gps) {
 
     last_gps_publish_ = now;
 
-    std::string topic = GetGPSTopic();
+    // Use stack buffer for topic
+    char topic_buf[MQTT_MAX_TOPIC_LEN];
+    if (config_.format == SettingsManager::MQTTFormat::kMQTTFormatBinary) {
+        snprintf(topic_buf, sizeof(topic_buf), "%s/sys/g", config_.device_id.c_str());
+    } else {
+        snprintf(topic_buf, sizeof(topic_buf), "%s/system/gps", config_.device_id.c_str());
+    }
 
     int msg_id = -1;
     if (config_.format == SettingsManager::MQTTFormat::kMQTTFormatBinary) {
-        std::vector<uint8_t> binary_data = SerializeGPSBinary(gps);
-        msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
-                                          (const char*)binary_data.data(),
-                                          binary_data.size(), 0, false);
-        stats_.bytes_sent += binary_data.size();
+        uint8_t binary_buf[32];
+        size_t binary_len = SerializeGPSBinaryToBuffer(gps, binary_buf, sizeof(binary_buf));
+        msg_id = esp_mqtt_client_publish(client_, topic_buf,
+                                          (const char*)binary_buf,
+                                          binary_len, 0, false);
+        stats_.bytes_sent += binary_len;
     } else {
-        std::string json_data = SerializeGPSJSON(gps);
+        char json_buf[256];
+        size_t json_len = SerializeGPSJSONToBuffer(gps, json_buf, sizeof(json_buf));
         msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
                                           json_data.c_str(),
                                           json_data.length(), 0, false);
@@ -938,6 +955,159 @@ std::vector<uint8_t> MQTTClient::SerializeGPSBinary(const GPS& gps) const {
     data[14] = 0;
 
     return data;
+}
+
+// Optimized buffer-based serialization (no heap allocations)
+size_t MQTTClient::SerializeStatusJSONToBuffer(const AircraftStatus& status, char* buf, size_t buf_size) const {
+    int written = snprintf(buf, buf_size,
+        "{\"icao\":\"%s\",\"band\":%d", status.icao.c_str(), status.band);
+
+    if (!status.callsign.empty() && written < buf_size) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"call\":\"%s\"", status.callsign.c_str());
+    }
+
+    if ((status.lat != 0 || status.lon != 0) && written < buf_size) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"lat\":%.5f,\"lon\":%.5f", status.lat, status.lon);
+    }
+
+    if (status.alt_ft != 0 && written < buf_size) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"alt_ft\":%d", status.alt_ft);
+    }
+
+    if (status.hdg_deg > 0 && written < buf_size) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"hdg\":%.1f", status.hdg_deg);
+    }
+
+    if (status.spd_kts > 0 && written < buf_size) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"spd\":%.1f", status.spd_kts);
+    }
+
+    if (written < buf_size) {
+        written += snprintf(buf + written, buf_size - written,
+            ",\"gnd\":%d,\"t\":%llu}",
+            status.on_ground ? 1 : 0, (unsigned long long)status.t_ms);
+    }
+
+    return written;
+}
+
+size_t MQTTClient::SerializeStatusBinaryToBuffer(const AircraftStatus& status, uint8_t* buf, size_t buf_size) const {
+    if (buf_size < 31) return 0;  // Need at least 31 bytes
+
+    size_t pos = 0;
+    buf[pos++] = 0;  // Message type
+    buf[pos++] = status.band;
+
+    // ICAO (3 bytes)
+    uint32_t icao = 0;
+    sscanf(status.icao.c_str(), "%06X", &icao);
+    buf[pos++] = (icao >> 16) & 0xFF;
+    buf[pos++] = (icao >> 8) & 0xFF;
+    buf[pos++] = icao & 0xFF;
+
+    // RSSI placeholder
+    buf[pos++] = 0xC8;  // -50 dBm
+
+    // Timestamp (4 bytes)
+    uint32_t t_ms = status.t_ms & 0xFFFFFFFF;
+    buf[pos++] = (t_ms >> 24) & 0xFF;
+    buf[pos++] = (t_ms >> 16) & 0xFF;
+    buf[pos++] = (t_ms >> 8) & 0xFF;
+    buf[pos++] = t_ms & 0xFF;
+
+    // Lat/Lon (8 bytes)
+    int32_t lat = (int32_t)(status.lat * 100000);
+    int32_t lon = (int32_t)(status.lon * 100000);
+    memcpy(buf + pos, &lat, 4); pos += 4;
+    memcpy(buf + pos, &lon, 4); pos += 4;
+
+    // Altitude (2 bytes)
+    uint16_t alt_25ft = (status.alt_ft > 0) ? (status.alt_ft / 25) : 0;
+    buf[pos++] = (alt_25ft >> 8) & 0xFF;
+    buf[pos++] = alt_25ft & 0xFF;
+
+    // Heading, speed, vrate, flags
+    buf[pos++] = (uint8_t)((status.hdg_deg * 256) / 360);
+    buf[pos++] = (status.spd_kts > 255) ? 255 : (uint8_t)status.spd_kts;
+    buf[pos++] = (uint8_t)((status.vr_fpm / 64) + 128);
+    buf[pos++] = status.on_ground ? 1 : 0;
+
+    // Callsign (7 bytes, space padded)
+    for (size_t i = 0; i < 7; i++) {
+        buf[pos++] = (i < status.callsign.length()) ? status.callsign[i] : ' ';
+    }
+
+    return pos;
+}
+
+size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, char* buf, size_t buf_size) const {
+    return snprintf(buf, buf_size,
+        "{\"up\":%u,\"rx\":%u,\"tx\":%u,\"cpu\":%d,\"mem\":%u,\"fw\":\"%d.%d.%d\"}",
+        telemetry.uptime_sec, telemetry.msgs_rx, telemetry.msgs_tx,
+        telemetry.cpu_temp_c, telemetry.mem_free_kb,
+        object_dictionary.kFirmwareVersionMajor,
+        object_dictionary.kFirmwareVersionMinor,
+        object_dictionary.kFirmwareVersionPatch);
+}
+
+size_t MQTTClient::SerializeTelemetryBinaryToBuffer(const Telemetry& telemetry, uint8_t* buf, size_t buf_size) const {
+    if (buf_size < 20) return 0;
+
+    size_t pos = 0;
+    buf[pos++] = 0x02;  // TELEMETRY message type
+
+    // Pack data efficiently
+    memcpy(buf + pos, &telemetry.uptime_sec, 4); pos += 4;
+    memcpy(buf + pos, &telemetry.msgs_rx, 4); pos += 4;
+    memcpy(buf + pos, &telemetry.msgs_tx, 4); pos += 4;
+
+    int16_t temp = telemetry.cpu_temp_c;
+    memcpy(buf + pos, &temp, 2); pos += 2;
+
+    uint16_t mem = telemetry.mem_free_kb / 1024;  // Convert to MB
+    memcpy(buf + pos, &mem, 2); pos += 2;
+
+    // Firmware version (3 bytes)
+    buf[pos++] = object_dictionary.kFirmwareVersionMajor;
+    buf[pos++] = object_dictionary.kFirmwareVersionMinor;
+    buf[pos++] = object_dictionary.kFirmwareVersionPatch;
+
+    return pos;
+}
+
+size_t MQTTClient::SerializeGPSJSONToBuffer(const GPS& gps, char* buf, size_t buf_size) const {
+    return snprintf(buf, buf_size,
+        "{\"lat\":%.6f,\"lon\":%.6f,\"alt\":%.1f,\"fix\":%d,\"sats\":%u}",
+        gps.lat, gps.lon, gps.alt_m, gps.fix, gps.sats);
+}
+
+size_t MQTTClient::SerializeGPSBinaryToBuffer(const GPS& gps, uint8_t* buf, size_t buf_size) const {
+    if (buf_size < 15) return 0;
+
+    size_t pos = 0;
+    buf[pos++] = 0x03;  // GPS message type
+
+    // Lat/Lon (8 bytes)
+    int32_t lat = (int32_t)(gps.lat * 1000000);
+    int32_t lon = (int32_t)(gps.lon * 1000000);
+    memcpy(buf + pos, &lat, 4); pos += 4;
+    memcpy(buf + pos, &lon, 4); pos += 4;
+
+    // Altitude (2 bytes)
+    int16_t alt = (int16_t)gps.alt_m;
+    memcpy(buf + pos, &alt, 2); pos += 2;
+
+    // Fix, sats, HDOP
+    buf[pos++] = gps.fix;
+    buf[pos++] = (gps.sats > 255) ? 255 : gps.sats;
+    buf[pos++] = (uint8_t)(gps.hdop * 10);
+
+    return pos;
 }
 
 }  // namespace MQTT

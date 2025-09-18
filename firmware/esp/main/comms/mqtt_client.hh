@@ -143,13 +143,21 @@ private:
     std::string GetOnlineTopic() const;
     std::string GetOTABaseTopic() const;
 
-    // Serialization
+    // Serialization (legacy - allocates memory)
     std::string SerializeStatusJSON(const AircraftStatus& status) const;
     std::string SerializeTelemetryJSON(const Telemetry& telemetry) const;
     std::string SerializeGPSJSON(const GPS& gps) const;
     std::vector<uint8_t> SerializeStatusBinary(const AircraftStatus& status) const;
     std::vector<uint8_t> SerializeTelemetryBinary(const Telemetry& telemetry) const;
     std::vector<uint8_t> SerializeGPSBinary(const GPS& gps) const;
+
+    // Optimized serialization (no allocations)
+    size_t SerializeStatusJSONToBuffer(const AircraftStatus& status, char* buf, size_t buf_size) const;
+    size_t SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, char* buf, size_t buf_size) const;
+    size_t SerializeGPSJSONToBuffer(const GPS& gps, char* buf, size_t buf_size) const;
+    size_t SerializeStatusBinaryToBuffer(const AircraftStatus& status, uint8_t* buf, size_t buf_size) const;
+    size_t SerializeTelemetryBinaryToBuffer(const Telemetry& telemetry, uint8_t* buf, size_t buf_size) const;
+    size_t SerializeGPSBinaryToBuffer(const GPS& gps, uint8_t* buf, size_t buf_size) const;
 
     // Convert TransponderPacket to AircraftStatus
     AircraftStatus PacketToStatus(const TransponderPacket& packet, uint8_t band) const;
