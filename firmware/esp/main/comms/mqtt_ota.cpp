@@ -372,48 +372,68 @@ std::string MQTTOTAHandler::GetChunkTopic(uint32_t index) const {
 
 // TODO: Implement these functions
 bool MQTTOTAHandler::EraseFlashPartition() {
-    // Pass-through mode: Send OTA ERASE command to Pico
-    // The Pico will handle actual flash erasing
+    // Send AT+OTA=ERASE command to Pico via network console
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=ERASE\r\n");
 
-    // TODO: Implement actual UART/SPI command to Pico
-    // Format: AT+OTA=ERASE,<size>,<chunks>
-    CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
-                 "Sending OTA ERASE command to Pico: size=%" PRIu32 " chunks=%" PRIu32,
-                 manifest_.size, manifest_.total_chunks);
+    // Send command through network console queue
+    bool success = SendCommandToPico(cmd);
 
-    // For now, simulate success to test MQTT flow
-    // In production, wait for Pico ACK
-    return true;
+    if (success) {
+        CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
+                     "Sent OTA ERASE command to Pico for %" PRIu32 " bytes",
+                     manifest_.size);
+    } else {
+        CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
+                      "Failed to send ERASE command to Pico");
+    }
+
+    return success;
 }
 
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
-    // Pass-through mode: Send chunk data to Pico
-    // The Pico will handle actual flash writing
+    // Send AT+OTA=WRITE command followed by binary data
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=WRITE,%X,%lu,%X\r\n",
+             offset, (unsigned long)len, crc);
 
-    // TODO: Implement actual UART/SPI data transfer to Pico
-    // Format: AT+OTA=CHUNK,<offset>,<len>,<crc>,<data>
+    // Send command
+    if (!SendCommandToPico(cmd)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Failed to send WRITE command to Pico");
+        return false;
+    }
+
+    // Send binary data after command
+    if (!SendDataToPico(data, len)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Failed to send chunk data to Pico");
+        return false;
+    }
+
     CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
-                 "Forwarding chunk to Pico: offset=0x%08" PRIx32 " len=%zu crc=0x%08" PRIx32,
+                 "Sent chunk to Pico: offset=0x%08X len=%zu crc=0x%08X",
                  offset, len, crc);
 
-    // For now, simulate success to test MQTT flow
-    // In production, wait for Pico ACK
     return true;
 }
 
 bool MQTTOTAHandler::VerifyFlashPartition() {
-    // Pass-through mode: Send VERIFY command to Pico
-    // The Pico will verify the firmware and respond with calculated SHA256
+    // Send AT+OTA=VERIFY command to Pico
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=VERIFY,%s\r\n", manifest_.sha256.c_str());
 
-    // TODO: Implement actual UART/SPI command to Pico
-    // Format: AT+OTA=VERIFY,<expected_sha256>
-    CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
-                 "Sending OTA VERIFY command to Pico with SHA256: %s",
-                 manifest_.sha256.c_str());
+    bool success = SendCommandToPico(cmd);
 
-    // For now, simulate success to test MQTT flow
-    // In production, wait for Pico to respond with verification result
-    return true;
+    if (success) {
+        CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
+                     "Sent OTA VERIFY command to Pico");
+    } else {
+        CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
+                      "Failed to send VERIFY command to Pico");
+    }
+
+    return success;
 }
 
 void MQTTOTAHandler::RequestMissingChunks() {
@@ -529,4 +549,39 @@ uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
         }
     }
     return ~crc;
+}
+
+bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
+    // Send AT command to Pico via network console queue
+    xSemaphoreTake(object_dictionary.network_console_rx_queue_mutex, portMAX_DELAY);
+
+    size_t cmd_len = strlen(cmd);
+    for (size_t i = 0; i < cmd_len; i++) {
+        if (!object_dictionary.network_console_rx_queue.Push(cmd[i])) {
+            CONSOLE_ERROR("MQTTOTAHandler::SendCommandToPico",
+                          "Failed to push command character to network console queue");
+            xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+            return false;
+        }
+    }
+
+    xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+    return true;
+}
+
+bool MQTTOTAHandler::SendDataToPico(const uint8_t* data, size_t len) {
+    // Send binary data to Pico via network console queue
+    xSemaphoreTake(object_dictionary.network_console_rx_queue_mutex, portMAX_DELAY);
+
+    for (size_t i = 0; i < len; i++) {
+        if (!object_dictionary.network_console_rx_queue.Push(static_cast<char>(data[i]))) {
+            CONSOLE_ERROR("MQTTOTAHandler::SendDataToPico",
+                          "Failed to push data byte %zu to network console queue", i);
+            xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+            return false;
+        }
+    }
+
+    xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+    return true;
 }

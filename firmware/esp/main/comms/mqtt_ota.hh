@@ -130,6 +130,10 @@ private:
 
     // CRC calculation
     uint32_t CalculateCRC32(const uint8_t* data, size_t len);
+
+    // Pico communication helpers
+    bool SendCommandToPico(const char* cmd);
+    bool SendDataToPico(const uint8_t* data, size_t len);
 };
 
 #endif // MQTT_OTA_HH
