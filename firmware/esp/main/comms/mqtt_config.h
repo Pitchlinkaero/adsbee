@@ -15,7 +15,7 @@
 // MQTT OTA (Over-The-Air) update support
 // Disable this to save ~20KB of flash if OTA via MQTT is not needed
 // CONFIG_MQTT_ENABLED=1
-#define CONFIG_MQTT_OTA_ENABLED 0
+#define CONFIG_MQTT_OTA_ENABLED 1
 
 // MQTT TLS/SSL support
 // Disable this to save ~20KB if only using unencrypted MQTT connections
