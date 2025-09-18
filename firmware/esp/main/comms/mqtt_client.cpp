@@ -418,21 +418,7 @@ std::string MQTTClient::GetGPSTopic() const {
     }
 }
 
-std::string MQTTClient::GetStatusTopic(const std::string& icao, uint8_t band) const {
-    return config_.device_id + "/aircraft/" + icao + "/status";
-}
-
-std::string MQTTClient::GetRawTopic(const std::string& icao, uint8_t band) const {
-    return config_.device_id + "/aircraft/" + icao + "/raw";
-}
-
-std::string MQTTClient::GetTelemetryTopic() const {
-    return config_.device_id + "/telemetry";
-}
-
-std::string MQTTClient::GetGPSTopic() const {
-    return config_.device_id + "/gps";
-}
+// (Removed duplicate topic helper definitions)
 
 std::string MQTTClient::GetOnlineTopic() const {
     return config_.device_id + "/system/online";
