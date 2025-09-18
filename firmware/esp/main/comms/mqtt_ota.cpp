@@ -21,9 +21,7 @@ MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index
       total_bytes_(0),
       last_chunk_timestamp_ms_(0),
       ota_start_timestamp_ms_(0),
-      timeout_ms_(30000),
-      ota_partition_(nullptr),
-      ota_handle_(0) {
+      timeout_ms_(30000) {
     memset(chunk_buffer_, 0, kMaxChunkSize);
 }
 
@@ -394,8 +392,8 @@ bool MQTTOTAHandler::EraseFlashPartition() {
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
     // Send AT+OTA=WRITE command followed by binary data
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "AT+OTA=WRITE,%X,%lu,%X\r\n",
-             offset, (unsigned long)len, crc);
+    snprintf(cmd, sizeof(cmd), "AT+OTA=WRITE,%lX,%lu,%lX\r\n",
+             (unsigned long)offset, (unsigned long)len, (unsigned long)crc);
 
     // Send command
     if (!SendCommandToPico(cmd)) {
@@ -412,8 +410,8 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
     }
 
     CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
-                 "Sent chunk to Pico: offset=0x%08X len=%zu crc=0x%08X",
-                 offset, len, crc);
+                 "Sent chunk to Pico: offset=0x%08lX len=%zu crc=0x%08lX",
+                 (unsigned long)offset, len, (unsigned long)crc);
 
     return true;
 }

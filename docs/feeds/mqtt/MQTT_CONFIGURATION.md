@@ -534,6 +534,23 @@ AT+SETTINGS=SAVE
 AT+REBOOT
 ```
 
+## OTA (Over-The-Air) Updates
+
+MQTT supports remote firmware updates via the pass-through architecture where ESP32 forwards updates to the Pico processor.
+
+### Quick Setup
+```bash
+# On device - enable MQTT OTA
+AT+FEED=0,broker.example.com,1883,1,MQTT
+AT+MQTTDEVICE=bee0003a59b3356e
+AT+SAVE
+
+# On computer - push firmware
+python3 mqtt_ota_publisher.py --broker broker.example.com --device bee0003a59b3356e firmware.ota
+```
+
+For detailed OTA instructions, see [MQTT_OTA_GUIDE.md](MQTT_OTA_GUIDE.md).
+
 ## Pending Features
 
 The following features are planned for future releases:
@@ -544,15 +561,5 @@ The following features are planned for future releases:
 - Client certificate authentication
 - Configurable QoS levels
 - Custom topic prefixes
-- OTA server tools and scripts
+- Firmware signing for OTA
 
-## Version History
-
-### 0.8.2-RC13 - Size Optimizations
-- Added conditional compilation for all MQTT features
-- OTA support can be disabled to save ~20KB (CONFIG_MQTT_OTA_ENABLED)
-- TLS support can be disabled to save ~20KB (CONFIG_MQTT_TLS_ENABLED)
-- Entire MQTT stack can be disabled to save ~70KB (CONFIG_MQTT_ENABLED)
-- Optimized string handling with static buffers
-- Reduced default OTA chunk size from 4KB to 1KB
-- See FIRMWARE_SIZE_OPTIMIZATION.md for configuration details
