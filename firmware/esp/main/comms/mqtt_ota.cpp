@@ -195,13 +195,35 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         return false;
     }
 
-    // Calculate flash offset - firmware starts at 4KB after header
-    // Header will be written by CompleteOTAUpdate
-    constexpr uint32_t APP_OFFSET = 4 * 1024; // 4KB header space
-    uint32_t flash_offset = APP_OFFSET + (index * manifest_.chunk_size);
+    // Calculate flash offset
+    // The MQTT publisher sends .ota file which has 20-byte header followed by app
+    // We need to skip the header and write app at 4KB offset
+    constexpr uint32_t OTA_HEADER_SIZE = 20;  // 5 * 4 bytes
+    constexpr uint32_t APP_OFFSET = 4 * 1024; // App starts at 4KB in flash
+
+    uint32_t data_offset = index * manifest_.chunk_size;
+    uint32_t flash_offset;
 
     // For the last chunk, only write the actual data bytes, not padding
     size_t bytes_to_write = chunk_data_len;
+
+    // First chunk contains OTA header that we need to skip
+    if (index == 0) {
+        // First chunk: skip OTA header, write remaining data at APP_OFFSET
+        if (chunk_data_len <= OTA_HEADER_SIZE) {
+            CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
+                         "First chunk too small, no app data after header");
+            return false;
+        }
+        // Skip the 20-byte header, write rest at 4KB
+        chunk_data += OTA_HEADER_SIZE;
+        chunk_data_len -= OTA_HEADER_SIZE;
+        bytes_to_write = chunk_data_len;  // Update bytes to write
+        flash_offset = APP_OFFSET;
+    } else {
+        // Subsequent chunks: account for header bytes we skipped
+        flash_offset = APP_OFFSET + (data_offset - OTA_HEADER_SIZE);
+    }
     if (is_last_chunk && chunk_data_len > expected_chunk_size) {
         // Chunk is padded, only write the actual firmware bytes
         bytes_to_write = expected_chunk_size;
@@ -539,14 +561,18 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
 
 bool MQTTOTAHandler::CompleteOTAUpdate() {
     // Send AT+OTA=COMPLETE command to Pico to write the header
+    // The manifest size includes the 20-byte OTA header, but we need only app size
+    constexpr uint32_t OTA_HEADER_SIZE = 20;
+    uint32_t app_size = manifest_.size - OTA_HEADER_SIZE;
+
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "AT+OTA=COMPLETE,%lu\r\n", (unsigned long)manifest_.size);
+    snprintf(cmd, sizeof(cmd), "AT+OTA=COMPLETE,%lu\r\n", (unsigned long)app_size);
 
     bool success = SendCommandToPico(cmd);
 
     if (success) {
         CONSOLE_INFO("MQTTOTAHandler::CompleteOTAUpdate",
-                     "Sent OTA COMPLETE command to Pico for %lu bytes", (unsigned long)manifest_.size);
+                     "Sent OTA COMPLETE command to Pico for %lu bytes (app only)", (unsigned long)app_size);
     } else {
         CONSOLE_ERROR("MQTTOTAHandler::CompleteOTAUpdate",
                       "Failed to send COMPLETE command to Pico");
