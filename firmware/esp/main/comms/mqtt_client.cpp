@@ -614,10 +614,10 @@ bool MQTTClient::PublishGPS(const GPS& gps) {
     } else {
         char json_buf[256];
         size_t json_len = SerializeGPSJSONToBuffer(gps, json_buf, sizeof(json_buf));
-        msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
-                                          json_data.c_str(),
-                                          json_data.length(), 0, false);
-        stats_.bytes_sent += json_data.length();
+        msg_id = esp_mqtt_client_publish(client_, topic_buf,
+                                          json_buf,
+                                          json_len, 0, false);
+        stats_.bytes_sent += json_len;
     }
 
     return msg_id >= 0;
@@ -974,7 +974,7 @@ size_t MQTTClient::SerializeStatusJSONToBuffer(const AircraftStatus& status, cha
 
     if (status.alt_ft != 0 && written < buf_size) {
         written += snprintf(buf + written, buf_size - written,
-            ",\"alt_ft\":%d", status.alt_ft);
+            ",\"alt_ft\":%ld", (long)status.alt_ft);
     }
 
     if (status.hdg_deg > 0 && written < buf_size) {
@@ -1004,8 +1004,9 @@ size_t MQTTClient::SerializeStatusBinaryToBuffer(const AircraftStatus& status, u
     buf[pos++] = status.band;
 
     // ICAO (3 bytes)
-    uint32_t icao = 0;
-    sscanf(status.icao.c_str(), "%06X", &icao);
+    unsigned long icao_long = 0;
+    sscanf(status.icao.c_str(), "%06lX", &icao_long);
+    uint32_t icao = (uint32_t)icao_long;
     buf[pos++] = (icao >> 16) & 0xFF;
     buf[pos++] = (icao >> 8) & 0xFF;
     buf[pos++] = icao & 0xFF;
@@ -1047,9 +1048,10 @@ size_t MQTTClient::SerializeStatusBinaryToBuffer(const AircraftStatus& status, u
 
 size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, char* buf, size_t buf_size) const {
     return snprintf(buf, buf_size,
-        "{\"up\":%u,\"rx\":%u,\"tx\":%u,\"cpu\":%d,\"mem\":%u,\"fw\":\"%d.%d.%d\"}",
-        telemetry.uptime_sec, telemetry.msgs_rx, telemetry.msgs_tx,
-        telemetry.cpu_temp_c, telemetry.mem_free_kb,
+        "{\"up\":%lu,\"rx\":%lu,\"tx\":%lu,\"cpu\":%ld,\"mem\":%lu,\"fw\":\"%d.%d.%d\"}",
+        (unsigned long)telemetry.uptime_sec, (unsigned long)telemetry.msgs_rx,
+        (unsigned long)telemetry.msgs_tx, (long)telemetry.cpu_temp_c,
+        (unsigned long)telemetry.mem_free_kb,
         object_dictionary.kFirmwareVersionMajor,
         object_dictionary.kFirmwareVersionMinor,
         object_dictionary.kFirmwareVersionPatch);
@@ -1082,8 +1084,8 @@ size_t MQTTClient::SerializeTelemetryBinaryToBuffer(const Telemetry& telemetry, 
 
 size_t MQTTClient::SerializeGPSJSONToBuffer(const GPS& gps, char* buf, size_t buf_size) const {
     return snprintf(buf, buf_size,
-        "{\"lat\":%.6f,\"lon\":%.6f,\"alt\":%.1f,\"fix\":%d,\"sats\":%u}",
-        gps.lat, gps.lon, gps.alt_m, gps.fix, gps.sats);
+        "{\"lat\":%.6f,\"lon\":%.6f,\"alt\":%.1f,\"fix\":%d,\"sats\":%lu}",
+        gps.lat, gps.lon, gps.alt_m, gps.fix, (unsigned long)gps.sats);
 }
 
 size_t MQTTClient::SerializeGPSBinaryToBuffer(const GPS& gps, uint8_t* buf, size_t buf_size) const {
