@@ -61,6 +61,7 @@ class ADSBeeOTAPublisher:
         self.firmware_size = 0
         self.total_chunks = 0
         self.auto_boot = False
+        self.pre_reboot = True
 
         # Track ACKs
         self.acked_chunks = set()
@@ -70,6 +71,8 @@ class ADSBeeOTAPublisher:
         # State
         self.connected = False
         self.ota_state = "IDLE"
+        self.device_online = False
+        self.last_telemetry_time = 0
 
     def connect(self) -> bool:
         """Connect to MQTT broker"""
@@ -116,6 +119,12 @@ class ADSBeeOTAPublisher:
     def _on_message(self, client, userdata, msg):
         """Handle incoming MQTT messages"""
         topic = msg.topic
+
+        # Check for telemetry messages
+        if topic.endswith("/telemetry"):
+            self.device_online = True
+            self.last_telemetry_time = time.time()
+            return
 
         # Handle status updates
         if topic.endswith("/ota/status/state"):
@@ -386,6 +395,26 @@ class ADSBeeOTAPublisher:
         self.subscribe_to_device(device_id)
         time.sleep(2)
 
+        # Check device is online first
+        print("Checking device connectivity...")
+        if not self.wait_for_device_online(timeout=10):
+            print("Device not responding. Is it online and connected to MQTT?")
+            return False
+        print("✓ Device is online")
+
+        # Optional: Reboot device to clean state
+        if self.pre_reboot:
+            print("Rebooting device to clean state...")
+            self.send_command("REBOOT")
+            time.sleep(5)  # Wait for device to start rebooting
+
+            print("Waiting for device to come back online (up to 60s)...")
+            if not self.wait_for_device_online(timeout=60):
+                print("Device failed to come back online after reboot")
+                return False
+            print("✓ Device back online after reboot")
+            time.sleep(2)  # Give it a moment to stabilize
+
         # Load firmware
         if not self.load_firmware(firmware_path):
             return False
@@ -447,6 +476,30 @@ class ADSBeeOTAPublisher:
             print(f"Update failed (state: {self.ota_state})")
             return False
 
+    def wait_for_device_online(self, timeout: int = 30) -> bool:
+        """Wait for device to come online by monitoring telemetry
+
+        Args:
+            timeout: Maximum seconds to wait
+
+        Returns:
+            True if device comes online within timeout
+        """
+        start_time = time.time()
+        self.device_online = False
+
+        # Subscribe to telemetry if not already
+        telemetry_topic = f"{self.device_id}/telemetry"
+        self.client.subscribe(telemetry_topic, qos=0)
+
+        while time.time() - start_time < timeout:
+            # Check if we received recent telemetry
+            if self.device_online or (time.time() - self.last_telemetry_time < 5):
+                return True
+            time.sleep(1)
+
+        return False
+
     def _crc32(self, data: bytes) -> int:
         """Calculate CRC32 checksum
 
@@ -496,6 +549,8 @@ Examples:
                        help="MQTT keepalive seconds (default: 60)")
     parser.add_argument("--auto-boot", action="store_true",
                        help="Automatically send BOOT after READY_TO_BOOT")
+    parser.add_argument("--pre-reboot", action="store_true",
+                       help="Reboot device before starting OTA for clean state")
 
     args = parser.parse_args()
 
@@ -516,6 +571,7 @@ Examples:
 
     publisher.chunk_size = args.chunk_size
     publisher.auto_boot = args.auto_boot
+    publisher.pre_reboot = args.pre_reboot
 
     # Validate chunk size to fit header (H for length and CRC16)
     if publisher.chunk_size <= 0 or publisher.chunk_size > 65535:

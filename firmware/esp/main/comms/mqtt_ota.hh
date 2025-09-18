@@ -1,6 +1,7 @@
 #ifndef MQTT_OTA_HH
 #define MQTT_OTA_HH
 
+#include "mqtt_config.h"
 #include <string>
 #include <vector>
 #include <map>
@@ -101,7 +102,7 @@ private:
     uint32_t timeout_ms_;
 
     // Buffer for accumulating chunks
-    static constexpr size_t kMaxChunkSize = 4096;
+    static constexpr size_t kMaxChunkSize = MQTT_OTA_MAX_CHUNK_SIZE;
     uint8_t chunk_buffer_[kMaxChunkSize];
 
     // Pass-through mode - no local storage needed

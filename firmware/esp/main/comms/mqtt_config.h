@@ -13,9 +13,10 @@
 #define CONFIG_MQTT_ENABLED 1
 
 // MQTT OTA (Over-The-Air) update support
-// Disable this to save ~20KB of flash if OTA via MQTT is not needed
-// CONFIG_MQTT_ENABLED=1
+// Pass-through mode: ESP32 forwards OTA to Pico via AT commands
+// No local flash storage needed on ESP32
 #define CONFIG_MQTT_OTA_ENABLED 1
+#define CONFIG_MQTT_OTA_PASSTHROUGH 1  // Use pass-through to Pico instead of local storage
 
 // MQTT TLS/SSL support
 // Disable this to save ~20KB if only using unencrypted MQTT connections
@@ -32,7 +33,11 @@
 // Memory optimization settings
 #define MQTT_MAX_TOPIC_LEN 96          // Reduced from 128
 #define MQTT_MAX_PAYLOAD_LEN 2048      // Reduced from 4096
-#define MQTT_CHUNK_SIZE 512            // Reduced from 1024 for OTA chunks
+
+// OTA Settings (pass-through mode)
+#define MQTT_OTA_CHUNK_SIZE 4096       // Default chunk size for OTA transfers
+#define MQTT_OTA_MAX_CHUNK_SIZE 8192   // Maximum chunk size supported
+#define MQTT_OTA_COMMAND_TIMEOUT_MS 5000  // Timeout waiting for Pico ACK
 
 // Buffer pool sizes (only used if not in LITE mode)
 #define MQTT_JSON_BUFFER_SIZE 512      // For JSON serialization
