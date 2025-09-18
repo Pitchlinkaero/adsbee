@@ -87,6 +87,10 @@ bool MQTTOTAHandler::HandleCommand(const std::string& command) {
         return VerifyOTA();
     } else if (command == "BOOT") {
         return BootNewFirmware();
+    } else if (command == "REBOOT") {
+        return RebootDevice();
+    } else if (command == "GET_PARTITION") {
+        return GetPartitionInfo();
     }
     CONSOLE_WARNING("MQTTOTAHandler::HandleCommand", "Unknown command: %s", command.c_str());
     return false;
@@ -279,11 +283,49 @@ bool MQTTOTAHandler::BootNewFirmware() {
     // Send final status before reboot
     PublishStatus();
 
-    // Send AT+OTA=BOOT command
-    // This will trigger a reboot to the new partition
-    // TODO: Implement actual AT command sending
+    // Send AT+OTA=BOOT command to Pico
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=BOOT\r\n");
+    bool success = SendCommandToPico(cmd);
 
-    return true;
+    if (success) {
+        CONSOLE_INFO("MQTTOTAHandler::BootNewFirmware", "Sent BOOT command to Pico");
+    }
+
+    return success;
+}
+
+bool MQTTOTAHandler::RebootDevice() {
+    CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Rebooting device for clean state");
+
+    // Send AT+REBOOT command to Pico
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+REBOOT\r\n");
+    bool success = SendCommandToPico(cmd);
+
+    if (success) {
+        CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Sent REBOOT command to Pico");
+        // Reset OTA state after reboot command
+        state_ = OTAState::IDLE;
+        PublishStatus();
+    }
+
+    return success;
+}
+
+bool MQTTOTAHandler::GetPartitionInfo() {
+    CONSOLE_INFO("MQTTOTAHandler::GetPartitionInfo", "Querying target partition");
+
+    // Send AT+OTA=GET_PARTITION command to Pico
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=GET_PARTITION\r\n");
+    bool success = SendCommandToPico(cmd);
+
+    if (success) {
+        CONSOLE_INFO("MQTTOTAHandler::GetPartitionInfo", "Sent GET_PARTITION command to Pico");
+    }
+
+    return success;
 }
 
 // Public JSON getters used by MQTTClient for publishing

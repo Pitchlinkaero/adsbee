@@ -70,6 +70,8 @@ public:
     bool AbortOTA();
     bool VerifyOTA();
     bool BootNewFirmware();
+    bool RebootDevice();
+    bool GetPartitionInfo();
 
     // Status reporting
     void PublishStatus();

@@ -111,7 +111,7 @@ python3 mqtt_ota_publisher.py \
 
 ### Control Topics (Publisher → Device)
 - `{device_id}/ota/control/manifest` - Firmware manifest with metadata
-- `{device_id}/ota/control/command` - Control commands (START, PAUSE, RESUME, ABORT, VERIFY, BOOT)
+- `{device_id}/ota/control/command` - Control commands (START, PAUSE, RESUME, ABORT, VERIFY, BOOT, REBOOT, GET_PARTITION)
 - `{device_id}/ota/data/chunk/{index}` - Firmware data chunks
 
 ### Status Topics (Device → Publisher)
