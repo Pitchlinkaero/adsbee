@@ -749,6 +749,9 @@
                     }
                 }
 
+                // Complete the OTA by calculating CRC and writing the header
+                await this.sendCmd(`AT+OTA=COMPLETE,${appLenBytes}\r\n`, 0, true, true);
+
                 // Verify and boot the new partition
                 await this.sendCmd("AT+OTA=VERIFY\r\n", 0, true, true);
             }

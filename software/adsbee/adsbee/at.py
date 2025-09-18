@@ -304,6 +304,9 @@ class ADSBeeAT:
                 self.ota_write_bytes(offset_bytes, contents[i:i+WRITE_CHUNK_BYTES])
             # self.ota_write_bytes(HEADER_SIZE_BYTES, contents[HEADER_SIZE_BYTES:])
 
+            # Complete the OTA by calculating CRC and writing the header
+            self.send_cmd(f"AT+OTA=COMPLETE,{app_len_bytes}\r\n", print_response=True, wait_for_ok_or_error=True)
+
             # Verify and boot the new partition.
             self.send_cmd(f"AT+OTA=VERIFY\r\n", print_response=True, wait_for_ok_or_error=True)
     
