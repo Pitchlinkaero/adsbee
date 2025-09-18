@@ -56,7 +56,7 @@ class ADSBeeOTAPublisher:
 
         self.device_id = None
         self.session_id = str(uuid.uuid4())
-        self.chunk_size = 512
+        self.chunk_size = 2048
         self.firmware_data = None
         self.firmware_size = 0
         self.total_chunks = 0
@@ -560,8 +560,8 @@ Examples:
     parser.add_argument("--username", help="MQTT username")
     parser.add_argument("--password", help="MQTT password")
     parser.add_argument("--tls", action="store_true", help="Use TLS/SSL")
-    parser.add_argument("--chunk-size", type=int, default=512,
-                       help="Chunk size in bytes (default: 512, max recommended: 1024)")
+    parser.add_argument("--chunk-size", type=int, default=2048,
+                       help="Chunk size in bytes (default: 2048, max recommended: 4096)")
     parser.add_argument("--keepalive", type=int, default=60,
                        help="MQTT keepalive seconds (default: 60)")
     parser.add_argument("--auto-boot", action="store_true",

@@ -461,8 +461,8 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
         return false;
     }
 
-    // Wait a bit for the Pico to process the command before sending data
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // Small delay for command processing
+    vTaskDelay(pdMS_TO_TICKS(5));
 
     // Send binary data after command
     if (!SendDataToPico(data, len)) {
@@ -471,8 +471,8 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
         return false;
     }
 
-    // Wait for Pico to process the chunk
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // Small delay for Pico to process
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
                  "Sent chunk to Pico: offset=0x%08lX len=%zu crc=0x%08lX",

@@ -35,8 +35,8 @@
 #define MQTT_MAX_PAYLOAD_LEN 8192      // Increased for OTA chunks (4096 + header)
 
 // OTA Settings (pass-through mode)
-#define MQTT_OTA_CHUNK_SIZE 512        // Small chunk size to avoid broker limits
-#define MQTT_OTA_MAX_CHUNK_SIZE 1024   // Maximum chunk size to stay under 1KB limit
+#define MQTT_OTA_CHUNK_SIZE 2048       // Chunk size for OTA transfers
+#define MQTT_OTA_MAX_CHUNK_SIZE 4096   // Maximum chunk size supported
 #define MQTT_OTA_COMMAND_TIMEOUT_MS 5000  // Timeout waiting for Pico ACK
 
 // Buffer pool sizes (only used if not in LITE mode)
