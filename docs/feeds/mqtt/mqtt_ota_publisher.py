@@ -97,6 +97,8 @@ class ADSBeeOTAPublisher:
         self.ota_state = "IDLE"
         self.device_online = False
         self.last_telemetry_time = 0
+        self.current_firmware_version = None
+        self.target_version = None
 
     def connect(self) -> bool:
         """Connect to MQTT broker"""
@@ -148,6 +150,12 @@ class ADSBeeOTAPublisher:
         if topic.endswith("/telemetry"):
             self.device_online = True
             self.last_telemetry_time = time.time()
+            # Parse telemetry to get firmware version if available
+            try:
+                telemetry = json.loads(msg.payload.decode())
+                self.current_firmware_version = telemetry.get("firmware_version", None)
+            except (json.JSONDecodeError, AttributeError):
+                pass
             return
 
         # Handle console/debug messages (future enhancement)
@@ -632,6 +640,9 @@ class ADSBeeOTAPublisher:
         Returns:
             True if update successful
         """
+        # Store target version for verification
+        self.target_version = version
+
         # Subscribe to device
         self.subscribe_to_device(device_id)
         time.sleep(2)
@@ -703,10 +714,11 @@ class ADSBeeOTAPublisher:
         if self.ota_state == "READY_TO_BOOT":
             print("Firmware verified successfully!")
 
-            # Optional: Send BOOT command
+            # Send BOOT command
             if self.auto_boot:
                 self.send_command("BOOT")
                 print("Device rebooting with new firmware...")
+                reboot_confirmed = True
             else:
                 try:
                     response = input("Send BOOT command to reboot device? (y/n): ")
@@ -715,6 +727,49 @@ class ADSBeeOTAPublisher:
                 if response.lower() == 'y':
                     self.send_command("BOOT")
                     print("Device rebooting with new firmware...")
+                    reboot_confirmed = True
+                else:
+                    print("⚠️  WARNING: Device has NOT been rebooted!")
+                    print("The new firmware is staged but not active.")
+                    print("Send BOOT command manually to activate the new firmware.")
+                    return True  # Still successful, just not rebooted
+
+            # If we sent BOOT, wait for device to come back online
+            if reboot_confirmed:
+                print("\nWaiting for device to reboot (device will go offline)...")
+                time.sleep(10)  # Give device time to start rebooting
+
+                # Device should go offline during reboot
+                print("Waiting for device to come back online after reboot (up to 120s)...")
+                self.device_online = False
+                self.last_telemetry_time = 0
+                self.current_firmware_version = None  # Reset to get fresh version
+
+                if self.wait_for_device_online(timeout=120):
+                    print("✅ Device successfully rebooted and is back online!")
+
+                    # Verify firmware version matches what we flashed
+                    time.sleep(2)  # Give a moment for telemetry to be processed
+                    if self.current_firmware_version:
+                        print(f"Device firmware version: {self.current_firmware_version}")
+                        if self.current_firmware_version == self.target_version:
+                            print(f"✅ Firmware version confirmed: {self.target_version}")
+                            return True
+                        else:
+                            print(f"⚠️  WARNING: Firmware version mismatch!")
+                            print(f"  Expected: {self.target_version}")
+                            print(f"  Actual: {self.current_firmware_version}")
+                            print("Device may have failed to boot new firmware or rolled back.")
+                            return False
+                    else:
+                        print("⚠️  WARNING: Could not verify firmware version from telemetry")
+                        print("Device is online but version confirmation unavailable.")
+                        return True  # Device is up, but can't verify version
+                else:
+                    print("⚠️  WARNING: Device did not come back online after reboot")
+                    print("The device may still be rebooting or may have failed to boot.")
+                    print("Please check the device manually.")
+                    return False
 
             return True
 
