@@ -61,7 +61,7 @@ class ADSBeeOTAPublisher:
         self.firmware_size = 0
         self.total_chunks = 0
         self.auto_boot = False
-        self.pre_reboot = True
+        self.pre_reboot = False
 
         # Track ACKs
         self.acked_chunks = set()
@@ -560,8 +560,10 @@ Examples:
                        help="MQTT keepalive seconds (default: 60)")
     parser.add_argument("--auto-boot", action="store_true",
                        help="Automatically send BOOT after READY_TO_BOOT")
-    parser.add_argument("--pre-reboot", action="store_true",
-                       help="Reboot device before starting OTA for clean state")
+    parser.add_argument("--pre-reboot", action="store_true", default=True,
+                       help="Reboot device before starting OTA for clean state (default: True)")
+    parser.add_argument("--no-pre-reboot", dest="pre_reboot", action="store_false",
+                       help="Skip pre-reboot before OTA")
 
     args = parser.parse_args()
 

@@ -32,7 +32,7 @@
 
 // Memory optimization settings
 #define MQTT_MAX_TOPIC_LEN 96          // Reduced from 128
-#define MQTT_MAX_PAYLOAD_LEN 2048      // Reduced from 4096
+#define MQTT_MAX_PAYLOAD_LEN 8192      // Increased for OTA chunks (4096 + header)
 
 // OTA Settings (pass-through mode)
 #define MQTT_OTA_CHUNK_SIZE 4096       // Default chunk size for OTA transfers

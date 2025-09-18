@@ -75,6 +75,8 @@ bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
 }
 
 bool MQTTOTAHandler::HandleCommand(const std::string& command) {
+    CONSOLE_INFO("MQTTOTAHandler::HandleCommand", "Received command: %s", command.c_str());
+
     if (command == "START") {
         return StartOTA();
     } else if (command == "PAUSE") {
@@ -310,7 +312,7 @@ bool MQTTOTAHandler::BootNewFirmware() {
 bool MQTTOTAHandler::RebootDevice() {
     CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Rebooting device for clean state");
 
-    // Send AT+REBOOT command to Pico
+    // Send AT+REBOOT command to Pico (reboots without resetting settings)
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "AT+REBOOT\r\n");
     bool success = SendCommandToPico(cmd);

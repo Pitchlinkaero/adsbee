@@ -112,6 +112,10 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
     }
 #endif
 
+    // Buffer configuration for OTA chunks
+    mqtt_cfg.buffer.size = 8192;  // Increase buffer size for OTA chunks (4096 data + header)
+    mqtt_cfg.buffer.out_size = 8192;  // Output buffer for publishing
+
     // Last Will and Testament (LWT)
     std::string lwt_topic = GetOnlineTopic();
     mqtt_cfg.session.last_will.topic = lwt_topic.c_str();
