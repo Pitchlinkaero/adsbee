@@ -1050,14 +1050,13 @@ size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, ch
     // Use shortened keys to save space but include all fields
     int written = snprintf(buf, buf_size,
         "{\"up\":%lu,\"rx\":%lu,\"tx\":%lu,\"cpu\":%ld,\"mem\":%lu,"
-        "\"nf\":%d,\"r1090\":%s,\"r978\":%s,\"wifi\":%s,\"mqtt\":%s,"
+        "\"r1090\":%s,\"r978\":%s,\"wifi\":%s,\"mqtt\":%s,"
         "\"fw\":\"%d.%d.%d\"",
         (unsigned long)telemetry.uptime_sec,
         (unsigned long)telemetry.msgs_rx,
         (unsigned long)telemetry.msgs_tx,
         (long)telemetry.cpu_temp_c,
         (unsigned long)telemetry.mem_free_kb,
-        telemetry.noise_floor_dbm,
         telemetry.rx_1090 ? "true" : "false",
         telemetry.rx_978 ? "true" : "false",
         telemetry.wifi ? "true" : "false",
