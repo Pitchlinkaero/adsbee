@@ -56,7 +56,8 @@ class ADSBeeOTAPublisher:
 
         self.device_id = None
         self.session_id = str(uuid.uuid4())
-        self.chunk_size = 2048
+        # Default chunk size - must be multiple of 256 (FLASH_PAGE_SIZE)
+        self.chunk_size = 2048  # 2048 = 256 * 8, good balance of efficiency and reliability
         self.firmware_data = None
         self.firmware_size = 0
         self.total_chunks = 0
@@ -66,6 +67,8 @@ class ADSBeeOTAPublisher:
         # Track ACKs
         self.acked_chunks = set()
         self.failed_chunks = set()
+        self.pending_chunks = set()  # Track chunks awaiting ACK
+        self.chunk_send_times = {}  # Track when each chunk was sent
         self.last_progress = {}
 
         # State
@@ -332,7 +335,7 @@ class ADSBeeOTAPublisher:
         return True
 
     def publish_all_chunks(self, retry_failed: bool = True) -> bool:
-        """Publish all firmware chunks
+        """Publish all firmware chunks with robust ACK-based flow control
 
         Args:
             retry_failed: Whether to retry failed chunks
@@ -340,52 +343,197 @@ class ADSBeeOTAPublisher:
         Returns:
             True if all chunks sent successfully
         """
-        print(f"Publishing {self.total_chunks} chunks...")
+        print(f"Publishing {self.total_chunks} chunks with enhanced ACK-based flow control...")
+        print(f"Chunk size: {self.chunk_size} bytes (matching flash sector size)")
 
         # Reset tracking
         self.acked_chunks.clear()
         self.failed_chunks.clear()
+        self.pending_chunks.clear()
+        self.chunk_send_times.clear()
 
-        # Send all chunks
+        # Configuration
+        MAX_RETRIES = 10
+        ACK_TIMEOUT = 10  # Increased timeout for slower devices
+        MAX_CONSECUTIVE_FAILURES = 3  # Abort if too many consecutive failures
+        consecutive_failures = 0
+
+        # Send chunks one at a time, waiting for ACK before sending next
         for i in range(self.total_chunks):
-            if self.publish_chunk(i):
-                # Rate limiting
-                if i % 10 == 0:
-                    print(f"Sent chunk {i}/{self.total_chunks}")
-                    time.sleep(0.1)  # Small delay every 10 chunks
-            else:
-                print(f"Failed to send chunk {i}")
-                self.failed_chunks.add(i)
+            chunk_sent = False
 
-        # Wait for ACKs
-        print("Waiting for acknowledgments...")
-        # Calculate timeout based on number of chunks (1 second per 10 chunks, min 60s)
-        timeout = max(60, self.total_chunks // 10)
-        print(f"  Timeout: {timeout}s for {self.total_chunks} chunks")
-        while len(self.acked_chunks) < self.total_chunks and timeout > 0:
-            time.sleep(1)
-            timeout -= 1
+            for retry in range(MAX_RETRIES):
+                # Clear any stale failed status for this chunk
+                if i in self.failed_chunks:
+                    self.failed_chunks.discard(i)
 
-            # Check for missing chunks
-            missing = set(range(self.total_chunks)) - self.acked_chunks
-            if missing and timeout % 10 == 0:
-                print(f"Missing ACKs for {len(missing)} chunks")
+                # Mark as pending before sending
+                self.pending_chunks.add(i)
+                self.chunk_send_times[i] = time.time()
 
-        # Retry failed chunks
-        if retry_failed and self.failed_chunks:
-            print(f"Retrying {len(self.failed_chunks)} failed chunks...")
-            for chunk_index in self.failed_chunks:
-                self.publish_chunk(chunk_index)
-                time.sleep(0.1)
+                # Send the chunk
+                if self.publish_chunk(i):
+                    # Wait for ACK with more intelligent timeout handling
+                    ack_received = self._wait_for_chunk_ack(i, ACK_TIMEOUT)
 
-        # Final check
+                    if ack_received:
+                        # Success!
+                        self.pending_chunks.discard(i)
+                        chunk_sent = True
+                        consecutive_failures = 0  # Reset consecutive failure counter
+
+                        # Progress reporting
+                        if i % 10 == 0 or i == self.total_chunks - 1:
+                            elapsed = time.time() - self.chunk_send_times.get(0, time.time())
+                            rate = (i + 1) / elapsed if elapsed > 0 else 0
+                            eta = (self.total_chunks - i - 1) / rate if rate > 0 else 0
+                            print(f"Progress: {i + 1}/{self.total_chunks} chunks sent "
+                                  f"({(i + 1) * 100 / self.total_chunks:.1f}%) "
+                                  f"Rate: {rate:.1f} chunks/s, ETA: {eta:.1f}s")
+                        break
+
+                    elif i in self.failed_chunks:
+                        # Device explicitly rejected the chunk
+                        print(f"  ⚠️  Chunk {i} was rejected by device (attempt {retry + 1}/{MAX_RETRIES})")
+                        consecutive_failures += 1
+
+                        # Exponential backoff with jitter
+                        backoff_time = min(2 ** retry + (time.time() % 1), 30)  # Cap at 30s
+                        print(f"  Waiting {backoff_time:.1f}s before retry...")
+                        time.sleep(backoff_time)
+
+                    else:
+                        # Timeout - no response from device
+                        print(f"  ⏱️  Timeout waiting for ACK on chunk {i} (attempt {retry + 1}/{MAX_RETRIES})")
+                        consecutive_failures += 1
+
+                        # Check if device is still online
+                        if time.time() - self.last_telemetry_time > 120:
+                            print("  ❗ Device appears offline (no telemetry for >2 minutes)")
+                            print("  Waiting for device to come back online...")
+                            if not self.wait_for_device_online(timeout=60):
+                                print("  ❌ Device is not responding")
+                                self.send_command("ABORT")
+                                return False
+
+                        # Progressive backoff
+                        backoff_time = min(retry + 1, 10)
+                        print(f"  Waiting {backoff_time}s before retry...")
+                        time.sleep(backoff_time)
+
+                else:
+                    print(f"❌ Failed to publish chunk {i} (attempt {retry + 1}/{MAX_RETRIES})")
+                    consecutive_failures += 1
+                    backoff_time = min(retry + 1, 10)
+                    print(f"  Waiting {backoff_time}s before retry...")
+                    time.sleep(backoff_time)
+
+                # Check for too many consecutive failures
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(f"\n❌ Too many consecutive failures ({consecutive_failures})")
+                    print("Device may be having issues - aborting transfer")
+                    self.send_command("ABORT")
+                    return False
+
+                # Clean up pending status if still there
+                self.pending_chunks.discard(i)
+
+            if not chunk_sent:
+                # Fatal: chunk failed after all retries
+                print(f"\n❌ FATAL: Chunk {i} failed after {MAX_RETRIES} attempts")
+                print("Aborting OTA transfer - cannot continue with missing chunk")
+                print(f"Device state: {self.ota_state}")
+
+                # Log any pending chunks that never got ACKed
+                if self.pending_chunks:
+                    print(f"Chunks still pending ACK: {sorted(self.pending_chunks)[:10]}")
+
+                self.send_command("ABORT")
+                return False
+
+        # Final verification
+        print("\n🔍 Performing final verification...")
+
+        # Check all chunks are acknowledged
         if len(self.acked_chunks) == self.total_chunks:
-            print("All chunks acknowledged!")
+            print(f"✓ All {self.total_chunks} chunks successfully sent and acknowledged!")
+
+            # Double-check for any missing chunks
+            missing = set(range(self.total_chunks)) - self.acked_chunks
+            if missing:
+                print(f"⚠️  Warning: Found {len(missing)} missing chunks during verification: {sorted(missing)[:10]}")
+                print("Attempting to resend missing chunks...")
+
+                for chunk_idx in sorted(missing):
+                    if not self._resend_chunk_with_verification(chunk_idx, max_retries=5):
+                        print(f"❌ Failed to resend chunk {chunk_idx}")
+                        self.send_command("ABORT")
+                        return False
+
+                print("✓ All missing chunks successfully resent")
+
             return True
+
         else:
-            missing = self.total_chunks - len(self.acked_chunks)
-            print(f"Warning: {missing} chunks not acknowledged")
+            missing = set(range(self.total_chunks)) - self.acked_chunks
+            print(f"❌ Transfer incomplete: {len(missing)} chunks not acknowledged")
+            print(f"Missing chunks: {sorted(missing)[:20]}..." if len(missing) > 20 else f"Missing chunks: {sorted(missing)}")
+            self.send_command("ABORT")
             return False
+
+    def _wait_for_chunk_ack(self, chunk_index: int, timeout: float) -> bool:
+        """Wait for a specific chunk to be acknowledged
+
+        Args:
+            chunk_index: The chunk index to wait for
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if chunk was acknowledged, False if timeout or rejected
+        """
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            # Check if acknowledged
+            if chunk_index in self.acked_chunks:
+                return True
+
+            # Check if explicitly failed
+            if chunk_index in self.failed_chunks:
+                return False
+
+            # Check device state
+            if self.ota_state == "ERROR":
+                print(f"  Device entered ERROR state while waiting for chunk {chunk_index}")
+                return False
+
+            # Small sleep to avoid busy waiting
+            time.sleep(0.05)  # 50ms polling interval
+
+        return False  # Timeout
+
+    def _resend_chunk_with_verification(self, chunk_index: int, max_retries: int = 5) -> bool:
+        """Resend a specific chunk with verification
+
+        Args:
+            chunk_index: The chunk to resend
+            max_retries: Maximum number of retries
+
+        Returns:
+            True if chunk was successfully resent and acknowledged
+        """
+        for retry in range(max_retries):
+            print(f"  Resending chunk {chunk_index} (attempt {retry + 1}/{max_retries})")
+
+            if self.publish_chunk(chunk_index):
+                if self._wait_for_chunk_ack(chunk_index, timeout=10):
+                    print(f"  ✓ Chunk {chunk_index} successfully resent and acknowledged")
+                    return True
+
+            # Backoff before retry
+            time.sleep(min(2 ** retry, 10))
+
+        return False
 
     def perform_ota_update(self, device_id: str, firmware_path: str,
                            version: str) -> bool:
@@ -561,7 +709,7 @@ Examples:
     parser.add_argument("--password", help="MQTT password")
     parser.add_argument("--tls", action="store_true", help="Use TLS/SSL")
     parser.add_argument("--chunk-size", type=int, default=2048,
-                       help="Chunk size in bytes (default: 2048, max recommended: 4096)")
+                       help="Chunk size in bytes (default: 2048, must be multiple of 256)")
     parser.add_argument("--keepalive", type=int, default=60,
                        help="MQTT keepalive seconds (default: 60)")
     parser.add_argument("--auto-boot", action="store_true",
@@ -595,6 +743,13 @@ Examples:
     # Validate chunk size to fit header (H for length and CRC16)
     if publisher.chunk_size <= 0 or publisher.chunk_size > 65535:
         print("Error: --chunk-size must be between 1 and 65535")
+        return 1
+
+    # Validate chunk size is multiple of 256 (FLASH_PAGE_SIZE for RP2040)
+    if publisher.chunk_size % 256 != 0:
+        print(f"Error: --chunk-size must be a multiple of 256 bytes (flash page size)")
+        print(f"  Your value: {publisher.chunk_size}")
+        print(f"  Suggested values: 256, 512, 1024, 2048, 4096")
         return 1
 
     # Connect to broker

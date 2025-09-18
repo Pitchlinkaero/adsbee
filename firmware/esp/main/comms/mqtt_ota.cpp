@@ -632,6 +632,20 @@ bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
     xSemaphoreTake(object_dictionary.network_console_rx_queue_mutex, portMAX_DELAY);
 
     size_t cmd_len = strlen(cmd);
+
+    // Check if there's enough space in the queue
+    size_t available = object_dictionary.network_console_rx_queue.MaxNumElements() -
+                       object_dictionary.network_console_rx_queue.Length();
+    if (available < cmd_len) {
+        CONSOLE_ERROR("MQTTOTAHandler::SendCommandToPico",
+                      "Not enough space in queue for command: need %zu, have %zu", cmd_len, available);
+        xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+
+        // Wait a bit for the queue to drain
+        vTaskDelay(pdMS_TO_TICKS(50));
+        return false;
+    }
+
     for (size_t i = 0; i < cmd_len; i++) {
         if (!object_dictionary.network_console_rx_queue.Push(cmd[i])) {
             CONSOLE_ERROR("MQTTOTAHandler::SendCommandToPico",
@@ -648,6 +662,19 @@ bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
 bool MQTTOTAHandler::SendDataToPico(const uint8_t* data, size_t len) {
     // Send binary data to Pico via network console queue
     xSemaphoreTake(object_dictionary.network_console_rx_queue_mutex, portMAX_DELAY);
+
+    // Check if there's enough space in the queue
+    size_t available = object_dictionary.network_console_rx_queue.MaxNumElements() -
+                       object_dictionary.network_console_rx_queue.Length();
+    if (available < len) {
+        CONSOLE_ERROR("MQTTOTAHandler::SendDataToPico",
+                      "Not enough space in queue: need %zu, have %zu", len, available);
+        xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+
+        // Wait a bit for the queue to drain
+        vTaskDelay(pdMS_TO_TICKS(100));
+        return false;
+    }
 
     for (size_t i = 0; i < len; i++) {
         if (!object_dictionary.network_console_rx_queue.Push(static_cast<char>(data[i]))) {
