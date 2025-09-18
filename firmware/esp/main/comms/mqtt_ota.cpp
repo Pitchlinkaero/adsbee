@@ -11,6 +11,9 @@
 extern SPICoprocessor pico;
 extern SettingsManager settings_manager;
 
+// Global flag for OTA state - accessible by other modules
+volatile bool g_mqtt_ota_active = false;
+
 MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index)
     : device_id_(device_id),
       feed_index_(feed_index),
@@ -151,10 +154,11 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     const uint8_t* chunk_data = data + kHeaderSize;
     size_t chunk_data_len = len - kHeaderSize;
 
-    if (chunk_data_len != chunk_size) {
+    // Validate against manifest chunk size, not header chunk size
+    if (chunk_data_len != manifest_.chunk_size) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Chunk size mismatch: expected %u, got %zu",
-                      chunk_size, chunk_data_len);
+                      "Chunk size mismatch: expected %lu from manifest, got %zu",
+                      (unsigned long)manifest_.chunk_size, chunk_data_len);
         PublishAck(index, false);
         return false;
     }
@@ -216,6 +220,9 @@ bool MQTTOTAHandler::StartOTA() {
 
     CONSOLE_INFO("MQTTOTAHandler::StartOTA", "Starting OTA update");
 
+    // Set global OTA active flag to block console input
+    g_mqtt_ota_active = true;
+
     // Initialize chunk tracking
     total_chunks_ = manifest_.total_chunks;
     total_bytes_ = manifest_.size;
@@ -251,6 +258,9 @@ bool MQTTOTAHandler::AbortOTA() {
     CONSOLE_INFO("MQTTOTAHandler::AbortOTA", "Aborting OTA update");
 
     state_ = OTAState::IDLE;
+
+    // Clear global OTA active flag
+    g_mqtt_ota_active = false;
 
     // Clear session
     current_session_id_.clear();
@@ -296,6 +306,9 @@ bool MQTTOTAHandler::BootNewFirmware() {
     }
 
     CONSOLE_INFO("MQTTOTAHandler::BootNewFirmware", "Booting new firmware");
+
+    // Clear global OTA active flag before reboot
+    g_mqtt_ota_active = false;
 
     // Send final status before reboot
     PublishStatus();

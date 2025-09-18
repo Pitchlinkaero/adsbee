@@ -447,6 +447,17 @@ void NetworkConsolePostConnectCallback(WebSocketServer *ws_server, int client_fd
 }
 
 void NetworkConsoleMessageReceivedCallback(WebSocketServer *ws_server, int client_fd, httpd_ws_frame_t &ws_pkt) {
+    // Check if OTA is active and block WebSocket console messages
+#if CONFIG_MQTT_OTA_ENABLED
+    extern volatile bool g_mqtt_ota_active;
+    if (g_mqtt_ota_active) {
+        // During OTA, reject WebSocket console input to prevent corruption
+        const char* ota_msg = "\r\nOTA in progress. Console input disabled.\r\n";
+        ws_server->SendMessage(client_fd, ota_msg);
+        return;
+    }
+#endif
+
     // Forward the network console message to the RP2040.
     char *message = (char *)ws_pkt.payload;
     uint16_t message_len = (uint16_t)ws_pkt.len;

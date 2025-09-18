@@ -73,6 +73,11 @@ public:
     bool RebootDevice();
     bool GetPartitionInfo();
 
+    // Check if OTA is active (for blocking other operations)
+    bool IsOTAActive() const {
+        return state_ != OTAState::IDLE && state_ != OTAState::ERROR;
+    }
+
     // Status reporting
     void PublishStatus();
     void PublishProgress();
