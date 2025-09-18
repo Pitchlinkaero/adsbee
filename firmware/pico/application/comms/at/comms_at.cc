@@ -873,6 +873,23 @@ CPP_AT_CALLBACK(CommsManager::ATOTACallback) {
                     }
                     adsbee.SetReceiver1090Enable(receiver_was_enabled);  // Re-enable receiver before exit.
                     CPP_AT_SUCCESS();
+                } else if (args[0].compare("COMPLETE") == 0) {
+                    // Complete the OTA update by calculating CRC and writing the header
+                    // AT+OTA=COMPLETE,<size_bytes>
+                    if (args.size() >= 2) {
+                        uint32_t firmware_size = std::stoul(args[1], nullptr, 10);
+                        CPP_AT_PRINTF("Completing OTA: calculating CRC and writing header for %u bytes\r\n", firmware_size);
+
+                        bool ret = FirmwareUpdateManager::CompleteOTAUpdate(complementary_partition, firmware_size);
+                        if (ret) {
+                            CPP_AT_PRINTF("OTA completion successful, header written\r\n");
+                            CPP_AT_SUCCESS();
+                        } else {
+                            CPP_AT_ERROR("Failed to complete OTA update");
+                        }
+                    } else {
+                        CPP_AT_ERROR("Size parameter required: AT+OTA=COMPLETE,<size_bytes>");
+                    }
                 } else if (args[0].compare("VERIFY") == 0) {
                     // Verify the complementary flash partition.
                     CPP_AT_PRINTF(

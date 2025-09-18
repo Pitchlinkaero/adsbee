@@ -132,6 +132,18 @@ class FirmwareUpdateManager {
     /**
      * Calculate a CRC-32 with the IEEE802.3 polynomial.
      */
+    /**
+     * Calculate CRC32 of flash memory region
+     * @param[in] flash_addr Flash address to start CRC calculation
+     * @param[in] len_bytes Number of bytes to include in CRC
+     * @return CRC32 value
+     */
+    static inline uint32_t CalculateFlashCRC(uint32_t flash_addr, size_t len_bytes) {
+        // Flash is memory-mapped, so we can read it directly
+        const uint8_t* flash_ptr = reinterpret_cast<const uint8_t*>(flash_addr);
+        return CalculateCRC32(flash_ptr, len_bytes);
+    }
+
     static inline uint32_t CalculateCRC32(const uint8_t *buffer, size_t len_bytes) {
         const uint32_t kSnifferMode = 0x1;  // Calculate a CRC-32 (IEEE802.3 polynomial) with bit reversed data
         // Good RP2040 CRC with DMA discussion: https://github.com/raspberrypi/pico-feedback/issues/247
@@ -499,6 +511,78 @@ class FirmwareUpdateManager {
      * @param[in] status New status word to write.
      * @retval True if write successful, false if error.
      */
+    /**
+     * Writes the complete firmware header for a partition.
+     * @param[in] partition Partition index to write header for
+     * @param[in] app_size_bytes Size of the application in bytes
+     * @param[in] app_crc CRC32 of the application data
+     * @return True if successful
+     */
+    /**
+     * Completes the OTA update by calculating CRC and writing the header
+     * @param[in] partition Partition that was written to
+     * @param[in] app_size_bytes Size of the firmware that was written
+     * @return True if successful
+     */
+    static inline bool CompleteOTAUpdate(uint16_t partition, uint32_t app_size_bytes) {
+        if (partition >= kNumPartitions) {
+            CONSOLE_ERROR("FirmwareUpdateManager::CompleteOTAUpdate", "Invalid partition index %u", partition);
+            return false;
+        }
+
+        // Calculate CRC of the written firmware
+        uint32_t app_crc = CalculateFlashCRC(kFlashAppStartAddrs[partition], app_size_bytes);
+
+        CONSOLE_INFO("FirmwareUpdateManager::CompleteOTAUpdate",
+                    "Calculated CRC 0x%x for %u bytes at 0x%x",
+                    app_crc, app_size_bytes, kFlashAppStartAddrs[partition]);
+
+        // Write the complete header with magic word, size, and CRC
+        return WriteFlashPartitionHeader(partition, app_size_bytes, app_crc);
+    }
+
+    /**
+     * Writes the complete firmware header for a partition.
+     * @param[in] partition Partition index to write header for
+     * @param[in] app_size_bytes Size of the application in bytes
+     * @param[in] app_crc CRC32 of the application data
+     * @return True if successful
+     */
+    static inline bool WriteFlashPartitionHeader(uint16_t partition, uint32_t app_size_bytes, uint32_t app_crc) {
+        if (partition >= kNumPartitions) {
+            CONSOLE_ERROR("FirmwareUpdateManager::WriteFlashPartitionHeader", "Invalid partition index %u", partition);
+            return false;
+        }
+
+        // Create the header
+        FlashPartitionHeader header;
+        header.magic_word = kFlashHeaderMagicWord;  // 0xAD5BEEE
+        header.header_version = kFlashHeaderVersion;  // 0
+        header.app_size_bytes = app_size_bytes;
+        header.app_crc = app_crc;
+        header.status = kFlashPartitionStatusValid;  // Mark as valid initially
+
+        // Write the header to flash
+        DisableInterrupts();
+        FlashUtils::FlashSafe();
+
+        // Erase the header sector first
+        flash_range_erase(FlashAddrToOffset(kFlashHeaderStartAddrs[partition]), kFlashHeaderLenBytes);
+
+        // Write the header
+        flash_range_program(FlashAddrToOffset(kFlashHeaderStartAddrs[partition]),
+                          reinterpret_cast<uint8_t*>(&header), sizeof(header));
+
+        FlashUtils::FlashUnsafe();
+        EnableInterrupts();
+
+        CONSOLE_INFO("FirmwareUpdateManager::WriteFlashPartitionHeader",
+                    "Wrote header for partition %u: magic=0x%x, size=%u, crc=0x%x",
+                    partition, header.magic_word, header.app_size_bytes, header.app_crc);
+
+        return true;
+    }
+
     static inline bool WriteHeaderStatusWord(uint16_t partition, FlashPartitionStatus status) {
         FlashPartitionHeader header = *(flash_partition_headers[partition]);  // Copy the existing header.
         header.status = status;

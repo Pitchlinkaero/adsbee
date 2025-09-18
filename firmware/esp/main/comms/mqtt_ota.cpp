@@ -231,7 +231,17 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     // Check if all chunks received
     if (chunks_received_ == total_chunks_) {
         CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
-                     "All chunks received, starting verification");
+                     "All chunks received, completing OTA update");
+
+        // First, complete the OTA by writing the header
+        if (!CompleteOTAUpdate()) {
+            CONSOLE_ERROR("MQTTOTAHandler::HandleChunk", "Failed to complete OTA update");
+            state_ = OTAState::ERROR;
+            PublishStatus();
+            return false;
+        }
+
+        // Then verify
         state_ = OTAState::VERIFYING;
         PublishStatus();
         VerifyOTA();
@@ -523,6 +533,24 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
                  (unsigned long)offset, len, (unsigned long)crc);
 
     return true;
+}
+
+bool MQTTOTAHandler::CompleteOTAUpdate() {
+    // Send AT+OTA=COMPLETE command to Pico to write the header
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=COMPLETE,%lu\r\n", (unsigned long)manifest_.size);
+
+    bool success = SendCommandToPico(cmd);
+
+    if (success) {
+        CONSOLE_INFO("MQTTOTAHandler::CompleteOTAUpdate",
+                     "Sent OTA COMPLETE command to Pico for %lu bytes", (unsigned long)manifest_.size);
+    } else {
+        CONSOLE_ERROR("MQTTOTAHandler::CompleteOTAUpdate",
+                      "Failed to send COMPLETE command to Pico");
+    }
+
+    return success;
 }
 
 bool MQTTOTAHandler::VerifyFlashPartition() {
