@@ -17,12 +17,33 @@ import time
 import uuid
 from pathlib import Path
 from typing import Optional, List
+from datetime import datetime
 
 try:
     import paho.mqtt.client as mqtt
 except ImportError:
     print("Please install paho-mqtt: pip install paho-mqtt")
     sys.exit(1)
+
+
+class TeeLogger:
+    """Logger that writes to both stdout and a file"""
+
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, 'w')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()  # Ensure immediate write to file
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def close(self):
+        self.log.close()
 
 
 class ADSBeeOTAPublisher:
@@ -57,7 +78,7 @@ class ADSBeeOTAPublisher:
         self.device_id = None
         self.session_id = str(uuid.uuid4())
         # Default chunk size - must be multiple of 256 (FLASH_PAGE_SIZE)
-        self.chunk_size = 2048  # 2048 = 256 * 8, good balance of efficiency and reliability
+        self.chunk_size = 2048  # Back to larger chunks with proper delays
         self.firmware_data = None
         self.firmware_size = 0
         self.total_chunks = 0
@@ -127,6 +148,14 @@ class ADSBeeOTAPublisher:
         if topic.endswith("/telemetry"):
             self.device_online = True
             self.last_telemetry_time = time.time()
+            return
+
+        # Handle console/debug messages (future enhancement)
+        if topic.endswith("/console") or topic.endswith("/debug"):
+            # Could parse "Erasing..." messages here to optimize delays
+            message = msg.payload.decode('utf-8', errors='ignore')
+            if "Erasing" in message:
+                print(f"  Device: {message.strip()}")
             return
 
         # Handle status updates
@@ -304,6 +333,15 @@ class ADSBeeOTAPublisher:
         # Calculate chunk data
         offset = chunk_index * self.chunk_size
         chunk_data = self.firmware_data[offset:offset + self.chunk_size]
+
+        # Pad all chunks to be exactly chunk_size bytes
+        # The device expects all chunks to be the same size as specified in the manifest
+        if len(chunk_data) < self.chunk_size:
+            # This is typically the last chunk - pad to full chunk size
+            padding_needed = self.chunk_size - len(chunk_data)
+            chunk_data = chunk_data + bytes([0xFF] * padding_needed)
+            print(f"  Chunk {chunk_index}: padded from {len(chunk_data) - padding_needed} to {self.chunk_size} bytes")
+
         chunk_len = len(chunk_data)
 
         # Calculate CRC32 and store lower 16 bits to match header format
@@ -322,8 +360,12 @@ class ADSBeeOTAPublisher:
         # Combine header and data
         payload = header + chunk_data
 
-        # Debug logging
-        print(f"  Chunk {chunk_index}: payload size = {len(payload)} bytes (16 header + {len(chunk_data)} data)")
+        # Enhanced debug logging for problematic chunks
+        if chunk_index < 10 or chunk_index in self.failed_chunks:
+            print(f"  Chunk {chunk_index}: offset=0x{offset:06X}, len={chunk_len}, CRC32=0x{crc32:08X}, CRC16=0x{crc16:04X}")
+            # Show first few bytes of data for debugging
+            preview = chunk_data[:16].hex() if len(chunk_data) >= 16 else chunk_data.hex()
+            print(f"    Data preview: {preview}...")
 
         # Publish
         topic = f"{self.device_id}/ota/data/chunk/{chunk_index}"
@@ -353,9 +395,11 @@ class ADSBeeOTAPublisher:
         self.chunk_send_times.clear()
 
         # Configuration
-        MAX_RETRIES = 10
-        ACK_TIMEOUT = 10  # Increased timeout for slower devices
-        MAX_CONSECUTIVE_FAILURES = 3  # Abort if too many consecutive failures
+        # Device needs significant time to process chunks, especially early ones
+        # The device is still erasing flash and processing even after we timeout
+        MAX_RETRIES = 5  # Fewer retries but longer timeouts
+        ACK_TIMEOUT = 15  # Much longer timeout - device needs time to process
+        MAX_CONSECUTIVE_FAILURES = 5  # Reduce since we have longer timeouts
         consecutive_failures = 0
 
         # Send chunks one at a time, waiting for ACK before sending next
@@ -384,28 +428,67 @@ class ADSBeeOTAPublisher:
 
                         # Progress reporting
                         if i % 10 == 0 or i == self.total_chunks - 1:
-                            elapsed = time.time() - self.chunk_send_times.get(0, time.time())
-                            rate = (i + 1) / elapsed if elapsed > 0 else 0
-                            eta = (self.total_chunks - i - 1) / rate if rate > 0 else 0
+                            # Calculate overall rate (includes initial erase)
+                            total_elapsed = time.time() - self.chunk_send_times.get(0, time.time())
+                            overall_rate = (i + 1) / total_elapsed if total_elapsed > 0 else 0
+
+                            # Calculate current rate (last 10 chunks or since chunk 1 for better accuracy)
+                            if i > 0:
+                                # After initial erase, calculate rate without the erase delay
+                                recent_start = max(1, i - 50)  # Look at last 50 chunks for current rate
+                                recent_elapsed = time.time() - self.chunk_send_times.get(recent_start, time.time())
+                                recent_chunks = i - recent_start + 1
+                                current_rate = recent_chunks / recent_elapsed if recent_elapsed > 0 else 0
+                            else:
+                                current_rate = 0
+
+                            # Use current rate for ETA (more accurate)
+                            remaining_chunks = self.total_chunks - i - 1
+                            if i == 0:
+                                # First chunk: estimate based on expected speeds
+                                eta = 40 + (remaining_chunks * 0.1)  # 40s erase + 100ms per chunk
+                            elif i < 10:
+                                # Early chunks: still in erase phase potentially
+                                eta = remaining_chunks * 2  # Conservative estimate
+                            else:
+                                # Normal operation: use current rate
+                                eta = remaining_chunks / current_rate if current_rate > 0 else 0
+
                             print(f"Progress: {i + 1}/{self.total_chunks} chunks sent "
                                   f"({(i + 1) * 100 / self.total_chunks:.1f}%) "
-                                  f"Rate: {rate:.1f} chunks/s, ETA: {eta:.1f}s")
+                                  f"Current: {current_rate:.1f} chunks/s, ETA: {eta:.1f}s")
+
+                        # Delay strategy based on observed behavior:
+                        # - First chunk triggers erase of all 160 sectors (~45 seconds)
+                        # - After erase completes, writes are very fast (100ms delay sufficient)
+
+                        if i == 0:
+                            print("    Note: First chunk triggers erase of all 160 sectors (~35s)")
+                            print("    After erase completes, chunks can be written with 100ms delays")
+                            # First chunk needs time for full erase
+                            print("    Waiting 40s for device to erase all sectors...")
+                            time.sleep(40.0)
+                        else:
+                            # After initial bulk erase, chunks can be written very quickly
+                            time.sleep(0.1)  # 100ms delay between chunks
+
                         break
 
                     elif i in self.failed_chunks:
                         # Device explicitly rejected the chunk
                         print(f"  ⚠️  Chunk {i} was rejected by device (attempt {retry + 1}/{MAX_RETRIES})")
-                        consecutive_failures += 1
+                        # Don't increment consecutive_failures here - it's just a retry
 
-                        # Exponential backoff with jitter
-                        backoff_time = min(2 ** retry + (time.time() % 1), 30)  # Cap at 30s
+                        # Much shorter backoff to stay within device's 30s timeout
+                        # Max total retry time should be < 25s to be safe
+                        backoff_time = min(1.0 + retry * 0.5, 3.0)  # 1s, 1.5s, 2s, 2.5s, 3s max
                         print(f"  Waiting {backoff_time:.1f}s before retry...")
                         time.sleep(backoff_time)
 
                     else:
                         # Timeout - no response from device
                         print(f"  ⏱️  Timeout waiting for ACK on chunk {i} (attempt {retry + 1}/{MAX_RETRIES})")
-                        consecutive_failures += 1
+                        # Don't increment consecutive_failures here either - it's just a retry
 
                         # Check if device is still online
                         if time.time() - self.last_telemetry_time > 120:
@@ -416,32 +499,34 @@ class ADSBeeOTAPublisher:
                                 self.send_command("ABORT")
                                 return False
 
-                        # Progressive backoff
-                        backoff_time = min(retry + 1, 10)
+                        # Short backoff to prevent device timeout
+                        backoff_time = min(1.0 + retry * 0.5, 3.0)  # Same as failed chunks
                         print(f"  Waiting {backoff_time}s before retry...")
                         time.sleep(backoff_time)
 
                 else:
                     print(f"❌ Failed to publish chunk {i} (attempt {retry + 1}/{MAX_RETRIES})")
-                    consecutive_failures += 1
-                    backoff_time = min(retry + 1, 10)
+                    # Don't increment consecutive_failures here - publishing can be retried
+                    backoff_time = min(1.0 + retry * 0.5, 3.0)  # Keep all retries short
                     print(f"  Waiting {backoff_time}s before retry...")
                     time.sleep(backoff_time)
-
-                # Check for too many consecutive failures
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    print(f"\n❌ Too many consecutive failures ({consecutive_failures})")
-                    print("Device may be having issues - aborting transfer")
-                    self.send_command("ABORT")
-                    return False
 
                 # Clean up pending status if still there
                 self.pending_chunks.discard(i)
 
             if not chunk_sent:
-                # Fatal: chunk failed after all retries
+                # This chunk failed after all retries
+                consecutive_failures += 1
                 print(f"\n❌ FATAL: Chunk {i} failed after {MAX_RETRIES} attempts")
-                print("Aborting OTA transfer - cannot continue with missing chunk")
+
+                # Check if we've had too many chunks fail in a row
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(f"Too many consecutive chunk failures ({consecutive_failures} chunks failed)")
+                    print("Device may be having serious issues - aborting transfer")
+                else:
+                    print(f"Consecutive chunk failures: {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}")
+                    print("Aborting OTA transfer - cannot continue with missing chunk")
+
                 print(f"Device state: {self.ota_state}")
 
                 # Log any pending chunks that never got ACKed
@@ -603,6 +688,11 @@ class ADSBeeOTAPublisher:
             self.send_command("ABORT")
             return False
 
+        # Send VERIFY command to trigger verification
+        print("\nSending VERIFY command to trigger firmware verification...")
+        self.send_command("VERIFY")
+        time.sleep(2)  # Give device time to process the command
+
         # Wait for verification
         print("Waiting for device to verify firmware...")
         timeout = 120  # Verification can take time for large firmwares
@@ -718,8 +808,30 @@ Examples:
                        help="Reboot device before starting OTA for clean state (default: True)")
     parser.add_argument("--no-pre-reboot", dest="pre_reboot", action="store_false",
                        help="Skip pre-reboot before OTA")
+    parser.add_argument("--no-log", action="store_true",
+                       help="Disable automatic log file creation")
 
     args = parser.parse_args()
+
+    # Set up logging to file (unless disabled)
+    logger = None
+    if not args.no_log:
+        # Create log filename with device ID, version, and timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Replace dots in version with underscores for filename compatibility
+        version_str = args.version.replace('.', '_')
+        log_filename = f"ota_{args.device}_v{version_str}_{timestamp}.log"
+        print(f"Logging to: {log_filename}")
+        logger = TeeLogger(log_filename)
+        sys.stdout = logger
+        print(f"=== OTA Update Log ===")
+        print(f"Timestamp: {datetime.now().isoformat()}")
+        print(f"Device: {args.device}")
+        print(f"Firmware: {args.firmware}")
+        print(f"Broker: {args.broker}:{args.port}")
+        print(f"Version: {args.version}")
+        print(f"=" * 50)
+        print()
 
     # Validate firmware file
     if not os.path.exists(args.firmware):
@@ -779,6 +891,13 @@ Examples:
 
     finally:
         publisher.disconnect()
+
+        # Close log file if it was opened
+        if logger:
+            print(f"\n=== End of Log ===")
+            print(f"Timestamp: {datetime.now().isoformat()}")
+            sys.stdout = logger.terminal  # Restore original stdout
+            logger.close()
 
 
 if __name__ == "__main__":
