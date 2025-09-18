@@ -511,25 +511,25 @@ CPP_AT_CALLBACK(CommsManager::ATMQTTAuthCallback) {
 
             // Username (optional - empty string clears authentication)
             if (CPP_AT_HAS_ARG(1)) {
-                if (strlen(args[1].c_str()) > SettingsManager::Settings::kMQTTUsernameMaxLen) {
+                if (args[1].size() > SettingsManager::Settings::kMQTTUsernameMaxLen) {
                     CPP_AT_ERROR("Username too long (max %d chars)",
                                  SettingsManager::Settings::kMQTTUsernameMaxLen);
                 }
-                strncpy(settings_manager.settings.mqtt_usernames[index], args[1].c_str(),
+                strncpy(settings_manager.settings.mqtt_usernames[index], args[1].data(),
                         SettingsManager::Settings::kMQTTUsernameMaxLen);
                 settings_manager.settings.mqtt_usernames[index][SettingsManager::Settings::kMQTTUsernameMaxLen] = '\0';
 
                 // Password (required if username is provided)
-                if (strlen(args[1].c_str()) > 0 && !CPP_AT_HAS_ARG(2)) {
+                if (!args[1].empty() && !CPP_AT_HAS_ARG(2)) {
                     CPP_AT_ERROR("Password required when username is provided");
                 }
 
                 if (CPP_AT_HAS_ARG(2)) {
-                    if (strlen(args[2].c_str()) > SettingsManager::Settings::kMQTTPasswordMaxLen) {
+                    if (args[2].size() > SettingsManager::Settings::kMQTTPasswordMaxLen) {
                         CPP_AT_ERROR("Password too long (max %d chars)",
                                      SettingsManager::Settings::kMQTTPasswordMaxLen);
                     }
-                    strncpy(settings_manager.settings.mqtt_passwords[index], args[2].c_str(),
+                    strncpy(settings_manager.settings.mqtt_passwords[index], args[2].data(),
                             SettingsManager::Settings::kMQTTPasswordMaxLen);
                     settings_manager.settings.mqtt_passwords[index][SettingsManager::Settings::kMQTTPasswordMaxLen] = '\0';
                 }
