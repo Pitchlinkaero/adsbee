@@ -530,17 +530,11 @@ The following features are planned for future releases:
 
 ## Version History
 
-### 0.8.2-RC12
-- Complete MQTT OTA implementation with ESP32 partition management
-- Integrated OTA handler into MQTT client with automatic topic subscription
-- Added JSON manifest and chunk handling in MQTT event callbacks
-- Implemented direct ESP32 flash writing for OTA updates
-- SHA256 verification for firmware integrity
-
-### 0.8.2-RC11
-- Added MQTT OTA (Over-The-Air) update support
-- Implemented AT+MQTTOTA command to enable/disable OTA per feed
-- Created MQTTOTAHandler for firmware updates via MQTT
-- Added chunked transfer with CRC32 verification
-- Created Python OTA publisher tool
-
+### 0.8.2-RC13 - Size Optimizations
+- Added conditional compilation for all MQTT features
+- OTA support can be disabled to save ~20KB (CONFIG_MQTT_OTA_ENABLED)
+- TLS support can be disabled to save ~20KB (CONFIG_MQTT_TLS_ENABLED)
+- Entire MQTT stack can be disabled to save ~70KB (CONFIG_MQTT_ENABLED)
+- Optimized string handling with static buffers
+- Reduced default OTA chunk size from 4KB to 1KB
+- See FIRMWARE_SIZE_OPTIMIZATION.md for configuration details

@@ -6,10 +6,13 @@
 #include <unordered_map>
 #include <chrono>
 #include <functional>
+#include "mqtt_config.h"  // Feature configuration
 #include "mqtt_client.h"  // ESP-IDF MQTT client
 #include "transponder_packet.hh"
 #include "settings.hh"
+#if CONFIG_MQTT_OTA_ENABLED
 #include "mqtt_ota.hh"
+#endif
 
 namespace MQTT {
 
@@ -177,8 +180,10 @@ private:
     // Statistics
     mutable Stats stats_;
 
+#if CONFIG_MQTT_OTA_ENABLED
     // OTA handler (if enabled)
     std::unique_ptr<MQTTOTAHandler> ota_handler_;
+#endif
 };
 
 }  // namespace MQTT

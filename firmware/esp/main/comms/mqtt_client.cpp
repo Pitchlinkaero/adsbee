@@ -1,15 +1,18 @@
 #include "mqtt_client.hh"
+#include "mqtt_config.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "hal.hh"  // For get_time_since_boot_ms
 #include "cJSON.h"  // ESP-IDF's cJSON component
-#include "mqtt_ota.hh"
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
+#if CONFIG_MQTT_OTA_ENABLED
+#include "mqtt_ota.hh"
 #include <memory>
+#endif
 
 static const char* TAG = "MQTT";
 
@@ -47,17 +50,20 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
       feed_index_(feed_index),
       client_(nullptr),
       connected_(false),
-      reconnect_delay_ms_(kInitialReconnectDelayMs),
-      ota_handler_(nullptr) {
+      reconnect_delay_ms_(kInitialReconnectDelayMs) {
 
     // Initialize statistics
     stats_ = {};
 
+#if CONFIG_MQTT_OTA_ENABLED
     // Create OTA handler if enabled
     if (config_.ota_enabled) {
         ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
         ESP_LOGI(TAG, "OTA enabled for MQTT feed %d", feed_index_);
+    } else {
+        ota_handler_ = nullptr;
     }
+#endif
 
     // Configure MQTT client
     esp_mqtt_client_config_t mqtt_cfg = {};
@@ -89,32 +95,21 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
         mqtt_cfg.credentials.client_id = generated_client_id.c_str();
     }
 
+#if CONFIG_MQTT_TLS_ENABLED
     // TLS/SSL Configuration
     if (config_.use_tls) {
-        // Option 1: Skip certificate verification (insecure but works for testing)
+        // Skip certificate verification for now (insecure but reduces size)
         mqtt_cfg.broker.verification.skip_cert_common_name_check = true;
         mqtt_cfg.broker.verification.certificate = nullptr;  // No CA cert verification
-
-        // Option 2: Use built-in certificate bundle (for public brokers)
-        // extern const uint8_t ca_cert_pem_start[] asm("_binary_ca_cert_pem_start");
-        // extern const uint8_t ca_cert_pem_end[] asm("_binary_ca_cert_pem_end");
-        // mqtt_cfg.broker.verification.certificate = (const char *)ca_cert_pem_start;
-        // mqtt_cfg.broker.verification.certificate_len = ca_cert_pem_end - ca_cert_pem_start;
-
-        // Option 3: Use custom CA certificate from settings (future implementation)
-        // if (!config_.ca_certificate.empty()) {
-        //     mqtt_cfg.broker.verification.certificate = config_.ca_certificate.c_str();
-        //     mqtt_cfg.broker.verification.certificate_len = config_.ca_certificate.length();
-        // }
-
-        // Client certificate authentication (if required by broker)
-        // if (!config_.client_cert.empty() && !config_.client_key.empty()) {
-        //     mqtt_cfg.credentials.authentication.certificate = config_.client_cert.c_str();
-        //     mqtt_cfg.credentials.authentication.certificate_len = config_.client_cert.length();
-        //     mqtt_cfg.credentials.authentication.key = config_.client_key.c_str();
-        //     mqtt_cfg.credentials.authentication.key_len = config_.client_key.length();
-        // }
     }
+#else
+    if (config_.use_tls) {
+        ESP_LOGW(TAG, "TLS requested but not compiled in - using unencrypted connection");
+        // Force non-TLS URI
+        full_uri = "mqtt://" + config_.broker_uri + ":" + std::to_string(config_.port);
+        mqtt_cfg.broker.address.uri = full_uri.c_str();
+    }
+#endif
 
     // Last Will and Testament (LWT)
     std::string lwt_topic = GetOnlineTopic();
@@ -229,6 +224,7 @@ void MQTTClient::HandleConnect() {
     std::string online_topic = GetOnlineTopic();
     esp_mqtt_client_publish(client_, online_topic.c_str(), "1", 1, 1, true);
 
+#if CONFIG_MQTT_OTA_ENABLED
     // Subscribe to OTA topics if enabled
     if (ota_handler_) {
         std::string ota_base = GetOTABaseTopic();
@@ -244,6 +240,7 @@ void MQTTClient::HandleConnect() {
 
         ESP_LOGI(TAG, "Subscribed to OTA topics for device %s", config_.device_id.c_str());
     }
+#endif
 
     // Clear rate limiter to start fresh
     rate_limiter_.Reset();
@@ -256,6 +253,7 @@ void MQTTClient::HandleDisconnect() {
 }
 
 void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
+#if CONFIG_MQTT_OTA_ENABLED
     if (!ota_handler_) {
         return;  // OTA not enabled
     }
@@ -367,6 +365,10 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
                                    progress_json.c_str(), progress_json.length(), 0, false);
         }
     }
+#else
+    // OTA not compiled in
+    (void)event;  // Suppress unused parameter warning
+#endif
 }
 
 void MQTTClient::ScheduleReconnect() {
