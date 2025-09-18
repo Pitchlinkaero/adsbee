@@ -876,8 +876,10 @@ CPP_AT_CALLBACK(CommsManager::ATOTACallback) {
                 } else if (args[0].compare("COMPLETE") == 0) {
                     // Complete the OTA update by calculating CRC and writing the header
                     // AT+OTA=COMPLETE,<size_bytes>
-                    if (args.size() >= 2) {
-                        uint32_t firmware_size = std::stoul(args[1], nullptr, 10);
+                    if (num_args >= 2) {
+                        // Convert string_view to string for stoul
+                        std::string size_str(args[1]);
+                        uint32_t firmware_size = std::stoul(size_str, nullptr, 10);
                         CPP_AT_PRINTF("Completing OTA: calculating CRC and writing header for %u bytes\r\n", firmware_size);
 
                         bool ret = FirmwareUpdateManager::CompleteOTAUpdate(complementary_partition, firmware_size);

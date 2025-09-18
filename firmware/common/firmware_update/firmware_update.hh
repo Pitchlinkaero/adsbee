@@ -518,6 +518,7 @@ class FirmwareUpdateManager {
      * @param[in] app_crc CRC32 of the application data
      * @return True if successful
      */
+public:
     /**
      * Completes the OTA update by calculating CRC and writing the header
      * @param[in] partition Partition that was written to
