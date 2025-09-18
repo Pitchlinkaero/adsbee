@@ -5,7 +5,13 @@
 #include <vector>
 #include <map>
 #include <cstdint>
-#include "mqtt_client.hh"
+#include "esp_partition.h"
+#include "esp_ota_ops.h"
+
+// Forward declaration to avoid circular include with mqtt_client.hh
+namespace MQTT {
+class MQTTClient;
+}
 
 class MQTTOTAHandler {
 public:
@@ -19,15 +25,14 @@ public:
         ERROR
     };
 
-    struct OTAManifest {
+    struct Manifest {
         std::string version;
         uint32_t size;
-        uint32_t chunks;
+        uint32_t total_chunks;
         uint32_t chunk_size;
         std::string sha256;
-        uint32_t partition_crc;
-        std::string build_date;
         std::string session_id;
+        std::string build_date;
     };
 
     struct ChunkHeader {
@@ -38,16 +43,20 @@ public:
         uint16_t flags;
     };
 
-    MQTTOTAHandler(uint16_t feed_index);
+    MQTTOTAHandler(const std::string& device_id, uint16_t feed_index);
     ~MQTTOTAHandler();
 
-    // Initialize OTA handler and subscribe to topics
-    bool Initialize(MQTTClient* mqtt_client);
+    // Initialization with MQTT client
+    bool Initialize(MQTT::MQTTClient* mqtt_client);
 
     // Handle incoming MQTT messages
-    void HandleManifest(const std::string& payload);
-    void HandleControl(const std::string& payload);
-    void HandleChunk(uint32_t index, const uint8_t* data, size_t len);
+    bool HandleManifest(const Manifest& manifest);
+    bool HandleCommand(const std::string& command);
+    bool HandleChunk(uint32_t index, const uint8_t* data, size_t len);
+
+    // Get status/progress as JSON
+    std::string GetStateJSON() const;
+    std::string GetProgressJSON() const;
 
     // State management
     OTAState GetState() const { return state_; }
@@ -69,12 +78,15 @@ public:
 
 private:
     // Configuration
+    std::string device_id_;
     uint16_t feed_index_;
-    MQTTClient* mqtt_client_;
+
+    // MQTT client
+    MQTT::MQTTClient* mqtt_client_ = nullptr;
 
     // State
     OTAState state_;
-    OTAManifest manifest_;
+    Manifest manifest_;
     std::string current_session_id_;
 
     // Chunk management
@@ -92,6 +104,10 @@ private:
     // Buffer for accumulating chunks
     static constexpr size_t kMaxChunkSize = 4096;
     uint8_t chunk_buffer_[kMaxChunkSize];
+
+    // OTA partition handle
+    const esp_partition_t* ota_partition_;
+    esp_ota_handle_t ota_handle_;
 
     // Helper functions
     bool EraseFlashPartition();

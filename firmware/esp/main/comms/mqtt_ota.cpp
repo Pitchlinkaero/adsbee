@@ -1,6 +1,8 @@
 #include "mqtt_ota.hh"
 #include "comms.hh"
+#include <inttypes.h>
 #include "coprocessor/spi_coprocessor.hh"
+#include "object_dictionary.hh"
 #include "esp_log.h"
 #include "esp_system.h"
 #include <cstring>
@@ -9,9 +11,9 @@
 extern SPICoprocessor pico;
 extern SettingsManager settings_manager;
 
-MQTTOTAHandler::MQTTOTAHandler(uint16_t feed_index)
-    : feed_index_(feed_index),
-      mqtt_client_(nullptr),
+MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index)
+    : device_id_(device_id),
+      feed_index_(feed_index),
       state_(OTAState::IDLE),
       chunks_received_(0),
       total_chunks_(0),
@@ -19,7 +21,9 @@ MQTTOTAHandler::MQTTOTAHandler(uint16_t feed_index)
       total_bytes_(0),
       last_chunk_timestamp_ms_(0),
       ota_start_timestamp_ms_(0),
-      timeout_ms_(30000) {
+      timeout_ms_(30000),
+      ota_partition_(nullptr),
+      ota_handle_(0) {
     memset(chunk_buffer_, 0, kMaxChunkSize);
 }
 
@@ -29,7 +33,7 @@ MQTTOTAHandler::~MQTTOTAHandler() {
     }
 }
 
-bool MQTTOTAHandler::Initialize(MQTTClient* mqtt_client) {
+bool MQTTOTAHandler::Initialize(MQTT::MQTTClient* mqtt_client) {
     if (!mqtt_client || !mqtt_client->IsConnected()) {
         CONSOLE_ERROR("MQTTOTAHandler::Initialize", "MQTT client not connected");
         return false;
@@ -62,91 +66,77 @@ bool MQTTOTAHandler::Initialize(MQTTClient* mqtt_client) {
     return true;
 }
 
-void MQTTOTAHandler::HandleManifest(const std::string& payload) {
-    CONSOLE_INFO("MQTTOTAHandler::HandleManifest", "Received manifest: %d bytes", payload.length());
-
+bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
     if (state_ != OTAState::IDLE) {
         CONSOLE_WARNING("MQTTOTAHandler::HandleManifest",
                         "Ignoring manifest - OTA already in progress");
-        return;
+        return false;
     }
 
-    if (!ParseManifest(payload)) {
-        CONSOLE_ERROR("MQTTOTAHandler::HandleManifest", "Failed to parse manifest");
-        state_ = OTAState::ERROR;
-        PublishStatus();
-        return;
-    }
+    manifest_ = manifest;
 
     // Validate manifest
-    if (manifest_.size == 0 || manifest_.chunks == 0 || manifest_.chunk_size == 0) {
+    if (manifest_.size == 0 || manifest_.total_chunks == 0 || manifest_.chunk_size == 0) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleManifest", "Invalid manifest parameters");
         state_ = OTAState::ERROR;
         PublishStatus();
-        return;
+        return false;
     }
-
-    // Check version (simple string comparison for now)
-    // TODO: Implement proper semantic version comparison
 
     state_ = OTAState::MANIFEST_RECEIVED;
     PublishStatus();
 
     CONSOLE_INFO("MQTTOTAHandler::HandleManifest",
-                 "Manifest received: version=%s, size=%lu, chunks=%lu",
-                 manifest_.version.c_str(), manifest_.size, manifest_.chunks);
+                 "Manifest received: version=%s, size=%" PRIu32 ", chunks=%" PRIu32,
+                 manifest_.version.c_str(), manifest_.size, manifest_.total_chunks);
+    return true;
 }
 
-void MQTTOTAHandler::HandleControl(const std::string& payload) {
-    CONSOLE_INFO("MQTTOTAHandler::HandleControl", "Received control command");
-
-    // Parse control command JSON
-    // Expected format: {"command": "START|PAUSE|RESUME|ABORT|VERIFY|BOOT", "session_id": "..."}
-
-    // Simple parsing for command (TODO: Use proper JSON parser)
-    std::string command;
-    if (payload.find("\"START\"") != std::string::npos) {
-        StartOTA();
-    } else if (payload.find("\"PAUSE\"") != std::string::npos) {
-        PauseOTA();
-    } else if (payload.find("\"RESUME\"") != std::string::npos) {
-        ResumeOTA();
-    } else if (payload.find("\"ABORT\"") != std::string::npos) {
-        AbortOTA();
-    } else if (payload.find("\"VERIFY\"") != std::string::npos) {
-        VerifyOTA();
-    } else if (payload.find("\"BOOT\"") != std::string::npos) {
-        BootNewFirmware();
+bool MQTTOTAHandler::HandleCommand(const std::string& command) {
+    if (command == "START") {
+        return StartOTA();
+    } else if (command == "PAUSE") {
+        return PauseOTA();
+    } else if (command == "RESUME") {
+        return ResumeOTA();
+    } else if (command == "ABORT") {
+        return AbortOTA();
+    } else if (command == "VERIFY") {
+        return VerifyOTA();
+    } else if (command == "BOOT") {
+        return BootNewFirmware();
     }
+    CONSOLE_WARNING("MQTTOTAHandler::HandleCommand", "Unknown command: %s", command.c_str());
+    return false;
 }
 
-void MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len) {
+bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len) {
     if (state_ != OTAState::DOWNLOADING) {
         CONSOLE_WARNING("MQTTOTAHandler::HandleChunk",
-                        "Ignoring chunk %lu - not in download state", index);
-        return;
+                        "Ignoring chunk %" PRIu32 " - not in download state", index);
+        return false;
     }
 
     if (index >= total_chunks_) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Invalid chunk index %lu (max %lu)", index, total_chunks_ - 1);
+                      "Invalid chunk index %" PRIu32 " (max %" PRIu32 ")", index, total_chunks_ - 1);
         PublishAck(index, false);
-        return;
+        return false;
     }
 
     if (received_chunks_[index]) {
         CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
-                     "Chunk %lu already received, ignoring", index);
+                     "Chunk %" PRIu32 " already received, ignoring", index);
         PublishAck(index, true);  // Still ACK it
-        return;
+        return true;
     }
 
     // Parse chunk header
     if (len < sizeof(ChunkHeader)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Chunk too small for header: %d bytes", len);
+                      "Chunk too small for header: %zu bytes", len);
         PublishAck(index, false);
-        return;
+        return false;
     }
 
     ChunkHeader header;
@@ -161,20 +151,20 @@ void MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
 
     if (chunk_data_len != header.chunk_size) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Chunk size mismatch: expected %d, got %d",
+                      "Chunk size mismatch: expected %" PRIu16 ", got %zu",
                       header.chunk_size, chunk_data_len);
         PublishAck(index, false);
-        return;
+        return false;
     }
 
     // Verify CRC
     uint32_t calculated_crc = CalculateCRC32(chunk_data, chunk_data_len);
     if (calculated_crc != header.crc32) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "CRC mismatch for chunk %lu: expected 0x%08x, got 0x%08x",
+                      "CRC mismatch for chunk %" PRIu32 ": expected 0x%08" PRIx32 ", got 0x%08" PRIx32,
                       index, header.crc32, calculated_crc);
         PublishAck(index, false);
-        return;
+        return false;
     }
 
     // Calculate flash offset
@@ -183,9 +173,9 @@ void MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     // Write to flash via AT command
     if (!WriteChunkToFlash(flash_offset, chunk_data, chunk_data_len, header.crc32)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Failed to write chunk %lu to flash", index);
+                      "Failed to write chunk %" PRIu32 " to flash", index);
         PublishAck(index, false);
-        return;
+        return false;
     }
 
     // Mark chunk as received
@@ -211,6 +201,7 @@ void MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         // Every 10 chunks, check for missing ones
         RequestMissingChunks();
     }
+    return true;
 }
 
 bool MQTTOTAHandler::StartOTA() {
@@ -223,7 +214,7 @@ bool MQTTOTAHandler::StartOTA() {
     CONSOLE_INFO("MQTTOTAHandler::StartOTA", "Starting OTA update");
 
     // Initialize chunk tracking
-    total_chunks_ = manifest_.chunks;
+    total_chunks_ = manifest_.total_chunks;
     total_bytes_ = manifest_.size;
     chunks_received_ = 0;
     bytes_received_ = 0;
@@ -264,7 +255,7 @@ bool MQTTOTAHandler::StartOTA() {
     state_ = OTAState::DOWNLOADING;
     PublishStatus();
 
-    CONSOLE_INFO("MQTTOTAHandler::StartOTA", "Ready to receive %lu chunks", total_chunks_);
+    CONSOLE_INFO("MQTTOTAHandler::StartOTA", "Ready to receive %" PRIu32 " chunks", total_chunks_);
     return true;
 }
 
@@ -275,7 +266,7 @@ bool MQTTOTAHandler::AbortOTA() {
 
     // Clear session
     current_session_id_.clear();
-    manifest_ = OTAManifest();
+    manifest_ = Manifest();
     received_chunks_.clear();
     chunks_received_ = 0;
     total_chunks_ = 0;
@@ -391,18 +382,81 @@ std::string MQTTOTAHandler::GetChunkTopic(uint32_t index) const {
 
 // TODO: Implement these functions
 bool MQTTOTAHandler::EraseFlashPartition() {
-    // Send AT+OTA=ERASE command via pico interface
-    return true;  // Placeholder
+    // For ESP32, we handle the flash directly using ESP-IDF OTA APIs
+    // Get the next OTA partition
+    const esp_partition_t* ota_partition = esp_ota_get_next_update_partition(NULL);
+    if (!ota_partition) {
+        CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
+                      "Failed to get OTA partition");
+        return false;
+    }
+
+    // Erase the partition
+    esp_err_t err = esp_partition_erase_range(ota_partition, 0, manifest_.size);
+    if (err != ESP_OK) {
+        CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
+                      "Failed to erase partition: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    // Store partition for later use
+    ota_partition_ = ota_partition;
+
+    CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
+                 "Erased %" PRIu32 " bytes in partition %s",
+                 manifest_.size, ota_partition->label);
+    return true;
 }
 
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
-    // Send AT+OTA=WRITE command via pico interface
-    return true;  // Placeholder
+    // Validate we have an OTA partition
+    if (!ota_partition_) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "No OTA partition selected");
+        return false;
+    }
+
+    // Write data to partition
+    esp_err_t err = esp_partition_write(ota_partition_, offset, data, len);
+    if (err != ESP_OK) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Failed to write to partition at offset 0x%08" PRIx32 ": %s",
+                      offset, esp_err_to_name(err));
+        return false;
+    }
+
+    return true;
 }
 
 bool MQTTOTAHandler::VerifyFlashPartition() {
-    // Send AT+OTA=VERIFY command via pico interface
-    return true;  // Placeholder
+    if (!ota_partition_) {
+        CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
+                      "No OTA partition selected");
+        return false;
+    }
+
+    // Calculate SHA256 of written data
+    uint8_t calculated_sha[32];
+    esp_partition_get_sha256(ota_partition_, calculated_sha);
+
+    // Convert to hex string for comparison
+    char calculated_hex[65];
+    for (int i = 0; i < 32; i++) {
+        sprintf(&calculated_hex[i*2], "%02x", calculated_sha[i]);
+    }
+    calculated_hex[64] = '\0';
+
+    // Compare with expected
+    if (strcasecmp(calculated_hex, manifest_.sha256.c_str()) != 0) {
+        CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
+                      "SHA256 mismatch: expected %s, got %s",
+                      manifest_.sha256.c_str(), calculated_hex);
+        return false;
+    }
+
+    CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
+                 "Firmware verified successfully");
+    return true;
 }
 
 void MQTTOTAHandler::RequestMissingChunks() {

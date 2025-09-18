@@ -422,6 +422,9 @@ AT+MQTTFMT?          # Check all feed formats
 | `AT+MQTTTLS?` | Query all TLS settings | `AT+MQTTTLS?` |
 | `AT+MQTTTLS?<n>` | Query feed TLS mode | `AT+MQTTTLS?0` |
 | `AT+MQTTTLS=<n>,<mode>` | Set TLS mode | `AT+MQTTTLS=0,STRICT` |
+| `AT+MQTTOTA?` | Query all OTA settings | `AT+MQTTOTA?` |
+| `AT+MQTTOTA?<n>` | Query feed OTA status | `AT+MQTTOTA?0` |
+| `AT+MQTTOTA=<n>,<0\|1>` | Enable/disable OTA | `AT+MQTTOTA=0,1` |
 
 ### System Commands
 | Command | Description | Example |
@@ -429,4 +432,115 @@ AT+MQTTFMT?          # Check all feed formats
 | `AT+SETTINGS=SAVE` | Save configuration to flash | `AT+SETTINGS=SAVE` |
 | `AT+REBOOT` | Reboot device | `AT+REBOOT` |
 | `AT+SETTINGS?` | Show all settings | `AT+SETTINGS?` |
+
+## MQTT OTA Updates
+
+### Overview
+
+ADSBee supports Over-The-Air (OTA) firmware updates via MQTT. This allows remote firmware updates without physical access to the device.
+
+**WARNING**: OTA updates can brick your device if interrupted. Ensure:
+- Stable power supply
+- Reliable network connection
+- Correct firmware file
+- Backup of current configuration
+
+### Enabling OTA
+
+```bash
+# Enable OTA for feed 0 (disabled by default for safety)
+AT+MQTTOTA=0,1
+AT+SETTINGS=SAVE
+AT+REBOOT
+
+# Check OTA status
+AT+MQTTOTA?0
+```
+
+### OTA Process
+
+1. **Device subscribes to OTA topics**:
+   - `{device_id}/ota/control/manifest` - Firmware metadata
+   - `{device_id}/ota/control/command` - Control commands
+   - `{device_id}/ota/data/chunk/+` - Firmware chunks
+
+2. **Server publishes manifest** containing:
+   - Firmware version
+   - Total size and number of chunks
+   - CRC/SHA256 for verification
+
+3. **Server sends START command**
+   - Device erases flash partition
+   - Prepares for chunk reception
+
+4. **Server publishes firmware chunks**
+   - Each chunk has CRC32 verification
+   - Device ACKs successful chunks
+   - Server retries failed chunks
+
+5. **Verification and boot**
+   - Device verifies complete firmware
+   - Server sends BOOT command
+   - Device reboots to new firmware
+
+### Topic Structure
+
+#### Subscribe (Device listens):
+- `{device_id}/ota/control/manifest` - Firmware manifest
+- `{device_id}/ota/control/command` - Control commands
+- `{device_id}/ota/data/chunk/{n}` - Firmware chunks
+
+#### Publish (Device sends):
+- `{device_id}/ota/status/state` - Current OTA state
+- `{device_id}/ota/status/progress` - Download progress
+- `{device_id}/ota/status/ack/{n}` - Chunk acknowledgments
+
+### Security Considerations
+
+- **Disabled by default** - Must explicitly enable via AT command
+- **TLS recommended** - Use MQTTS for encrypted transfer
+- **Authentication required** - Use strong credentials
+- **CRC verification** - Each chunk is verified
+- **Session IDs** - Prevent replay attacks
+- **Rollback protection** - Previous firmware preserved
+
+### Example Configuration
+
+```bash
+# Secure OTA setup
+AT+FEED=0,mqtts://broker.example.com,8883,1,MQTT
+AT+MQTTTLS=0,STRICT
+AT+MQTTAUTH=0,device-ota,secure-password
+AT+MQTTOTA=0,1
+AT+SETTINGS=SAVE
+AT+REBOOT
+```
+
+## Pending Features
+
+The following features are planned for future releases:
+- Custom client ID configuration
+- Raw packet publishing mode
+- GPS position publishing
+- Custom CA certificate upload
+- Client certificate authentication
+- Configurable QoS levels
+- Custom topic prefixes
+- OTA server tools and scripts
+
+## Version History
+
+### 0.8.2-RC12
+- Complete MQTT OTA implementation with ESP32 partition management
+- Integrated OTA handler into MQTT client with automatic topic subscription
+- Added JSON manifest and chunk handling in MQTT event callbacks
+- Implemented direct ESP32 flash writing for OTA updates
+- SHA256 verification for firmware integrity
+
+### 0.8.2-RC11
+- Added MQTT OTA (Over-The-Air) update support
+- Implemented AT+MQTTOTA command to enable/disable OTA per feed
+- Created MQTTOTAHandler for firmware updates via MQTT
+- Added chunked transfer with CRC32 verification
+- Created Python OTA publisher tool
 

@@ -9,6 +9,7 @@
 #include "mqtt_client.h"  // ESP-IDF MQTT client
 #include "transponder_packet.hh"
 #include "settings.hh"
+#include "mqtt_ota.hh"
 
 namespace MQTT {
 
@@ -88,6 +89,7 @@ public:
         std::string client_id;
         std::string device_id;
         bool use_tls;
+        bool ota_enabled;
         SettingsManager::MQTTFormat format;
         SettingsManager::MQTTReportMode report_mode;
         uint16_t telemetry_interval_sec;
@@ -127,6 +129,7 @@ private:
     // Connection management with exponential backoff
     void HandleConnect();
     void HandleDisconnect();
+    void HandleMessage(esp_mqtt_event_handle_t event);
     void ScheduleReconnect();
 
     // Topic generation
@@ -135,6 +138,7 @@ private:
     std::string GetTelemetryTopic() const;
     std::string GetGPSTopic() const;
     std::string GetOnlineTopic() const;
+    std::string GetOTABaseTopic() const;
 
     // Serialization
     std::string SerializeStatusJSON(const AircraftStatus& status) const;
@@ -172,6 +176,9 @@ private:
 
     // Statistics
     mutable Stats stats_;
+
+    // OTA handler (if enabled)
+    std::unique_ptr<MQTTOTAHandler> ota_handler_;
 };
 
 }  // namespace MQTT

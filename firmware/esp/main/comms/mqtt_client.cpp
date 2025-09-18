@@ -5,9 +5,11 @@
 #include "esp_timer.h"
 #include "hal.hh"  // For get_time_since_boot_ms
 #include "cJSON.h"  // ESP-IDF's cJSON component
+#include "mqtt_ota.hh"
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
+#include <memory>
 
 static const char* TAG = "MQTT";
 
@@ -45,10 +47,17 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
       feed_index_(feed_index),
       client_(nullptr),
       connected_(false),
-      reconnect_delay_ms_(kInitialReconnectDelayMs) {
+      reconnect_delay_ms_(kInitialReconnectDelayMs),
+      ota_handler_(nullptr) {
 
     // Initialize statistics
     stats_ = {};
+
+    // Create OTA handler if enabled
+    if (config_.ota_enabled) {
+        ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
+        ESP_LOGI(TAG, "OTA enabled for MQTT feed %d", feed_index_);
+    }
 
     // Configure MQTT client
     esp_mqtt_client_config_t mqtt_cfg = {};
@@ -194,6 +203,10 @@ void MQTTClient::MQTTEventHandler(void* handler_args, esp_event_base_t base,
             self->HandleDisconnect();
             break;
 
+        case MQTT_EVENT_DATA:
+            self->HandleMessage(event);
+            break;
+
         case MQTT_EVENT_ERROR:
             ESP_LOGE(TAG, "MQTT error for feed %d: %d", self->feed_index_, event->error_handle->error_type);
             if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
@@ -216,6 +229,22 @@ void MQTTClient::HandleConnect() {
     std::string online_topic = GetOnlineTopic();
     esp_mqtt_client_publish(client_, online_topic.c_str(), "1", 1, 1, true);
 
+    // Subscribe to OTA topics if enabled
+    if (ota_handler_) {
+        std::string ota_base = GetOTABaseTopic();
+
+        // Subscribe to control topics
+        std::string manifest_topic = ota_base + "/control/manifest";
+        std::string command_topic = ota_base + "/control/command";
+        std::string chunk_topic = ota_base + "/data/chunk/+";
+
+        esp_mqtt_client_subscribe(client_, manifest_topic.c_str(), 1);
+        esp_mqtt_client_subscribe(client_, command_topic.c_str(), 1);
+        esp_mqtt_client_subscribe(client_, chunk_topic.c_str(), 1);
+
+        ESP_LOGI(TAG, "Subscribed to OTA topics for device %s", config_.device_id.c_str());
+    }
+
     // Clear rate limiter to start fresh
     rate_limiter_.Reset();
 }
@@ -224,6 +253,120 @@ void MQTTClient::HandleDisconnect() {
     connected_ = false;
     stats_.reconnect_count++;
     ScheduleReconnect();
+}
+
+void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
+    if (!ota_handler_) {
+        return;  // OTA not enabled
+    }
+
+    // Extract topic and payload
+    std::string topic(event->topic, event->topic_len);
+    std::string ota_base = GetOTABaseTopic();
+
+    // Check if it's an OTA message
+    if (topic.find(ota_base) != 0) {
+        return;  // Not an OTA topic
+    }
+
+    // Remove base from topic
+    std::string ota_topic = topic.substr(ota_base.length());
+
+    // Handle different OTA messages
+    if (ota_topic == "/control/manifest") {
+        // Parse JSON manifest
+        cJSON* root = cJSON_ParseWithLength(event->data, event->data_len);
+        if (!root) {
+            ESP_LOGE(TAG, "Failed to parse OTA manifest JSON");
+            return;
+        }
+
+        MQTTOTAHandler::Manifest manifest;
+
+        cJSON* version = cJSON_GetObjectItem(root, "version");
+        if (version && cJSON_IsString(version)) {
+            manifest.version = version->valuestring;
+        }
+
+        cJSON* size = cJSON_GetObjectItem(root, "size");
+        if (size && cJSON_IsNumber(size)) {
+            manifest.size = size->valueint;
+        }
+
+        cJSON* chunks = cJSON_GetObjectItem(root, "chunks");
+        if (chunks && cJSON_IsNumber(chunks)) {
+            manifest.total_chunks = chunks->valueint;
+        }
+
+        cJSON* chunk_size = cJSON_GetObjectItem(root, "chunk_size");
+        if (chunk_size && cJSON_IsNumber(chunk_size)) {
+            manifest.chunk_size = chunk_size->valueint;
+        }
+
+        cJSON* sha256 = cJSON_GetObjectItem(root, "sha256");
+        if (sha256 && cJSON_IsString(sha256)) {
+            manifest.sha256 = sha256->valuestring;
+        }
+
+        cJSON* session_id = cJSON_GetObjectItem(root, "session_id");
+        if (session_id && cJSON_IsString(session_id)) {
+            manifest.session_id = session_id->valuestring;
+        }
+
+        cJSON_Delete(root);
+
+        // Process manifest
+        if (ota_handler_->HandleManifest(manifest)) {
+            // Publish acknowledgment
+            std::string ack_topic = ota_base + "/status/manifest_ack";
+            esp_mqtt_client_publish(client_, ack_topic.c_str(), "1", 1, 1, false);
+        }
+
+    } else if (ota_topic == "/control/command") {
+        // Parse command
+        cJSON* root = cJSON_ParseWithLength(event->data, event->data_len);
+        if (!root) {
+            ESP_LOGE(TAG, "Failed to parse OTA command JSON");
+            return;
+        }
+
+        cJSON* cmd = cJSON_GetObjectItem(root, "command");
+        if (cmd && cJSON_IsString(cmd)) {
+            std::string command = cmd->valuestring;
+            ota_handler_->HandleCommand(command);
+
+            // Publish current state
+            std::string state_topic = ota_base + "/status/state";
+            std::string state_json = ota_handler_->GetStateJSON();
+            esp_mqtt_client_publish(client_, state_topic.c_str(),
+                                   state_json.c_str(), state_json.length(), 1, false);
+        }
+
+        cJSON_Delete(root);
+
+    } else if (ota_topic.find("/data/chunk/") == 0) {
+        // Extract chunk index from topic
+        std::string chunk_idx_str = ota_topic.substr(12);  // "/data/chunk/".length() = 12
+        uint32_t chunk_index = std::stoul(chunk_idx_str);
+
+        // Process chunk
+        bool success = ota_handler_->HandleChunk(chunk_index,
+                                                 (const uint8_t*)event->data,
+                                                 event->data_len);
+
+        // Publish ACK/NACK
+        std::string ack_topic = ota_base + "/status/ack/" + chunk_idx_str;
+        esp_mqtt_client_publish(client_, ack_topic.c_str(),
+                               success ? "1" : "0", 1, 0, false);
+
+        // Publish progress periodically (every 10 chunks)
+        if (chunk_index % 10 == 0) {
+            std::string progress_topic = ota_base + "/status/progress";
+            std::string progress_json = ota_handler_->GetProgressJSON();
+            esp_mqtt_client_publish(client_, progress_topic.c_str(),
+                                   progress_json.c_str(), progress_json.length(), 0, false);
+        }
+    }
 }
 
 void MQTTClient::ScheduleReconnect() {
@@ -275,8 +418,28 @@ std::string MQTTClient::GetGPSTopic() const {
     }
 }
 
+std::string MQTTClient::GetStatusTopic(const std::string& icao, uint8_t band) const {
+    return config_.device_id + "/aircraft/" + icao + "/status";
+}
+
+std::string MQTTClient::GetRawTopic(const std::string& icao, uint8_t band) const {
+    return config_.device_id + "/aircraft/" + icao + "/raw";
+}
+
+std::string MQTTClient::GetTelemetryTopic() const {
+    return config_.device_id + "/telemetry";
+}
+
+std::string MQTTClient::GetGPSTopic() const {
+    return config_.device_id + "/gps";
+}
+
 std::string MQTTClient::GetOnlineTopic() const {
     return config_.device_id + "/system/online";
+}
+
+std::string MQTTClient::GetOTABaseTopic() const {
+    return config_.device_id + "/ota";
 }
 
 AircraftStatus MQTTClient::PacketToStatus(const TransponderPacket& packet, uint8_t band) const {
