@@ -195,8 +195,10 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         return false;
     }
 
-    // Calculate flash offset
-    uint32_t flash_offset = index * manifest_.chunk_size;
+    // Calculate flash offset - firmware starts at 4KB after header
+    // Header will be written by CompleteOTAUpdate
+    constexpr uint32_t APP_OFFSET = 4 * 1024; // 4KB header space
+    uint32_t flash_offset = APP_OFFSET + (index * manifest_.chunk_size);
 
     // For the last chunk, only write the actual data bytes, not padding
     size_t bytes_to_write = chunk_data_len;

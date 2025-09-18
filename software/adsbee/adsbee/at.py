@@ -294,12 +294,12 @@ class ADSBeeAT:
             contents = contents[offset:]
             header_contents = contents[:HEADER_SIZE_BYTES]
 
-            # Write the header.
-            self.ota_write_bytes(0, header_contents)
-
-            # Write the application in chunks.
+            # Don't write the header - CompleteOTAUpdate will handle it
+            # Just extract the app size from the header for writing the app
             app_len_bytes = int.from_bytes(header_contents[8:12], byteorder='little')
-            for i in range(HEADER_SIZE_BYTES, app_len_bytes, WRITE_CHUNK_BYTES):
+
+            # Write the application in chunks starting from after the header
+            for i in range(HEADER_SIZE_BYTES, HEADER_SIZE_BYTES + app_len_bytes, WRITE_CHUNK_BYTES):
                 offset_bytes = (i - HEADER_SIZE_BYTES) + APP_OFFSET_BYTES
                 self.ota_write_bytes(offset_bytes, contents[i:i+WRITE_CHUNK_BYTES])
             # self.ota_write_bytes(HEADER_SIZE_BYTES, contents[HEADER_SIZE_BYTES:])
