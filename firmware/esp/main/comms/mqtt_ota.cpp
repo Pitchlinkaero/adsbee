@@ -169,7 +169,7 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     uint32_t flash_offset = index * manifest_.chunk_size;
 
     // Write to flash via AT command
-    if (!WriteChunkToFlash(flash_offset, chunk_data, chunk_data_len, header.crc32)) {
+    if (!WriteChunkToFlash(flash_offset, chunk_data, chunk_data_len, calculated_crc)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "Failed to write chunk %" PRIu32 " to flash", index);
         PublishAck(index, false);
