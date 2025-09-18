@@ -1,26 +1,10 @@
 # MQTT Configuration Guide for ADSBee
 
-## ⚠️ CRITICAL: URI Format - NO Protocol Prefix!
-
-**DO NOT include `mqtt://` or `mqtts://` in the AT+FEED URI field!**
-
-✅ **CORRECT Format:**
-```
-AT+FEED=0,192.168.7.65,1883,1,MQTT           # IP address only
-AT+FEED=0,broker.example.com,1883,1,MQTT     # Hostname only
-```
-
-❌ **INCORRECT Format (causes DNS errors):**
-```
-AT+FEED=0,192.168.7.65,1883,1,MQTT    # WRONG!
-AT+FEED=0,mqtts://broker.com,8883,1,MQTT     # WRONG!
-```
-
-The protocol is specified by the last parameter (`MQTT`). The firmware automatically adds the appropriate prefix.
+The protocol is specified by the last parameter (`MQTT`). 
 
 ## Overview
 
-ADSBee supports MQTT protocol for publishing ADS-B/UAT aircraft data and receiver telemetry to MQTT brokers. This guide covers configuration, setup, and usage.
+ADSBee supports an MQTT client for publishing ADS-B/UAT aircraft data and receiver telemetry to MQTT brokers. This MQTT client is extremely powerful compared to some of the other feed options for intergrated and deployed solutions. The MQTT client supports live data and metrics about the ADSBEE as well OTA Firmware flashing over the MQTT server out of the box. This guide covers configuration, setup, and usage.
 
 ## Quick Start
 
@@ -31,11 +15,11 @@ MQTT is configured using the existing feed system. Use one of the 10 available f
 **Via AT Commands:**
 ```bash
 # Configure feed 0 for MQTT (all parameters at once)
-AT+FEED=0,broker.hivemq.com,1883,1,MQTT
+AT+FEED=0,broker.example.com,1883,1,MQTT
 
 # Or configure parameters individually (use commas to skip):
 # Just set URI (NO mqtt:// prefix!)
-AT+FEED=0,broker.hivemq.com
+AT+FEED=0,broker.example.com
 
 # Just set port (skip URI)
 AT+FEED=0,,1883
@@ -86,7 +70,7 @@ MQTT settings are stored in the device configuration:
 ### Global Settings (hardcoded defaults):
 - **Device ID**: Auto-generated from receiver ID (16 hex chars)
 - **Telemetry interval**: 60 seconds
-- **GPS interval**: 60 seconds
+- **GPS interval**: 60 seconds (Not currently supported but hooks are in place)
 - **Status rate**: 1 Hz per aircraft
 - **MQTT enabled**: Via feed protocol selection
 
@@ -249,7 +233,7 @@ AT+MQTTTLS?0
 ### Secure Connection Example
 ```bash
 # Configure secure MQTT with authentication
-AT+FEED=0,broker.hivemq.com,8883,1,MQTT
+AT+FEED=0,broker.example..com,8883,1,MQTT
 AT+MQTTTLS=0,STRICT
 AT+MQTTAUTH=0,username,password
 AT+MQTTFMT=0,JSON
@@ -305,9 +289,23 @@ MQTT: Published telemetry (28 bytes)
 
 ## Troubleshooting
 
+**DO NOT include `mqtt://` or `mqtts://` in the AT+FEED URI field!**
+
+✅ **CORRECT Format:**
+```
+AT+FEED=0,192.168.7.65,1883,1,MQTT           # IP address only
+AT+FEED=0,broker.example.com,1883,1,MQTT     # Hostname only
+```
+
+❌ **INCORRECT Format (causes DNS errors):**
+```
+AT+FEED=0,192.168.7.65,1883,1,MQTT    # WRONG!
+AT+FEED=0,mqtts://broker.com,8883,1,MQTT     # WRONG!
+```
+
 ### Not Connecting
 1. Check network connectivity (ensure WiFi is connected)
-2. Verify broker URI format: `mqtt://` not `http://`
+2. Verify broker URI format: Should not include `mqtt://` not `http://`
 3. Check firewall allows port 1883/8883
 4. Currently only public brokers without authentication work
 
@@ -325,12 +323,6 @@ After configuration changes:
 4. Verify with `AT+FEED?` after restart
 
 ## Security Considerations
-
-### TLS/SSL (MQTTS)
-- Use `mqtts://` URI scheme
-- Port 8883 typically
-- CA certificate validation enabled
-- **Note**: Client certificates not yet supported
 
 ### Authentication
 - Always use username/password with cloud brokers
@@ -391,12 +383,6 @@ When using `AT+FEED=<index>,<uri>,<port>,<active>,<protocol>`:
 - Leave parameter empty to skip (e.g., `AT+FEED=0,,,,MQTT` only sets protocol)
 - Parameters are positional, use commas to skip
 
-### Supported Protocols
-- `BEAST` - Beast binary protocol
-- `BEAST_RAW` - Beast raw protocol
-- `MQTT` - MQTT protocol
-- Empty/not set - No reports
-
 ### Format Selection
 
 The MQTT client supports both JSON and binary formats. Use the `AT+MQTTFMT` command to switch between formats:
@@ -423,7 +409,7 @@ AT+MQTTFMT?          # Check all feed formats
 |---------|-------------|---------|
 | `AT+FEED?` | Query all feeds | `AT+FEED?` |
 | `AT+FEED?<n>` | Query specific feed | `AT+FEED?0` |
-| `AT+FEED=<n>,<uri>,<port>,<active>,<protocol>` | Configure feed | `AT+FEED=0,broker.hivemq.com,1883,1,MQTT` |
+| `AT+FEED=<n>,<uri>,<port>,<active>,<protocol>` | Configure feed | `AT+FEED=0,broker.example..com,1883,1,MQTT` |
 | `AT+FEEDEN=<n>,<0\|1>` | Enable/disable feed | `AT+FEEDEN=0,1` |
 | `AT+FEEDPROTOCOL=<n>,<protocol>` | Set protocol | `AT+FEEDPROTOCOL=0,MQTT` |
 
@@ -466,7 +452,7 @@ ADSBee supports Over-The-Air (OTA) firmware updates via MQTT. This allows remote
 ### Enabling OTA
 
 ```bash
-# Enable OTA for feed 0 (disabled by default for safety)
+# Enable OTA for feed 0 (enabled by default)
 AT+MQTTOTA=0,1
 AT+SETTINGS=SAVE
 AT+REBOOT
@@ -550,16 +536,3 @@ python3 mqtt_ota_publisher.py --broker broker.example.com --device bee0003a59b33
 ```
 
 For detailed OTA instructions, see [MQTT_OTA_GUIDE.md](MQTT_OTA_GUIDE.md).
-
-## Pending Features
-
-The following features are planned for future releases:
-- Custom client ID configuration
-- Raw packet publishing mode
-- GPS position publishing
-- Custom CA certificate upload
-- Client certificate authentication
-- Configurable QoS levels
-- Custom topic prefixes
-- Firmware signing for OTA
-

@@ -107,12 +107,3 @@ Saves ~20KB vs full build.
 #define CONFIG_MQTT_ENABLED 0
 ```
 Saves ~70KB, keeps Beast/Raw/Basestation protocols.
-
-## Version History
-
-### 0.8.2-RC13
-- Added conditional compilation for MQTT features
-- Optimized string handling to reduce memory usage
-- Created modular build system for size optimization
-- Reduced default chunk size from 4KB to 1KB
-- Added binary protocol support for compact messages

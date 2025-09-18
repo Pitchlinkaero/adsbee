@@ -341,16 +341,18 @@ class ADSBeeOTAPublisher:
         # Calculate chunk data
         offset = chunk_index * self.chunk_size
         chunk_data = self.firmware_data[offset:offset + self.chunk_size]
+        actual_len = len(chunk_data)
 
-        # Pad all chunks to be exactly chunk_size bytes
-        # The device expects all chunks to be the same size as specified in the manifest
-        if len(chunk_data) < self.chunk_size:
-            # This is typically the last chunk - pad to full chunk size
-            padding_needed = self.chunk_size - len(chunk_data)
+        # The device expects all chunks to be exactly chunk_size bytes
+        # But we must ensure the manifest size reflects the ACTUAL firmware size
+        if actual_len < self.chunk_size:
+            # This is the last chunk - pad for transmission but track actual size
+            padding_needed = self.chunk_size - actual_len
             chunk_data = chunk_data + bytes([0xFF] * padding_needed)
-            print(f"  Chunk {chunk_index}: padded from {len(chunk_data) - padding_needed} to {self.chunk_size} bytes")
+            print(f"  Last chunk {chunk_index}: {actual_len} actual bytes, padded to {self.chunk_size} for transmission")
+            print(f"    Note: Manifest size is {self.firmware_size} bytes (actual firmware)")
 
-        chunk_len = len(chunk_data)
+        chunk_len = len(chunk_data)  # This will be chunk_size after padding
 
         # Calculate CRC32 and store lower 16 bits to match header format
         crc32 = self._crc32(chunk_data)
@@ -699,10 +701,10 @@ class ADSBeeOTAPublisher:
             self.send_command("ABORT")
             return False
 
-        # Send VERIFY command to trigger verification
-        print("\nSending VERIFY command to trigger firmware verification...")
-        self.send_command("VERIFY")
-        time.sleep(2)  # Give device time to process the command
+        # Don't send VERIFY immediately - the device auto-verifies after all chunks
+        # The VERIFY command is being rejected because device isn't in the right state
+        print("\nWaiting for device to complete transfer and auto-verify...")
+        time.sleep(5)  # Give device time to finalize and start verification
 
         # Wait for verification
         print("Waiting for device to verify firmware...")

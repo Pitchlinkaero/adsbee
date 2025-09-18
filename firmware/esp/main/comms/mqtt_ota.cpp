@@ -154,16 +154,37 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     const uint8_t* chunk_data = data + kHeaderSize;
     size_t chunk_data_len = len - kHeaderSize;
 
-    // Validate against manifest chunk size, not header chunk size
-    if (chunk_data_len != manifest_.chunk_size) {
-        CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Chunk size mismatch: expected %lu from manifest, got %zu",
-                      (unsigned long)manifest_.chunk_size, chunk_data_len);
-        PublishAck(index, false);
-        return false;
+    // Validate chunk size
+    // For the last chunk, it may be smaller than chunk_size
+    bool is_last_chunk = (index == manifest_.total_chunks - 1);
+    size_t expected_chunk_size = manifest_.chunk_size;
+
+    if (is_last_chunk) {
+        // Calculate expected size for last chunk
+        size_t remaining_bytes = manifest_.size - (index * manifest_.chunk_size);
+        expected_chunk_size = (remaining_bytes < manifest_.chunk_size) ? remaining_bytes : manifest_.chunk_size;
+
+        // Allow padded last chunk (device might send padded data for alignment)
+        if (chunk_data_len != expected_chunk_size && chunk_data_len != manifest_.chunk_size) {
+            CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
+                          "Last chunk size mismatch: expected %zu or %lu, got %zu",
+                          expected_chunk_size, (unsigned long)manifest_.chunk_size, chunk_data_len);
+            PublishAck(index, false);
+            return false;
+        }
+    } else {
+        // Non-last chunks must be exactly chunk_size
+        if (chunk_data_len != manifest_.chunk_size) {
+            CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
+                          "Chunk size mismatch: expected %lu, got %zu",
+                          (unsigned long)manifest_.chunk_size, chunk_data_len);
+            PublishAck(index, false);
+            return false;
+        }
     }
 
     // Verify CRC (using lower 16 bits of CRC32)
+    // Note: CRC should be calculated on the padded data as sent by publisher
     uint32_t calculated_crc = CalculateCRC32(chunk_data, chunk_data_len);
     uint16_t calculated_crc16 = calculated_crc & 0xFFFF;
     if (calculated_crc16 != crc16) {
@@ -177,8 +198,18 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     // Calculate flash offset
     uint32_t flash_offset = index * manifest_.chunk_size;
 
+    // For the last chunk, only write the actual data bytes, not padding
+    size_t bytes_to_write = chunk_data_len;
+    if (is_last_chunk && chunk_data_len > expected_chunk_size) {
+        // Chunk is padded, only write the actual firmware bytes
+        bytes_to_write = expected_chunk_size;
+        CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
+                     "Last chunk: writing %zu bytes (ignoring %zu bytes of padding)",
+                     bytes_to_write, chunk_data_len - bytes_to_write);
+    }
+
     // Write to flash via AT command
-    if (!WriteChunkToFlash(flash_offset, chunk_data, chunk_data_len, calculated_crc)) {
+    if (!WriteChunkToFlash(flash_offset, chunk_data, bytes_to_write, calculated_crc)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "Failed to write chunk %" PRIu32 " to flash", index);
         PublishAck(index, false);

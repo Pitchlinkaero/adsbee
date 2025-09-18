@@ -240,6 +240,43 @@ auto_boot = False        # Don't auto-boot after verification
 timeout = 60             # Seconds to wait for device
 ```
 
+## Technical Implementation Details
+
+### Chunk Transfer Optimization
+
+The OTA system uses optimized timing based on RP2040 flash characteristics:
+
+1. **Flash Architecture:**
+   - Page size: 256 bytes (minimum write)
+   - Sector size: 4KB (minimum erase)
+   - Block size: 64KB (block erase)
+   - Chunk size: 2048 bytes (8 pages, 1/2 sector)
+
+2. **Dynamic Delay Strategy:**
+   - **First chunk**: 40-second delay for bulk sector erase (~160 sectors)
+   - **Subsequent chunks**: 100ms delay (flash writes are fast after erase)
+   - **Result**: ~6 chunks/second throughput after initial erase
+
+3. **Last Chunk Handling:**
+   - Publisher pads last chunk to 2048 bytes for transmission
+   - Device accepts padded chunk but only writes actual firmware bytes
+   - Prevents firmware corruption from padding bytes
+
+### Verification Process
+
+1. **ACK-based flow control** - Each chunk must be acknowledged before proceeding
+2. **CRC validation** - Each chunk includes CRC16 (lower 16 bits of CRC32)
+3. **Final verification** - Complete firmware SHA256 hash verification
+4. **Version confirmation** - Verifies device telemetry reports expected version after reboot
+
+### Automatic Features
+
+1. **Logging** - Automatic log file creation with timestamp and version
+2. **Retry logic** - Up to 5 retries per chunk with exponential backoff
+3. **Device online detection** - Monitors telemetry to ensure device connectivity
+4. **Reboot verification** - Confirms device comes back online with new firmware
+5. **Progress tracking** - Real-time chunk rate and ETA calculation
+
 ## Security Considerations
 
 1. **Use TLS when possible** - Encrypt firmware in transit
@@ -252,7 +289,16 @@ timeout = 60             # Seconds to wait for device
 
 ```bash
 $ python3 mqtt_ota_publisher.py --broker localhost --device bee0003a59b3356e \
-    --pre-reboot --auto-boot firmware.ota
+    --pre-reboot --auto-boot --version 0.8.4 firmware.ota
+
+Logging to: ota_bee0003a59b3356e_v0_8_4_20241218_150320.log
+=== OTA Update Log ===
+Timestamp: 2024-12-18T15:03:20
+Device: bee0003a59b3356e
+Firmware: firmware.ota
+Broker: localhost:1883
+Version: 0.8.4
+==================================================
 
 Connecting to localhost:1883...
 Connected to localhost:1883
@@ -263,24 +309,44 @@ Subscribed to bee0003a59b3356e/telemetry
 Checking device connectivity...
 ✓ Device is online
 Rebooting device to clean state...
-Waiting for device to come back online (up to 60s)...
+Waiting for device to come back online (up to 90s)...
 ✓ Device back online after reboot
 Loaded firmware: firmware.ota
   Size: 4,915,580 bytes
-  Chunks: 1201 x 4096 bytes
-Publishing manifest for version 0.8.3
+  Chunks: 2399 x 2048 bytes
+Publishing manifest for version 0.8.4
 Waiting for device to process manifest...
 Sending command: START
 Waiting for device to start download...
 Device state: DOWNLOADING
-Publishing chunks...
-Progress: [████████████████████] 100% (1201/1201)
-All chunks published successfully
+Publishing 2399 chunks with enhanced ACK-based flow control...
+Chunk size: 2048 bytes (matching flash sector size)
+    Note: Using dynamic delays based on flash erase requirements
+    - First chunk: 40s delay for bulk erase
+    - After erase completes: 100ms per chunk
+    Waiting 40s for device to erase all sectors...
+Progress: 100/2399 chunks sent (4.2%) Current: 9.8 chunks/s, ETA: 234.2s
+  Last chunk 2398: 1921 actual bytes, padded to 2048 for transmission
+    Note: Manifest size is 4915580 bytes (actual firmware)
+Progress: 2399/2399 chunks sent (100.0%) Current: 10.0 chunks/s, ETA: 0.0s
+
+🔍 Performing final verification...
+✓ All 2399 chunks successfully sent and acknowledged!
+
+Waiting for device to complete transfer and auto-verify...
 Waiting for device to verify firmware...
-Device state: VERIFYING
 Device state: READY_TO_BOOT
 Firmware verified successfully!
 Device rebooting with new firmware...
 
+Waiting for device to reboot (device will go offline)...
+Waiting for device to come back online after reboot (up to 120s)...
+✅ Device successfully rebooted and is back online!
+Device firmware version: 0.8.4
+✅ Firmware version confirmed: 0.8.4
+
 ✓ OTA update completed successfully!
+
+=== End of Log ===
+Timestamp: 2024-12-18T15:08:45
 ```
