@@ -355,17 +355,15 @@ class ADSBeeOTAPublisher:
 
         chunk_len = len(chunk_data)  # This will be chunk_size after padding
 
-        # Calculate CRC32 and store lower 16 bits to match header format
+        # Calculate CRC32 for chunk integrity
         crc32 = self._crc32(chunk_data)
-        crc16 = crc32 & 0xFFFF
 
-        # Create chunk header
-        header = struct.pack(">IIHHI",
+        # Create chunk header with full CRC32
+        header = struct.pack(">IIHI",
             int(self.session_id[:8], 16) & 0xFFFFFFFF,  # Session ID (first 8 chars as hex)
             chunk_index,
             chunk_len,
-            crc16,
-            0  # Flags
+            crc32  # Full CRC32 for MQTT transport integrity
         )
 
         # Combine header and data
@@ -373,7 +371,7 @@ class ADSBeeOTAPublisher:
 
         # Enhanced debug logging for problematic chunks
         if chunk_index < 10 or chunk_index in self.failed_chunks:
-            print(f"  Chunk {chunk_index}: offset=0x{offset:06X}, len={chunk_len}, CRC32=0x{crc32:08X}, CRC16=0x{crc16:04X}")
+            print(f"  Chunk {chunk_index}: offset=0x{offset:06X}, len={chunk_len}, CRC32=0x{crc32:08X}")
             # Show first few bytes of data for debugging
             preview = chunk_data[:16].hex() if len(chunk_data) >= 16 else chunk_data.hex()
             print(f"    Data preview: {preview}...")
