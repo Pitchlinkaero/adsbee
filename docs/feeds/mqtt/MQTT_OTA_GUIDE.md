@@ -1,5 +1,18 @@
 # MQTT OTA (Over-The-Air) Update Guide
 
+## Quick Start
+
+```bash
+# 1. On the device - Enable MQTT OTA (one-time setup)
+AT+FEED=0,192.168.1.100,1883,1,MQTT
+AT+MQTTOTA=0,1    # CRITICAL: Enable OTA for feed 0
+AT+SETTINGS=SAVE
+AT+REBOOT
+
+# 2. On your computer - Send firmware update
+python3 mqtt_ota_publisher.py --broker 192.168.1.100 --device bee0003a59b3356e firmware.ota
+```
+
 ## Overview
 
 The ADSBee MQTT OTA system enables remote firmware updates via MQTT protocol. The implementation uses a **pass-through architecture** where the ESP32 forwards OTA commands and data to the Pico (RP2040) processor, which handles the actual firmware storage and update process.
@@ -37,20 +50,28 @@ AT+FEED=0,192.168.1.100,1883,1,MQTT
 AT+MQTTDEVICE=bee0003a59b3356e
 ```
 
-2. **Optional: Configure authentication:**
+2. **Enable OTA for the MQTT feed (REQUIRED):**
+```
+AT+MQTTOTA=0,1
+```
+**Note:** OTA is disabled by default for security. You must explicitly enable it for each feed that should support OTA updates.
+
+3. **Optional: Configure authentication:**
 ```
 AT+MQTTAUTH=username,password
 ```
 
-3. **Optional: Enable TLS:**
+4. **Optional: Enable TLS:**
 ```
 AT+MQTTTLS=VERIFY
 ```
 
-4. **Save settings:**
+5. **Save settings and reboot:**
 ```
 AT+SAVE
+AT+REBOOT
 ```
+**Note:** A reboot is required after enabling OTA for the settings to take effect.
 
 ## Firmware Preparation
 
@@ -204,11 +225,14 @@ The Pico implements these AT commands for OTA:
 3. Check telemetry is being published
 4. Ensure device has network connectivity
 
-### OTA Fails Immediately
-1. Check partition configuration on Pico
-2. Verify firmware size fits in partition (< 6MB)
-3. Check ESP32 console for error messages
-4. Ensure MQTT_OTA_ENABLED=1 in firmware
+### OTA Fails Immediately / "Cannot start OTA - no manifest"
+1. **Verify OTA is enabled for the feed:** `AT+MQTTOTA?0` (should return 1 if enabled)
+2. If disabled, enable it: `AT+MQTTOTA=0,1` then `AT+SETTINGS=SAVE` and `AT+REBOOT`
+3. Check partition configuration on Pico
+4. Verify firmware size fits in partition (< 6MB)
+5. Check ESP32 console for error messages
+6. Ensure MQTT_OTA_ENABLED=1 in firmware
+7. Look for "OTA enabled for MQTT feed" message in ESP32 logs after reboot
 
 ### Chunks Not Acknowledged
 1. Check chunk size (max 4096 bytes)
