@@ -17,10 +17,15 @@
 #include "pico/unique_id.h"
 #include "settings.hh"
 #include "spi_coprocessor.hh"  // For init / de-init before and after flashing ESP32.
+#include "gnss/gnss_manager.hh"
+#include "gps_settings.hh"
 
 #ifdef HARDWARE_UNIT_TESTS
 #include "hardware_unit_tests.hh"
 #endif
+
+// External managers
+extern GNSSManager gnss_manager;
 
 // For mapping cpp_at_printf
 #include <cstdarg>
@@ -390,6 +395,162 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
             break;
     }
     CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSConfigCallback) {
+    switch (op) {
+        case '?':
+            // Query current GPS configuration
+            CPP_AT_CMD_PRINTF("=%s,%d,%s",
+                GPSSettings::kGPSSourceStrs[settings_manager.settings.gps_settings.gps_source],
+                settings_manager.settings.gps_settings.gps_update_rate_hz,
+                GNSSInterface::kPPPServiceStrs[settings_manager.settings.gps_settings.ppp_service]);
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Configure GPS settings
+            if (CPP_AT_HAS_ARG(0)) {
+                // Set GPS source
+                bool found = false;
+                for (int i = 0; i < GPSSettings::kGPSSourceCount; i++) {
+                    if (args[0].compare(GPSSettings::kGPSSourceStrs[i]) == 0) {
+                        settings_manager.settings.gps_settings.gps_source = static_cast<GPSSettings::GPSSource>(i);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    CPP_AT_ERROR("Invalid GPS source. Must be one of [NONE, UART, NETWORK, MAVLINK].");
+                }
+            }
+            if (CPP_AT_HAS_ARG(1)) {
+                // Set update rate
+                uint8_t rate;
+                CPP_AT_TRY_ARG2NUM(1, rate);
+                if (rate < 1 || rate > 5) {
+                    CPP_AT_ERROR("GPS update rate must be between 1-5 Hz.");
+                }
+                settings_manager.settings.gps_settings.gps_update_rate_hz = rate;
+            }
+            if (CPP_AT_HAS_ARG(2)) {
+                // Set PPP service
+                bool found = false;
+                for (int i = 0; i < GNSSInterface::kPPPServiceCount; i++) {
+                    if (args[2].compare(GNSSInterface::kPPPServiceStrs[i]) == 0) {
+                        settings_manager.settings.gps_settings.ppp_service = static_cast<GNSSInterface::PPPService>(i);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    CPP_AT_ERROR("Invalid PPP service.");
+                }
+            }
+            // Reinitialize GPS with new settings
+            if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
+                CPP_AT_SUCCESS();
+            } else {
+                CPP_AT_ERROR("Failed to initialize GPS with new settings.");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSPositionCallback) {
+    switch (op) {
+        case '?':
+            {
+                GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
+                if (pos.valid && pos.HasFix()) {
+                    CPP_AT_CMD_PRINTF("=%.8f,%.8f,%.1f,%.1f,%d,%d,%.1f",
+                        pos.latitude_deg,
+                        pos.longitude_deg,
+                        pos.altitude_m,
+                        pos.altitude_msl_m,
+                        pos.fix_type,
+                        pos.satellites_used,
+                        pos.accuracy_horizontal_m);
+                } else {
+                    CPP_AT_CMD_PRINTF("=NO_FIX");
+                }
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSPPPCallback) {
+    switch (op) {
+        case '?':
+            {
+                float convergence;
+                uint32_t eta;
+                GNSSInterface::PPPService service = gnss_manager.GetPPPStatus(convergence, eta);
+                CPP_AT_CMD_PRINTF("=%s,%.1f%%,%ds",
+                    GNSSInterface::kPPPServiceStrs[service],
+                    convergence,
+                    eta);
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        case '=':
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("PPP service name required.");
+            }
+            GNSSInterface::PPPService service = GNSSInterface::kPPPNone;
+            bool found = false;
+            for (int i = 0; i < GNSSInterface::kPPPServiceCount; i++) {
+                if (args[0].compare(GNSSInterface::kPPPServiceStrs[i]) == 0) {
+                    service = static_cast<GNSSInterface::PPPService>(i);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                CPP_AT_ERROR("Invalid PPP service.");
+            }
+            
+            const char* key = nullptr;
+            if (CPP_AT_HAS_ARG(1)) {
+                key = args[1].data();
+            }
+            
+            if (gnss_manager.EnablePPP(service)) {
+                CPP_AT_SUCCESS();
+            } else {
+                CPP_AT_ERROR("Failed to enable PPP service.");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
+    switch (op) {
+        case '?':
+            {
+                char diag_buf[256];
+                gnss_manager.GetDiagnostics(diag_buf, sizeof(diag_buf));
+                CPP_AT_CMD_PRINTF("=%s,%s,%s",
+                    gnss_manager.GetReceiverType(),
+                    gnss_manager.IsPositionValid() ? "VALID" : "INVALID",
+                    gnss_manager.SupportsHighPrecision() ? "HIGH_PRECISION" : "STANDARD");
+                CPP_AT_CMD_PRINTF("\r\n%s", diag_buf);
+                
+                GNSSManager::Statistics stats = gnss_manager.GetStatistics();
+                CPP_AT_CMD_PRINTF("\r\nMessages: %d, Updates: %d, Errors: %d",
+                    stats.messages_processed,
+                    stats.position_updates,
+                    stats.parse_errors);
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
 }
 
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {

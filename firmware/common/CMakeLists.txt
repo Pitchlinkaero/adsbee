@@ -44,6 +44,10 @@ if (TARGET application)
         coprocessor
         firmware_update
         settings
+        gnss
+    )
+    target_link_libraries(application PRIVATE
+        gnss_common
     )
 elseif (TARGET bootloader)
     # RP2040 bootloader.
@@ -124,5 +128,9 @@ elseif (TARGET host_test)
         utils/geo
         utils/rs
         settings
+        gnss
+    )
+    target_link_libraries(host_test PRIVATE
+        gnss_common
     )
 endif()

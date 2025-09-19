@@ -5,6 +5,7 @@
 #include <functional>  // for strtoull
 
 #include "crc.hh"
+#include "gps_settings.hh"
 #include "macros.hh"
 #include "stdio.h"
 #include "stdlib.h"  // for strtoull
@@ -188,6 +189,9 @@ class SettingsManager {
         bool feed_is_active[kMaxNumFeeds];
         ReportingProtocol feed_protocols[kMaxNumFeeds];
         uint8_t feed_receiver_ids[kMaxNumFeeds][kFeedReceiverIDNumBytes];
+        
+        // GPS/GNSS settings
+        GPSSettings gps_settings;
 
         // MAVLINK settings
         uint8_t mavlink_system_id = 1;
