@@ -296,7 +296,8 @@ class ADSBeeOTAPublisher:
         payload = json.dumps(manifest)
 
         print(f"Publishing manifest for version {version}")
-        self.client.publish(topic, payload, qos=1, retain=True)
+        # Do not retain manifests to avoid stale sessions causing mismatches
+        self.client.publish(topic, payload, qos=1, retain=False)
 
         # Wait for device to receive manifest
         time.sleep(2)
@@ -792,8 +793,9 @@ class ADSBeeOTAPublisher:
         self.device_online = False
 
         # Subscribe to telemetry if not already
-        telemetry_topic = f"{self.device_id}/telemetry"
-        self.client.subscribe(telemetry_topic, qos=0)
+        # Subscribe to both legacy and current telemetry topics
+        self.client.subscribe(f"{self.device_id}/system/telemetry", qos=0)
+        self.client.subscribe(f"{self.device_id}/telemetry", qos=0)
 
         print(f"Waiting up to {timeout}s for telemetry (publishes every 60s)...")
         dots = 0

@@ -86,9 +86,10 @@ bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
 bool MQTTOTAHandler::HandleCommand(const std::string& command, const std::string& session_id) {
     CONSOLE_INFO("MQTTOTAHandler::HandleCommand", "Received command: %s", command.c_str());
 
-    // Session consistency: if manifest provided a session_id, enforce it on commands
-    if (!manifest_.session_id.empty()) {
-        if (session_id != manifest_.session_id) {
+    // Allow ABORT and REBOOT regardless of session to recover from mismatch/stuck sessions
+    if (command != "ABORT" && command != "REBOOT") {
+        // Session consistency: if manifest provided a session_id, enforce it on commands
+        if (!manifest_.session_id.empty() && session_id != manifest_.session_id) {
             CONSOLE_ERROR("MQTTOTAHandler::HandleCommand", "Session mismatch: manifest=%s command=%s",
                           manifest_.session_id.c_str(), session_id.c_str());
             return false;
