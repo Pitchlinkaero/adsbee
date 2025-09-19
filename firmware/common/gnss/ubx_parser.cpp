@@ -743,13 +743,13 @@ size_t UBXParser::GetDiagnostics(char* buffer, size_t max_len) const {
     int written = snprintf(buffer, max_len,
         "UBX Parser Diagnostics:\n"
         "Model: %s\n"
-        "Messages: %u (errors: %u, checksum: %u)\n"
+        "Messages: %lu (errors: %lu, checksum: %lu)\n"
         "Fix: %d, Sats: %u\n"
         "Accuracy H/V: %.2f/%.2f m\n"
         "PPP: %s (converged: %s)\n"
         "High Precision: %s\n",
         receiver_type_string_,
-        messages_parsed_, parse_errors_, checksum_errors_,
+        (unsigned long)messages_parsed_, (unsigned long)parse_errors_, (unsigned long)checksum_errors_,
         last_position_.fix_type, last_position_.satellites_used,
         last_position_.accuracy_horizontal_m,
         last_position_.accuracy_vertical_m,
