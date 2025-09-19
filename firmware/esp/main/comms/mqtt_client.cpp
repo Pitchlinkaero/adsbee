@@ -210,6 +210,8 @@ void MQTTClient::MQTTEventHandler(void* handler_args, esp_event_base_t base,
             break;
 
         case MQTT_EVENT_DATA:
+            ESP_LOGI(TAG, "MQTT_EVENT_DATA received for feed %d, topic_len=%d, data_len=%d",
+                     self->feed_index_, event->topic_len, event->data_len);
             self->HandleMessage(event);
             break;
 
@@ -269,11 +271,14 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
 
+    ESP_LOGI(TAG, "HandleMessage: topic=%s, ota_base=%s, handler=%p",
+             topic.c_str(), ota_base.c_str(), ota_handler_.get());
+
     // Check if it's an OTA message
     if (topic.find(ota_base) == 0) {
         // It's an OTA message - check if handler exists
         if (!ota_handler_) {
-            ESP_LOGW(TAG, "OTA message received but OTA is disabled for this feed");
+            ESP_LOGW(TAG, "OTA message received but handler is NULL for feed %d", feed_index_);
 
             // Publish error status to inform the publisher
             std::string status_topic = ota_base + "/status/state";

@@ -166,6 +166,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
     uint32_t feed_sock_last_connect_timestamp_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
+    CONSOLE_INFO("CommsManager::IPWANTask", "=== MQTT OTA DEBUG BUILD v0.8.4 ===");
 
     // Debug: Log all feed configurations
     CONSOLE_INFO("CommsManager::IPWANTask", "Scanning all %d feeds for MQTT configuration:",
