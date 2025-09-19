@@ -21,7 +21,8 @@ idf_component_register(
         "server"
         "target_test"
     SRCS
-        "comms/mqtt_ota.cpp"  # Explicitly include MQTT OTA handler
+        "comms/mqtt_client.cpp"  # Explicitly include MQTT client
+        "comms/mqtt_ota.cpp"     # Explicitly include MQTT OTA handler
     INCLUDE_DIRS
         "."
         "../../common"

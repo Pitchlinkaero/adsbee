@@ -233,8 +233,11 @@ void MQTTClient::HandleConnect() {
     esp_mqtt_client_publish(client_, online_topic.c_str(), "1", 1, 1, true);
 
 #if CONFIG_MQTT_OTA_ENABLED
-    // Subscribe to OTA topics if enabled
+    // Initialize and subscribe to OTA topics if enabled
     if (ota_handler_) {
+        // Initialize the OTA handler with this client
+        ota_handler_->Initialize(this);
+
         std::string ota_base = GetOTABaseTopic();
 
         // Subscribe to control topics
@@ -246,7 +249,7 @@ void MQTTClient::HandleConnect() {
         esp_mqtt_client_subscribe(client_, command_topic.c_str(), 1);
         esp_mqtt_client_subscribe(client_, chunk_topic.c_str(), 1);
 
-        ESP_LOGI(TAG, "Subscribed to OTA topics for device %s", config_.device_id.c_str());
+        ESP_LOGI(TAG, "Initialized and subscribed to OTA topics for device %s", config_.device_id.c_str());
     }
 #endif
 
