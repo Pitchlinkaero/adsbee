@@ -19,10 +19,6 @@ idf_component_register(
         "comms"
         "peripherals/pico"
         "server"
-        "target_test"
-    SRCS
-        "comms/mqtt_client.cpp"  # Explicitly include MQTT client
-        "comms/mqtt_ota.cpp"     # Explicitly include MQTT OTA handler
     INCLUDE_DIRS
         "."
         "../../common"
@@ -38,7 +34,6 @@ idf_component_register(
         "comms"
         "peripherals/pico"
         "server"
-        "target_test"
     EMBED_TXTFILES
         "server/web/index.html"
         "server/web/style.css"
