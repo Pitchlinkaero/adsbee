@@ -194,6 +194,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
             mqtt_config.client_id = settings_manager.settings.mqtt_client_ids[i];
             mqtt_config.device_id = settings_manager.settings.mqtt_device_id;
             mqtt_config.use_tls = use_tls;
+            mqtt_config.ota_enabled = settings_manager.settings.mqtt_ota_enabled[i];  // Use per-feed OTA setting
             mqtt_config.format = settings_manager.settings.mqtt_formats[i];
             mqtt_config.report_mode = settings_manager.settings.mqtt_report_modes[i];
             mqtt_config.telemetry_interval_sec = settings_manager.settings.mqtt_telemetry_interval_sec;
