@@ -46,7 +46,7 @@ bool GNSSManager::Initialize(const GPSSettings& settings) {
             success = InitializeUART();
             break;
             
-        case GPSSettings::kGPSSourceUDPNMEA:
+        case GPSSettings::kGPSSourceNetwork:
             success = InitializeNetworkSource();
             break;
             
@@ -229,7 +229,7 @@ bool GNSSManager::UpdatePosition() {
             updated = ProcessUARTData();
             break;
             
-        case GPSSettings::kGPSSourceUDPNMEA:
+        case GPSSettings::kGPSSourceNetwork:
             updated = ProcessNetworkData();
             break;
             
@@ -350,7 +350,7 @@ bool GNSSManager::SetSource(GPSSettings::GPSSource source) {
             success = InitializeUART();
             break;
             
-        case GPSSettings::kGPSSourceUDPNMEA:
+        case GPSSettings::kGPSSourceNetwork:
             success = InitializeNetworkSource();
             break;
             

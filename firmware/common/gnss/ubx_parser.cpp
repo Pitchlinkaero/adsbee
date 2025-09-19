@@ -172,13 +172,13 @@ bool UBXParser::HandleNavPvt(const uint8_t* payload, size_t length) {
         return false;
     }
     
-    // Extract time
-    uint16_t year = *(uint16_t*)(payload + 4);
-    uint8_t month = payload[6];
-    uint8_t day = payload[7];
-    uint8_t hour = payload[8];
-    uint8_t min = payload[9];
-    uint8_t sec = payload[10];
+    // Extract time (for future use)
+    [[maybe_unused]] uint16_t year = *(uint16_t*)(payload + 4);
+    [[maybe_unused]] uint8_t month = payload[6];
+    [[maybe_unused]] uint8_t day = payload[7];
+    [[maybe_unused]] uint8_t hour = payload[8];
+    [[maybe_unused]] uint8_t min = payload[9];
+    [[maybe_unused]] uint8_t sec = payload[10];
     uint8_t valid_flags = payload[11];
     
     // Extract fix information
@@ -198,8 +198,8 @@ bool UBXParser::HandleNavPvt(const uint8_t* payload, size_t length) {
     uint32_t v_acc = *(uint32_t*)(payload + 44);  // mm
     
     // Extract velocity
-    int32_t vel_n = *(int32_t*)(payload + 48);  // mm/s north
-    int32_t vel_e = *(int32_t*)(payload + 52);  // mm/s east
+    [[maybe_unused]] int32_t vel_n = *(int32_t*)(payload + 48);  // mm/s north
+    [[maybe_unused]] int32_t vel_e = *(int32_t*)(payload + 52);  // mm/s east
     int32_t vel_d = *(int32_t*)(payload + 56);  // mm/s down
     int32_t ground_speed = *(int32_t*)(payload + 60);  // mm/s
     int32_t heading_motion = *(int32_t*)(payload + 64);  // 1e-5 degrees
@@ -322,7 +322,7 @@ bool UBXParser::HandleNavStatus(const uint8_t* payload, size_t length) {
         return false;
     }
     
-    uint8_t gps_fix = payload[4];
+    [[maybe_unused]] uint8_t gps_fix = payload[4];
     uint8_t flags = payload[5];
     
     // Additional fix status processing
@@ -361,15 +361,15 @@ bool UBXParser::HandleNavRelPosNed(const uint8_t* payload, size_t length) {
     rtk_enabled_ = true;
     
     // Extract baseline vector
-    int32_t rel_pos_n = *(int32_t*)(payload + 8);  // cm + HP part
-    int32_t rel_pos_e = *(int32_t*)(payload + 12);
-    int32_t rel_pos_d = *(int32_t*)(payload + 16);
+    [[maybe_unused]] int32_t rel_pos_n = *(int32_t*)(payload + 8);  // cm + HP part
+    [[maybe_unused]] int32_t rel_pos_e = *(int32_t*)(payload + 12);
+    [[maybe_unused]] int32_t rel_pos_d = *(int32_t*)(payload + 16);
     int32_t rel_pos_length = *(int32_t*)(payload + 20);  // cm
     
     // High precision parts
-    int8_t rel_pos_hp_n = *(int8_t*)(payload + 32);  // 0.1mm
-    int8_t rel_pos_hp_e = *(int8_t*)(payload + 33);
-    int8_t rel_pos_hp_d = *(int8_t*)(payload + 34);
+    [[maybe_unused]] int8_t rel_pos_hp_n = *(int8_t*)(payload + 32);  // 0.1mm
+    [[maybe_unused]] int8_t rel_pos_hp_e = *(int8_t*)(payload + 33);
+    [[maybe_unused]] int8_t rel_pos_hp_d = *(int8_t*)(payload + 34);
     int8_t rel_pos_hp_length = *(int8_t*)(payload + 35);
     
     // Calculate baseline with HP
@@ -377,8 +377,8 @@ bool UBXParser::HandleNavRelPosNed(const uint8_t* payload, size_t length) {
     
     // Extract flags
     uint32_t flags = *(uint32_t*)(payload + 36);
-    bool gnss_fix_ok = flags & 0x01;
-    bool diff_soln = flags & 0x02;
+    [[maybe_unused]] bool gnss_fix_ok = flags & 0x01;
+    [[maybe_unused]] bool diff_soln = flags & 0x02;
     bool rel_pos_valid = flags & 0x04;
     uint8_t carr_soln = (flags >> 3) & 0x03;
     
@@ -398,8 +398,8 @@ bool UBXParser::HandleRxmSpartn(const uint8_t* payload, size_t length) {
         return false;
     }
     
-    uint8_t msg_type = payload[4];
-    uint16_t msg_sub_type = *(uint16_t*)(payload + 6);
+    [[maybe_unused]] uint8_t msg_type = payload[4];
+    [[maybe_unused]] uint16_t msg_sub_type = *(uint16_t*)(payload + 6);
     
     ppp_stats_.corrections_received++;
     
@@ -419,8 +419,8 @@ bool UBXParser::HandleRxmCor(const uint8_t* payload, size_t length) {
     }
     
     uint8_t status_info = payload[4];
-    uint16_t msg_type = *(uint16_t*)(payload + 6);
-    uint16_t ref_station = *(uint16_t*)(payload + 8);
+    [[maybe_unused]] uint16_t msg_type = *(uint16_t*)(payload + 6);
+    [[maybe_unused]] uint16_t ref_station = *(uint16_t*)(payload + 8);
     
     // Update correction age
     rtk_correction_age_ms_ = status_info * 100;  // Approximate
@@ -602,7 +602,7 @@ bool UBXParser::ConfigureGalileoHAS() {
     // Configuration using CFG-VALSET (Generation 9+ protocol)
     // Key IDs for Galileo HAS configuration
     const uint32_t CFG_SIGNAL_GAL_E6_ENA = 0x10310023;  // Enable E6
-    const uint32_t CFG_NAVHPG_DGNSSMODE = 0x20140011;   // Set to 3 for float RTK
+    [[maybe_unused]] const uint32_t CFG_NAVHPG_DGNSSMODE = 0x20140011;   // Set to 3 for float RTK
     
     // Build VALSET message
     uint8_t payload[12];
@@ -715,9 +715,7 @@ GNSSInterface::PPPService UBXParser::GetPPPStatus(float& convergence_percent, ui
         }
         
         eta_seconds = expected_convergence_s - elapsed_s;
-        if (eta_seconds < 0) {
-            eta_seconds = 0;
-        }
+        // eta_seconds is unsigned, so no need to check for < 0
     }
     
     return active_ppp_service_;
