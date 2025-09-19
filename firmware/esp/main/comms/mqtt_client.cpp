@@ -55,12 +55,14 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
     stats_ = {};
 
     // Create OTA handler if enabled
+    ESP_LOGI(TAG, "Creating MQTT client for feed %d, OTA enabled: %s",
+             feed_index_, config_.ota_enabled ? "YES" : "NO");
     if (config_.ota_enabled) {
         ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
-        ESP_LOGI(TAG, "OTA enabled for MQTT feed %d", feed_index_);
+        ESP_LOGI(TAG, "OTA handler created successfully for feed %d", feed_index_);
     } else {
         ota_handler_ = nullptr;
-        ESP_LOGD(TAG, "OTA disabled for MQTT feed %d", feed_index_);
+        ESP_LOGI(TAG, "OTA handler NOT created for feed %d (disabled)", feed_index_);
     }
 
     // Configure MQTT client
@@ -227,19 +229,25 @@ void MQTTClient::HandleConnect() {
     esp_mqtt_client_publish(client_, online_topic.c_str(), "1", 1, 1, true);
 
     // Initialize and subscribe to OTA topics if enabled
+    ESP_LOGI(TAG, "HandleConnect: OTA handler exists: %s", ota_handler_ ? "YES" : "NO");
     if (ota_handler_) {
         // Initialize the OTA handler with this client
         ota_handler_->Initialize(this);
+        ESP_LOGI(TAG, "HandleConnect: OTA handler initialized");
 
         std::string ota_base = GetOTABaseTopic();
+        ESP_LOGI(TAG, "HandleConnect: OTA base topic: %s", ota_base.c_str());
 
         // Subscribe to control topics
         std::string manifest_topic = ota_base + "/control/manifest";
         std::string command_topic = ota_base + "/control/command";
         std::string chunk_topic = ota_base + "/data/chunk/+";
 
+        ESP_LOGI(TAG, "HandleConnect: Subscribing to: %s", manifest_topic.c_str());
         esp_mqtt_client_subscribe(client_, manifest_topic.c_str(), 1);
+        ESP_LOGI(TAG, "HandleConnect: Subscribing to: %s", command_topic.c_str());
         esp_mqtt_client_subscribe(client_, command_topic.c_str(), 1);
+        ESP_LOGI(TAG, "HandleConnect: Subscribing to: %s", chunk_topic.c_str());
         esp_mqtt_client_subscribe(client_, chunk_topic.c_str(), 1);
 
         ESP_LOGI(TAG, "Initialized and subscribed to OTA topics for device %s", config_.device_id.c_str());
@@ -260,11 +268,16 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
 
+    ESP_LOGI(TAG, "HandleMessage: Received message on topic: %s", topic.c_str());
+    ESP_LOGI(TAG, "HandleMessage: OTA base topic: %s", ota_base.c_str());
+    ESP_LOGI(TAG, "HandleMessage: OTA handler exists: %s", ota_handler_ ? "YES" : "NO");
+
     // Check if it's an OTA message
     if (topic.find(ota_base) == 0) {
+        ESP_LOGI(TAG, "HandleMessage: This IS an OTA message");
         // It's an OTA message - check if handler exists
         if (!ota_handler_) {
-            ESP_LOGW(TAG, "OTA message received but OTA is disabled for this feed");
+            ESP_LOGW(TAG, "OTA message received but OTA handler is NULL");
 
             // Publish error status to inform the publisher
             std::string status_topic = ota_base + "/status/state";
@@ -283,7 +296,9 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
     std::string ota_topic = topic.substr(ota_base.length());
 
     // Handle different OTA messages
+    ESP_LOGI(TAG, "HandleMessage: OTA topic suffix: %s", ota_topic.c_str());
     if (ota_topic == "/control/manifest") {
+        ESP_LOGI(TAG, "HandleMessage: Processing OTA manifest");
         // Parse JSON manifest
         cJSON* root = cJSON_ParseWithLength(event->data, event->data_len);
         if (!root) {
@@ -345,13 +360,19 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
         if (cmd && cJSON_IsString(cmd)) {
             std::string command = cmd->valuestring;
             std::string sid = (session_id && cJSON_IsString(session_id)) ? session_id->valuestring : std::string();
-            ota_handler_->HandleCommand(command, sid);
+            ESP_LOGI(TAG, "HandleMessage: Processing OTA command: %s with session: %s",
+                     command.c_str(), sid.c_str());
+            bool result = ota_handler_->HandleCommand(command, sid);
+            ESP_LOGI(TAG, "HandleMessage: Command result: %s", result ? "SUCCESS" : "FAILED");
 
             // Publish current state
             std::string state_topic = ota_base + "/status/state";
             std::string state_json = ota_handler_->GetStateJSON();
+            ESP_LOGI(TAG, "HandleMessage: Publishing state: %s", state_json.c_str());
             esp_mqtt_client_publish(client_, state_topic.c_str(),
                                    state_json.c_str(), state_json.length(), 1, false);
+        } else {
+            ESP_LOGW(TAG, "HandleMessage: Command JSON missing 'command' field");
         }
 
         cJSON_Delete(root);

@@ -100,7 +100,9 @@ bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
 }
 
 bool MQTTOTAHandler::HandleCommand(const std::string& command, const std::string& session_id) {
-    CONSOLE_INFO("MQTTOTAHandler::HandleCommand", "Received command: %s", command.c_str());
+    CONSOLE_INFO("MQTTOTAHandler::HandleCommand",
+                 "Received command: %s, current state: %d, session: %s",
+                 command.c_str(), static_cast<int>(state_), session_id.c_str());
 
     // Allow ABORT and REBOOT regardless of session to recover from mismatch/stuck sessions
     if (command != "ABORT" && command != "REBOOT") {
@@ -349,9 +351,14 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
 }
 
 bool MQTTOTAHandler::StartOTA() {
+    CONSOLE_INFO("MQTTOTAHandler::StartOTA",
+                 "StartOTA called - current state: %d, expected: %d (MANIFEST_RECEIVED)",
+                 static_cast<int>(state_), static_cast<int>(OTAState::MANIFEST_RECEIVED));
+
     if (state_ != OTAState::MANIFEST_RECEIVED) {
         CONSOLE_ERROR("MQTTOTAHandler::StartOTA",
-                      "Cannot start OTA - no manifest or already in progress");
+                      "Cannot start OTA - wrong state. Current: %d, need: %d (MANIFEST_RECEIVED)",
+                      static_cast<int>(state_), static_cast<int>(OTAState::MANIFEST_RECEIVED));
         return false;
     }
 
