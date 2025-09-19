@@ -732,7 +732,7 @@ std::string MQTTOTAHandler::CreateProgressJson() const {
 }
 
 uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
-    // TODO: Use actual CRC32 implementation
+    // CRC32 implementation matching Pico's hardware CRC (no final inversion)
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; i++) {
         crc ^= data[i];
@@ -740,7 +740,7 @@ uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
             crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
         }
     }
-    return ~crc;
+    return crc;  // No inversion to match Pico's DMA CRC
 }
 
 bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {

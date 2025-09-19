@@ -813,20 +813,20 @@ class ADSBeeOTAPublisher:
         return False
 
     def _crc32(self, data: bytes) -> int:
-        """Calculate CRC32 checksum
+        """Calculate CRC32 checksum matching Pico's hardware CRC
 
         Args:
             data: Data to checksum
 
         Returns:
-            CRC32 value
+            CRC32 value (no final inversion to match Pico DMA CRC)
         """
         crc = 0xFFFFFFFF
         for byte in data:
             crc ^= byte
             for _ in range(8):
                 crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1))
-        return ~crc & 0xFFFFFFFF
+        return crc & 0xFFFFFFFF  # No inversion to match Pico
 
 
 def main():
