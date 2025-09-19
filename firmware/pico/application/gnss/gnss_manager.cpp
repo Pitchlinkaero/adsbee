@@ -2,10 +2,12 @@
 #include <cstring>
 #include <algorithm>
 
-#ifdef ON_PICO
+#ifdef ON_EMBEDDED_DEVICE
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
 #include "bsp.hh"  // For UART definitions
+#include "hardware/gpio.h"  // For gpio_set_function
+extern BSP bsp;  // External BSP instance
 #define GET_TIME_MS() to_ms_since_boot(get_absolute_time())
 #else
 #include <chrono>
@@ -14,7 +16,7 @@
 #endif
 
 // For logging
-#ifdef ON_PICO
+#ifdef ON_EMBEDDED_DEVICE
 #define LOG_INFO(...) // TODO: Add proper logging
 #define LOG_ERROR(...) // TODO: Add proper logging
 #else
@@ -80,15 +82,15 @@ bool GNSSManager::Initialize(const GPSSettings& settings) {
 }
 
 bool GNSSManager::InitializeUART() {
-#ifdef ON_PICO
+#ifdef ON_EMBEDDED_DEVICE
     // Initialize GNSS UART
     uart_inst_t* uart = uart1;  // Assuming UART1 is GNSS UART
     
     uart_init(uart, settings_.gps_uart_baud);
     
     // Configure UART pins (these should be defined in BSP)
-    gpio_set_function(GNSS_UART_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(GNSS_UART_RX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(bsp.gnss_uart_tx_pin, GPIO_FUNC_UART);
+    gpio_set_function(bsp.gnss_uart_rx_pin, GPIO_FUNC_UART);
     
     // 8N1 configuration
     uart_set_format(uart, 8, 1, UART_PARITY_NONE);
@@ -254,7 +256,7 @@ bool GNSSManager::UpdatePosition() {
 }
 
 bool GNSSManager::ProcessUARTData() {
-#ifdef ON_PICO
+#ifdef ON_EMBEDDED_DEVICE
     uart_inst_t* uart = uart1;
     
     // Read available data from UART
@@ -276,6 +278,35 @@ bool GNSSManager::ProcessNetworkData() {
     // Network data would come from ESP32 via SPI
     // This is a placeholder for the actual implementation
     return false;
+}
+
+bool GNSSManager::ProcessNetworkGPSMessage(uint8_t type, const uint8_t* buffer, size_t length) {
+    if (!buffer || length == 0) {
+        return false;
+    }
+    
+    // Handle different message types
+    switch (type) {
+        case 0: // NMEA
+            if (!parser_) {
+                parser_ = std::make_unique<NMEAParser>();
+            }
+            return ProcessData(buffer, length);
+            
+        case 1: // MAVLink GPS
+            // TODO: Process MAVLink GPS messages when parser is implemented
+            LOG_INFO("Received MAVLink GPS message (not yet supported)\n");
+            return false;
+            
+        case 2: // UBX binary
+            // TODO: Process UBX messages when parser is implemented
+            LOG_INFO("Received UBX GPS message (not yet supported)\n");
+            return false;
+            
+        default:
+            LOG_ERROR("Unknown GPS message type: %d\n", type);
+            return false;
+    }
 }
 
 bool GNSSManager::ProcessMAVLinkData() {

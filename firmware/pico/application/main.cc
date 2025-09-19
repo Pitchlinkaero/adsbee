@@ -94,6 +94,12 @@ int main() {
                                  object_dictionary.kFirmwareVersionPatch);
 
     settings_manager.Load();
+    
+    // Initialize GPS manager with current settings
+    if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
+        comms_manager.console_printf("GPS initialized: %s source\r\n", 
+                                    settings_manager.settings.gps_settings.GetSourceString());
+    }
 
     uint16_t num_status_led_blinks = FirmwareUpdateManager::AmWithinFlashPartition(0) ? 1 : 2;
     // Blink the LED a few times to indicate a successful startup.
@@ -174,6 +180,23 @@ int main() {
         adsbee.Update();
 
         esp32.Update();
+        
+        // Update GPS position
+        gnss_manager.UpdatePosition();
+        
+        // Check for GPS network messages from ESP32
+        // This struct matches GPSNetworkServer::GPSNetworkMessage from ESP32
+        struct __attribute__((__packed__)) GPSNetworkMessage {
+            uint8_t type;
+            uint16_t length;
+            uint8_t source_id;
+            uint8_t data[256];
+        } gps_msg;
+        
+        if (esp32.Read(ObjectDictionary::Address::kAddrGPSNetworkMessage, gps_msg)) {
+            // Forward GPS message to GNSS manager
+            gnss_manager.ProcessNetworkGPSMessage(gps_msg.type, gps_msg.data, gps_msg.length);
+        }
 
         // Poke the watchdog to keep things alive if the ESP32 is responding or if it's disabled.
         uint32_t old_esp32_last_heartbeat_timestamp_ms = esp32_last_heartbeat_timestamp_ms;
