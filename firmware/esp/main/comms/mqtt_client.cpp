@@ -58,15 +58,12 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
 
 #if CONFIG_MQTT_OTA_ENABLED
     // Create OTA handler if enabled
-    ESP_LOGI(TAG, "Feed %d OTA configuration: config_.ota_enabled=%d, CONFIG_MQTT_OTA_ENABLED=%d",
-             feed_index_, config_.ota_enabled, CONFIG_MQTT_OTA_ENABLED);
-
     if (config_.ota_enabled) {
         ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
-        ESP_LOGI(TAG, "OTA handler created for feed %d, device_id: %s", feed_index_, config_.device_id.c_str());
+        ESP_LOGI(TAG, "OTA enabled for MQTT feed %d", feed_index_);
     } else {
         ota_handler_ = nullptr;
-        ESP_LOGI(TAG, "OTA handler NOT created for feed %d (disabled in config)", feed_index_);
+        ESP_LOGD(TAG, "OTA disabled for MQTT feed %d", feed_index_);
     }
 #else
     ESP_LOGI(TAG, "OTA handler NOT created for feed %d (CONFIG_MQTT_OTA_ENABLED not defined)", feed_index_);
@@ -210,8 +207,6 @@ void MQTTClient::MQTTEventHandler(void* handler_args, esp_event_base_t base,
             break;
 
         case MQTT_EVENT_DATA:
-            ESP_LOGI(TAG, "MQTT_EVENT_DATA received for feed %d, topic_len=%d, data_len=%d",
-                     self->feed_index_, event->topic_len, event->data_len);
             self->HandleMessage(event);
             break;
 
@@ -271,14 +266,11 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
 
-    ESP_LOGI(TAG, "HandleMessage: topic=%s, ota_base=%s, handler=%p",
-             topic.c_str(), ota_base.c_str(), ota_handler_.get());
-
     // Check if it's an OTA message
     if (topic.find(ota_base) == 0) {
         // It's an OTA message - check if handler exists
         if (!ota_handler_) {
-            ESP_LOGW(TAG, "OTA message received but handler is NULL for feed %d", feed_index_);
+            ESP_LOGW(TAG, "OTA message received but OTA is disabled for this feed");
 
             // Publish error status to inform the publisher
             std::string status_topic = ota_base + "/status/state";

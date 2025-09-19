@@ -43,3 +43,6 @@ idf_component_register(
 )
 
 message("PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}")
+
+# Include MQTT component configuration
+include(${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists_mqtt.cmake)
