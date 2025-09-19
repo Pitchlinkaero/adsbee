@@ -32,6 +32,7 @@ public:
     bool Configure(const Config& config) override;
     Position GetLastPosition() const override { return last_position_; }
     const char* GetReceiverType() const override { return "MAVLink"; }
+    void Reset() override;
     
     // PPP not supported via MAVLink
     bool SupportsPPPService(PPPService service) const override { return false; }
