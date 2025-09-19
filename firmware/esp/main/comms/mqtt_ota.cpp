@@ -165,8 +165,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         return true;
     }
 
-    // Parse chunk header (18 bytes: session_id(4) + index(4) + size(2) + crc32(4))
-    const size_t kHeaderSize = 18;
+    // Parse chunk header (14 bytes: session_id(4) + index(4) + size(2) + crc32(4))
+    const size_t kHeaderSize = 14;
     if (len < kHeaderSize) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "Chunk too small for header: %zu bytes (need %zu)", len, kHeaderSize);
@@ -309,8 +309,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
 
     // Check if the write was successful by reading the Pico's response
     // The Pico will verify the CRC after writing and return OK or ERROR
-    // For now, we'll consider the write successful if WriteChunkToFlash returns true
     // TODO: Implement proper response parsing from Pico
+    // TODO: Add timeout handling for chunk transfers (currently no timeout checking)
 
     // Mark chunk as received only if write was successful
     received_chunks_[index] = true;
@@ -711,7 +711,11 @@ void MQTTOTAHandler::RequestMissingChunks() {
         return;
     }
 
-    // TODO: Publish list of missing chunks
+    // TODO: Implement missing chunk request mechanism
+    // Future work needed:
+    // 1. Publish list of missing chunk indices to /ota/control/missing_chunks topic
+    // 2. Format as JSON array: {"session_id": "...", "missing": [1, 5, 10]}
+    // 3. Publisher should resend requested chunks
 }
 
 std::vector<uint32_t> MQTTOTAHandler::GetMissingChunks() const {
@@ -881,13 +885,16 @@ continue_outer:
 }
 bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_response, uint32_t timeout_ms) {
     // TODO: Implement proper response parsing from Pico via SPI interface
-    // For now, we'll rely on the Pico's internal verification and assume success
-    // The Pico will verify CRC after write and only return success if it matches
+    // Current implementation: Assumes success after a delay
+    // Future work needed:
+    // 1. Parse actual AT command responses from Pico
+    // 2. Implement timeout handling
+    // 3. Return false on actual errors/timeouts
+    // For now, we rely on Pico's internal CRC verification
 
     // Add a small delay to allow Pico to process the command
     vTaskDelay(pdMS_TO_TICKS(50));
 
     // For now, return true to indicate assumed success
-    // In production, this should parse actual responses from the Pico
     return true;
 }

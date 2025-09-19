@@ -157,25 +157,6 @@ void CommsManager::IPEventHandler(void* arg, esp_event_base_t event_base, int32_
     }
 }
 
-// Helper function to initialize MQTT OTA settings
-// Since ESP32 cannot query Pico settings yet, we use a default policy
-static void InitializeMQTTOTASettings() {
-    // The proper solution would be to query settings from Pico via AT commands
-    // For now, we use a default policy based on compile-time configuration
-
-#if CONFIG_MQTT_OTA_ENABLED
-    // If MQTT OTA is enabled in build config, default to enabled for all feeds
-    // Users can still disable via AT+MQTTOTA=<feed>,0 on the Pico side
-    // but ESP32 won't see that change until settings sync is implemented
-    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        settings_manager.settings.mqtt_ota_enabled[i] = true;
-    }
-    CONSOLE_INFO("CommsManager", "MQTT OTA enabled by default (CONFIG_MQTT_OTA_ENABLED=1)");
-#else
-    // If MQTT OTA is disabled in build config, respect that
-    CONSOLE_INFO("CommsManager", "MQTT OTA disabled (CONFIG_MQTT_OTA_ENABLED=0)");
-#endif
-}
 
 void CommsManager::IPWANTask(void* pvParameters) {
     Decoded1090Packet decoded_packet;
@@ -185,9 +166,6 @@ void CommsManager::IPWANTask(void* pvParameters) {
     uint32_t feed_sock_last_connect_timestamp_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
-
-    // Initialize MQTT OTA settings
-    InitializeMQTTOTASettings();
 
     // Initialize MQTT clients for feeds configured with MQTT protocol
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
