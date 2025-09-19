@@ -240,13 +240,18 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         return false;
     }
 
-    // Mark chunk as received
+    // Check if the write was successful by reading the Pico's response
+    // The Pico will verify the CRC after writing and return OK or ERROR
+    // For now, we'll consider the write successful if WriteChunkToFlash returns true
+    // TODO: Implement proper response parsing from Pico
+
+    // Mark chunk as received only if write was successful
     received_chunks_[index] = true;
     chunks_received_++;
     bytes_received_ += chunk_data_len;
     last_chunk_timestamp_ms_ = esp_log_timestamp();
 
-    // Send ACK
+    // Send ACK only after successful write and verification
     PublishAck(index, true);
 
     // Update progress
@@ -539,21 +544,30 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
         return false;
     }
 
-    // Small delay for command processing
-    vTaskDelay(pdMS_TO_TICKS(5));
+    // Wait for READY response from Pico before sending data
+    if (!WaitForPicoResponse("READY", 1000)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Timeout waiting for READY from Pico");
+        return false;
+    }
 
-    // Send binary data after command
+    // Send binary data after getting READY
     if (!SendDataToPico(data, len)) {
         CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
                       "Failed to send chunk data to Pico");
         return false;
     }
 
-    // Small delay for Pico to process
-    vTaskDelay(pdMS_TO_TICKS(20));
+    // Wait for OK or ERROR response after Pico verifies the write
+    // The Pico will verify CRC and respond with either OK or ERROR
+    if (!WaitForPicoResponse("OK", 5000)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Flash write verification failed - Pico returned ERROR or timeout");
+        return false;
+    }
 
     CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
-                 "Sent chunk to Pico: offset=0x%08lX len=%zu crc=0x%08lX",
+                 "Successfully wrote and verified chunk: offset=0x%08lX len=%zu crc=0x%08lX",
                  (unsigned long)offset, len, (unsigned long)crc);
 
     return true;
@@ -774,4 +788,51 @@ bool MQTTOTAHandler::SendDataToPico(const uint8_t* data, size_t len) {
 
     xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
     return true;
+}
+bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_response, uint32_t timeout_ms) {
+    // Wait for response from Pico via network console output queue
+    std::string response;
+    uint32_t start_time = esp_log_timestamp();
+
+    while ((esp_log_timestamp() - start_time) < timeout_ms) {
+        // Check for data in the network console TX queue (data from Pico)
+        xSemaphoreTake(object_dictionary.network_console_tx_queue_mutex, portMAX_DELAY);
+
+        while (object_dictionary.network_console_tx_queue.Length() > 0) {
+            char ch;
+            if (object_dictionary.network_console_tx_queue.Pop(ch)) {
+                response += ch;
+
+                // Check if we have a complete line
+                if (ch == '\n') {
+                    // Check if response contains expected string
+                    if (response.find(expected_response) != std::string::npos) {
+                        xSemaphoreGive(object_dictionary.network_console_tx_queue_mutex);
+                        return true;
+                    }
+
+                    // Check if response contains ERROR
+                    if (response.find("ERROR") != std::string::npos) {
+                        CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
+                                      "Received ERROR from Pico: %s", response.c_str());
+                        xSemaphoreGive(object_dictionary.network_console_tx_queue_mutex);
+                        return false;
+                    }
+
+                    // Clear response for next line
+                    response.clear();
+                }
+            }
+        }
+
+        xSemaphoreGive(object_dictionary.network_console_tx_queue_mutex);
+
+        // Small delay to avoid busy waiting
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
+                  "Timeout waiting for '%s' from Pico (timeout: %lu ms)",
+                  expected_response, (unsigned long)timeout_ms);
+    return false;
 }

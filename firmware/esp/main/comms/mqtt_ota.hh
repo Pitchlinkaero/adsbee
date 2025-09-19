@@ -143,6 +143,7 @@ private:
     // Pico communication helpers
     bool SendCommandToPico(const char* cmd);
     bool SendDataToPico(const uint8_t* data, size_t len);
+    bool WaitForPicoResponse(const char* expected_response, uint32_t timeout_ms);
 };
 
 #endif // MQTT_OTA_HH
