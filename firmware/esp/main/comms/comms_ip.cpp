@@ -167,6 +167,19 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
 
+    // Debug: Log all feed configurations
+    CONSOLE_INFO("CommsManager::IPWANTask", "Scanning all %d feeds for MQTT configuration:",
+                 SettingsManager::Settings::kMaxNumFeeds);
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        CONSOLE_INFO("CommsManager::IPWANTask",
+                    "Feed %d: protocol=%d, active=%d, mqtt_ota=%d, uri='%s'",
+                    i,
+                    settings_manager.settings.feed_protocols[i],
+                    settings_manager.settings.feed_is_active[i],
+                    settings_manager.settings.mqtt_ota_enabled[i],
+                    settings_manager.settings.feed_uris[i]);
+    }
+
     // Initialize MQTT clients for feeds configured with MQTT protocol
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
         if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT &&
@@ -202,10 +215,14 @@ void CommsManager::IPWANTask(void* pvParameters) {
             mqtt_config.gps_interval_sec = settings_manager.settings.mqtt_gps_interval_sec;
             mqtt_config.status_rate_hz = settings_manager.settings.mqtt_status_rate_hz;
 
-            // Log OTA configuration
-            if (mqtt_config.ota_enabled) {
-                CONSOLE_INFO("CommsManager::IPWANTask", "MQTT feed %d: OTA enabled", i);
-            }
+            // Log OTA configuration with detailed info
+            CONSOLE_INFO("CommsManager::IPWANTask",
+                        "MQTT feed %d: protocol=%d, active=%d, ota_enabled=%d (from settings: %d)",
+                        i,
+                        settings_manager.settings.feed_protocols[i],
+                        settings_manager.settings.feed_is_active[i],
+                        mqtt_config.ota_enabled,
+                        settings_manager.settings.mqtt_ota_enabled[i]);
 
             mqtt_clients_[i] = std::make_unique<MQTT::MQTTClient>(mqtt_config, i);
             CONSOLE_INFO("CommsManager::IPWANTask", "Initialized MQTT client for feed %d", i);

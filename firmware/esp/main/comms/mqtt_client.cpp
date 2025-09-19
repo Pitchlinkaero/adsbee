@@ -58,13 +58,18 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
 
 #if CONFIG_MQTT_OTA_ENABLED
     // Create OTA handler if enabled
+    ESP_LOGI(TAG, "Feed %d OTA configuration: config_.ota_enabled=%d, CONFIG_MQTT_OTA_ENABLED=%d",
+             feed_index_, config_.ota_enabled, CONFIG_MQTT_OTA_ENABLED);
+
     if (config_.ota_enabled) {
         ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
-        ESP_LOGI(TAG, "OTA enabled for MQTT feed %d, device_id: %s", feed_index_, config_.device_id.c_str());
+        ESP_LOGI(TAG, "OTA handler created for feed %d, device_id: %s", feed_index_, config_.device_id.c_str());
     } else {
         ota_handler_ = nullptr;
-        ESP_LOGI(TAG, "OTA disabled for MQTT feed %d", feed_index_);
+        ESP_LOGI(TAG, "OTA handler NOT created for feed %d (disabled in config)", feed_index_);
     }
+#else
+    ESP_LOGI(TAG, "OTA handler NOT created for feed %d (CONFIG_MQTT_OTA_ENABLED not defined)", feed_index_);
 #endif
 
     // Configure MQTT client
@@ -260,19 +265,26 @@ void MQTTClient::HandleDisconnect() {
 
 void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
 #if CONFIG_MQTT_OTA_ENABLED
-    if (!ota_handler_) {
-        ESP_LOGD(TAG, "OTA handler is null, ignoring message");
-        return;  // OTA not enabled
-    }
-
-    // Extract topic and payload
+    // Extract topic first to check if it's an OTA message
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
 
-    ESP_LOGI(TAG, "Received message on topic: %s (OTA base: %s)", topic.c_str(), ota_base.c_str());
-
     // Check if it's an OTA message
-    if (topic.find(ota_base) != 0) {
+    if (topic.find(ota_base) == 0) {
+        // It's an OTA message - check if handler exists
+        if (!ota_handler_) {
+            ESP_LOGW(TAG, "OTA message received but OTA is disabled for this feed");
+
+            // Publish error status to inform the publisher
+            std::string status_topic = ota_base + "/status/state";
+            std::string error_json = "{\"state\":\"DISABLED\",\"error\":\"OTA not enabled for this feed\"}";
+            esp_mqtt_client_publish(client_, status_topic.c_str(),
+                                   error_json.c_str(), error_json.length(), 1, false);
+            return;
+        }
+
+        ESP_LOGI(TAG, "Received message on topic: %s (OTA base: %s)", topic.c_str(), ota_base.c_str());
+    } else {
         return;  // Not an OTA topic
     }
 
@@ -721,6 +733,13 @@ std::string MQTTClient::SerializeTelemetryJSON(const Telemetry& telemetry) const
     cJSON_AddBoolToObject(root, "wifi", telemetry.wifi);
     cJSON_AddBoolToObject(root, "mqtt", telemetry.mqtt);
     cJSON_AddStringToObject(root, "fw_version", telemetry.fw_version.c_str());
+
+    // Add OTA status to help diagnose configuration issues
+#if CONFIG_MQTT_OTA_ENABLED
+    cJSON_AddBoolToObject(root, "ota_enabled", config_.ota_enabled);
+#else
+    cJSON_AddBoolToObject(root, "ota_enabled", false);
+#endif
 
     if (telemetry.mps_total > 0) {
         cJSON_AddNumberToObject(root, "mps_total", telemetry.mps_total);
