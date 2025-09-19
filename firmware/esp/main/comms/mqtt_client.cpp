@@ -60,9 +60,10 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
     // Create OTA handler if enabled
     if (config_.ota_enabled) {
         ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
-        ESP_LOGI(TAG, "OTA enabled for MQTT feed %d", feed_index_);
+        ESP_LOGI(TAG, "OTA enabled for MQTT feed %d, device_id: %s", feed_index_, config_.device_id.c_str());
     } else {
         ota_handler_ = nullptr;
+        ESP_LOGI(TAG, "OTA disabled for MQTT feed %d", feed_index_);
     }
 #endif
 
@@ -260,12 +261,15 @@ void MQTTClient::HandleDisconnect() {
 void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
 #if CONFIG_MQTT_OTA_ENABLED
     if (!ota_handler_) {
+        ESP_LOGD(TAG, "OTA handler is null, ignoring message");
         return;  // OTA not enabled
     }
 
     // Extract topic and payload
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
+
+    ESP_LOGI(TAG, "Received message on topic: %s (OTA base: %s)", topic.c_str(), ota_base.c_str());
 
     // Check if it's an OTA message
     if (topic.find(ota_base) != 0) {

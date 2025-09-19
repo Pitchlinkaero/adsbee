@@ -629,7 +629,7 @@ bool MQTTOTAHandler::EraseFlashPartition() {
 }
 
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
-    // Send AT+OTA=WRITE command followed by binary data
+    // Send AT+OTA=WRITE command followed by binary data with handshakes
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "AT+OTA=WRITE,%lX,%lu,%lX\r\n",
              (unsigned long)offset, (unsigned long)len, (unsigned long)crc);
@@ -641,26 +641,31 @@ bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, siz
         return false;
     }
 
-    // Small delay for command processing
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // Wait for READY from Pico
+    if (!WaitForPicoResponse("READY", 1000)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Timeout waiting for READY from Pico");
+        return false;
+    }
 
-    // Send binary data after command
+    // Send binary data after getting READY
     if (!SendDataToPico(data, len)) {
         CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
                       "Failed to send chunk data to Pico");
         return false;
     }
 
-    // Wait for Pico to process and verify the write
-    // The Pico will verify CRC internally and handle errors
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // Wait for OK after Pico verifies write
+    if (!WaitForPicoResponse("OK", 5000)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+                      "Flash write verification failed - Pico returned ERROR or timeout");
+        return false;
+    }
 
     CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
-                 "Sent chunk to Pico: offset=0x%08lX len=%zu crc=0x%08lX",
+                 "Successfully wrote and verified chunk: offset=0x%08lX len=%zu crc=0x%08lX",
                  (unsigned long)offset, len, (unsigned long)crc);
 
-    // For now, assume success since we can't read responses
-    // The Pico's CRC verification will catch any errors
     return true;
 }
 
@@ -852,32 +857,31 @@ bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
 }
 
 bool MQTTOTAHandler::SendDataToPico(const uint8_t* data, size_t len) {
-    // Send binary data to Pico via network console queue
-    xSemaphoreTake(object_dictionary.network_console_rx_queue_mutex, portMAX_DELAY);
-
-    // Check if there's enough space in the queue
-    size_t available = object_dictionary.network_console_rx_queue.MaxNumElements() -
-                       object_dictionary.network_console_rx_queue.Length();
-    if (available < len) {
-        CONSOLE_ERROR("MQTTOTAHandler::SendDataToPico",
-                      "Not enough space in queue: need %zu, have %zu", len, available);
-        xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
-
-        // Wait a bit for the queue to drain
-        vTaskDelay(pdMS_TO_TICKS(100));
-        return false;
-    }
-
-    for (size_t i = 0; i < len; i++) {
-        if (!object_dictionary.network_console_rx_queue.Push(static_cast<char>(data[i]))) {
-            CONSOLE_ERROR("MQTTOTAHandler::SendDataToPico",
-                          "Failed to push data byte %zu to network console queue", i);
+    // Stream binary data to Pico via network console queue with backpressure
+    size_t pos = 0;
+    while (pos < len) {
+        xSemaphoreTake(object_dictionary.network_console_rx_queue_mutex, portMAX_DELAY);
+        size_t available = object_dictionary.network_console_rx_queue.MaxNumElements() -
+                           object_dictionary.network_console_rx_queue.Length();
+        if (available == 0) {
             xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
-            return false;
+            vTaskDelay(pdMS_TO_TICKS(5));
+            continue;
         }
+        size_t to_push = (len - pos < available) ? (len - pos) : available;
+        for (size_t i = 0; i < to_push; i++) {
+            if (!object_dictionary.network_console_rx_queue.Push(static_cast<char>(data[pos + i]))) {
+                // If push fails unexpectedly, release and retry
+                xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+                vTaskDelay(pdMS_TO_TICKS(1));
+                goto continue_outer;
+            }
+        }
+        xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+        pos += to_push;
+continue_outer:
+        ;
     }
-
-    xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
     return true;
 }
 bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_response, uint32_t timeout_ms) {
