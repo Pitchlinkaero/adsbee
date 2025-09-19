@@ -34,14 +34,14 @@ static const uint8_t MAVLINK_CRC_EXTRA[256] = {
 
 MAVLinkGPSParser::MAVLinkGPSParser() {
     // Initialize to defaults
-    memset(&last_position_, 0, sizeof(last_position_));
-    memset(&satellite_info_, 0, sizeof(satellite_info_));
+    last_position_ = Position(); // Use default constructor
     memset(&current_packet_, 0, sizeof(current_packet_));
 }
 
 bool MAVLinkGPSParser::Configure(const Config& config) {
     // Store configuration
-    use_fused_position_ = config.use_fused_position;
+    // Note: Config doesn't have use_fused_position, this is MAVLink-specific
+    // We'll use this based on user preference for raw vs fused GPS
     return true;
 }
 
@@ -212,14 +212,10 @@ void MAVLinkGPSParser::HandleGPSRawInt(const uint8_t* payload) {
     last_position_.hdop = gps_raw.eph / 100.0f;
     last_position_.vdop = gps_raw.epv / 100.0f;
     last_position_.ground_speed_mps = gps_raw.vel / 100.0f;
-    last_position_.course_deg = gps_raw.cog / 100.0f;
-    last_position_.fix_type = gps_raw.fix_type;
+    last_position_.track_deg = gps_raw.cog / 100.0f;  // Course over ground
+    last_position_.fix_type = static_cast<GNSSInterface::FixType>(gps_raw.fix_type);
     last_position_.satellites_used = gps_raw.satellites_visible;
     last_position_.valid = (gps_raw.fix_type >= 2);  // 2D fix or better
-    
-    // Update satellite info
-    satellite_info_.num_visible = gps_raw.satellites_visible;
-    satellite_info_.num_used = gps_raw.satellites_visible;  // Assume all visible are used
 }
 
 void MAVLinkGPSParser::HandleGPS2Raw(const uint8_t* payload) {
@@ -253,11 +249,11 @@ void MAVLinkGPSParser::HandleGlobalPositionInt(const uint8_t* payload) {
     float vx_mps = global_pos.vx / 100.0f;
     float vy_mps = global_pos.vy / 100.0f;
     last_position_.ground_speed_mps = sqrtf(vx_mps * vx_mps + vy_mps * vy_mps);
-    last_position_.course_deg = global_pos.hdg / 100.0f;
+    last_position_.track_deg = global_pos.hdg / 100.0f;  // Heading
     
     // Fused position is always valid if we're receiving it
     last_position_.valid = true;
-    last_position_.fix_type = 3;  // Assume 3D fix for fused position
+    last_position_.fix_type = GNSSInterface::k3DFix;  // Assume 3D fix for fused position
 }
 
 void MAVLinkGPSParser::HandleGPSStatus(const uint8_t* payload) {
@@ -273,26 +269,15 @@ void MAVLinkGPSParser::HandleGPSStatus(const uint8_t* payload) {
     
     memcpy(&gps_status, payload, sizeof(gps_status));
     
-    // Update satellite info
-    satellite_info_.num_visible = gps_status.satellites_visible;
+    // Update satellite count in position
+    last_position_.satellites_used = 0;
     
     // Count how many satellites are actually used
-    uint8_t num_used = 0;
     for (int i = 0; i < gps_status.satellites_visible && i < 20; i++) {
         if (gps_status.satellite_used[i]) {
-            num_used++;
-        }
-        
-        // Store individual satellite data if needed
-        if (i < 12) {  // We only track up to 12 satellites
-            satellite_info_.satellites[i].prn = gps_status.satellite_prn[i];
-            satellite_info_.satellites[i].elevation = gps_status.satellite_elevation[i];
-            satellite_info_.satellites[i].azimuth = gps_status.satellite_azimuth[i];
-            satellite_info_.satellites[i].snr = gps_status.satellite_snr[i];
-            satellite_info_.satellites[i].used = gps_status.satellite_used[i];
+            last_position_.satellites_used++;
         }
     }
-    satellite_info_.num_used = num_used;
 }
 
 void MAVLinkGPSParser::HandleHighLatency2(const uint8_t* payload) {
@@ -330,8 +315,8 @@ void MAVLinkGPSParser::HandleHighLatency2(const uint8_t* payload) {
     last_position_.longitude_deg = hl2.longitude / 1e7;
     last_position_.altitude_m = hl2.altitude;
     last_position_.ground_speed_mps = hl2.groundspeed / 5.0f;
-    last_position_.course_deg = hl2.heading * 2.0f;
-    last_position_.fix_type = hl2.gps_fix_type;
+    last_position_.track_deg = hl2.heading * 2.0f;
+    last_position_.fix_type = static_cast<GNSSInterface::FixType>(hl2.gps_fix_type);
     last_position_.satellites_used = hl2.gps_nsat;
     last_position_.valid = (hl2.gps_fix_type >= 2);
 }

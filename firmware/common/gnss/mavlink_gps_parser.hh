@@ -31,7 +31,6 @@ public:
     bool ParseData(const uint8_t* buffer, size_t length) override;
     bool Configure(const Config& config) override;
     Position GetLastPosition() const override { return last_position_; }
-    SatelliteInfo GetSatelliteInfo() const override { return satellite_info_; }
     const char* GetReceiverType() const override { return "MAVLink"; }
     
     // PPP not supported via MAVLink
@@ -109,7 +108,6 @@ private:
     
     // GPS data
     Position last_position_;
-    SatelliteInfo satellite_info_;
     
     // System tracking
     uint8_t autopilot_sysid_ = 0;

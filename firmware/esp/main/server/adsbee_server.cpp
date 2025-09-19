@@ -224,7 +224,7 @@ bool ADSBeeServer::Update() {
         // Store GPS message in object dictionary for RP2040 to read
         // The RP2040 will poll for this data during its update cycle
         object_dictionary.SetBytes(ObjectDictionary::Address::kAddrGPSNetworkMessage, 
-                                  &gps_msg, sizeof(gps_msg));
+                                  reinterpret_cast<uint8_t*>(&gps_msg), sizeof(gps_msg));
     }
 
     // Check to see whether the RP2040 sent over new metrics.
