@@ -409,10 +409,8 @@ bool MQTTOTAHandler::AbortOTA() {
     bytes_received_ = 0;
     total_bytes_ = 0;
 
-    // Send AT+OTA=ABORT to Pico to clear any OTA state there
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "AT+OTA=ABORT\r\n");
-    SendCommandToPico(cmd);
+    // Note: There's no AT+OTA=ABORT command implemented on Pico
+    // The OTA state is managed by ESP32, Pico just handles flash operations
 
     PublishStatus();
     return true;
@@ -486,11 +484,8 @@ bool MQTTOTAHandler::RebootDevice() {
 
     PublishStatus();
 
-    // First send AT+OTA=ABORT to clear any Pico-side OTA state
-    char abort_cmd[64];
-    snprintf(abort_cmd, sizeof(abort_cmd), "AT+OTA=ABORT\r\n");
-    SendCommandToPico(abort_cmd);
-    vTaskDelay(pdMS_TO_TICKS(50));  // Give Pico time to clear OTA state
+    // Note: There's no AT+OTA=ABORT command on Pico side
+    // OTA state is managed by ESP32
 
     // Send AT+REBOOT command to Pico (reboots without resetting settings)
     char cmd[64];
