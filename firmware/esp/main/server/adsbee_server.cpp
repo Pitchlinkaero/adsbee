@@ -217,12 +217,14 @@ bool ADSBeeServer::Update() {
     network_console.Update();
     
     // Forward GPS network messages to RP2040
+    // On ESP32 (slave side), we need to make the data available for the RP2040 to read
+    // Store the latest GPS message in object dictionary for RP2040 to poll
     GPSNetworkServer::GPSNetworkMessage gps_msg;
-    while (gps_network_server.GetNextMessage(gps_msg, 0)) {
-        // Send GPS message to RP2040 via SPI
-        if (!pico.Write(ObjectDictionary::Address::kAddrGPSNetworkMessage, gps_msg)) {
-            CONSOLE_ERROR("ADSBeeServer::Update", "Failed to send GPS message to RP2040");
-        }
+    if (gps_network_server.GetNextMessage(gps_msg, 0)) {
+        // Store GPS message in object dictionary for RP2040 to read
+        // The RP2040 will poll for this data during its update cycle
+        object_dictionary.SetBytes(ObjectDictionary::Address::kAddrGPSNetworkMessage, 
+                                  &gps_msg, sizeof(gps_msg));
     }
 
     // Check to see whether the RP2040 sent over new metrics.

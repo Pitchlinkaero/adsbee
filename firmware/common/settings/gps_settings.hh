@@ -21,7 +21,7 @@ struct GPSSettings {
         kGPSSourceNone = 0,
         kGPSSourceUART = 1,        // Physical GPS on GNSS UART
         kGPSSourceNetwork = 2,     // Network NMEA over UDP
-        kGPSSourceMAVLink = 3,     // Extract from MAVLink stream
+        kGPSSourceMAVLink = 3,     // Extract GPS from MAVLink serial stream (from autopilot)
         kGPSSourceAuto = 255       // Auto-detect best source
     };
     

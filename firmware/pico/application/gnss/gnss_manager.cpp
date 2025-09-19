@@ -1,6 +1,7 @@
 #include "gnss_manager.hh"
 #include <cstring>
 #include <algorithm>
+#include "mavlink_gps_parser.hh"
 
 #ifdef ON_EMBEDDED_DEVICE
 #include "pico/stdlib.h"
@@ -149,14 +150,24 @@ bool GNSSManager::InitializeNetworkSource() {
 }
 
 bool GNSSManager::InitializeMAVLinkSource() {
-    // MAVLink GPS extraction
+    // MAVLink GPS extraction from serial autopilot connection
     LOG_INFO("MAVLink GPS source initialization\n");
     
-    // TODO: Create MAVLinkGPSParser when implemented
-    // For now, use NMEA parser
-    parser_ = std::make_unique<NMEAParser>();
+    // Create MAVLink GPS parser
+    parser_ = std::make_unique<MAVLinkGPSParser>();
     
-    return parser_ != nullptr;
+    if (!parser_) {
+        LOG_ERROR("Failed to create MAVLink GPS parser\n");
+        return false;
+    }
+    
+    // Configure for autopilot connection
+    GNSSInterface::Config config;
+    config.use_fused_position = settings_.mavlink_extract_gps;
+    parser_->Configure(config);
+    
+    LOG_INFO("MAVLink GPS parser initialized\n");
+    return true;
 }
 
 std::unique_ptr<GNSSInterface> GNSSManager::CreateParser(GPSSettings::UARTProtocol protocol) {
@@ -310,8 +321,27 @@ bool GNSSManager::ProcessNetworkGPSMessage(uint8_t type, const uint8_t* buffer, 
 }
 
 bool GNSSManager::ProcessMAVLinkData() {
-    // MAVLink data would come from the MAVLink relay
-    // This is a placeholder for the actual implementation
+#ifdef ON_EMBEDDED_DEVICE
+    // MAVLink data comes from serial port configured for MAVLink
+    // This could be either the GNSS UART or CommsUART depending on configuration
+    
+    // For MAVLink over GNSS UART (when autopilot is connected there)
+    if (settings_.gps_source == GPSSettings::kGPSSourceMAVLink) {
+        uart_inst_t* uart = uart1;  // GNSS UART
+        
+        // Read available data from UART
+        size_t available = 0;
+        while (uart_is_readable(uart) && available < sizeof(uart_buffer_)) {
+            uart_buffer_[available++] = uart_getc(uart);
+        }
+        
+        if (available > 0 && parser_) {
+            return parser_->ParseData(uart_buffer_, available);
+        }
+    }
+#else
+    // Simulation mode - no MAVLink data
+#endif
     return false;
 }
 

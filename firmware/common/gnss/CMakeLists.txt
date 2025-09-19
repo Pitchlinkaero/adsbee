@@ -4,6 +4,7 @@
 add_library(gnss_common STATIC
     nmea_parser.cpp
     ubx_parser.cpp
+    mavlink_gps_parser.cpp
 )
 
 # Include directories
@@ -11,6 +12,7 @@ target_include_directories(gnss_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../settings
+    ${CMAKE_CURRENT_SOURCE_DIR}/../comms/mavlink
 )
 
 # Platform-specific settings
