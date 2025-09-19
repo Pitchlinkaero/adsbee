@@ -7,6 +7,7 @@
 #include "esp32.hh"
 #include "esp32_flasher.hh"
 #include "firmware_update.hh"  // For figuring out which flash partition we're in.
+#include "gnss/gnss_manager.hh"
 #include "hal.hh"
 #include "hardware_unit_tests.hh"  // For testing only!
 #include "packet_decoder.hh"
@@ -37,6 +38,7 @@ ESP32SerialFlasher esp32_flasher = ESP32SerialFlasher({});
 
 SettingsManager settings_manager;
 ObjectDictionary object_dictionary;
+GNSSManager gnss_manager;
 
 // Define low-level coprocessor devices with overrides for things like GPIO and init functions.
 ESP32 esp32_ll = ESP32({});

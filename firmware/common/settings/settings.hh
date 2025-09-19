@@ -6,6 +6,7 @@
 #include <functional>  // for strtoull
 
 #include "crc.hh"
+#include "gps_settings.hh"
 #include "macros.hh"
 #include "stdio.h"
 #include "stdlib.h"  // for strtoull
@@ -13,7 +14,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 9;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 10;  // Change this when settings format changes! (Added GPS)
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -163,6 +164,9 @@ class SettingsManager {
         bool feed_is_active[kMaxNumFeeds];
         ReportingProtocol feed_protocols[kMaxNumFeeds];
         uint8_t feed_receiver_ids[kMaxNumFeeds][kFeedReceiverIDNumBytes];
+        
+        // GPS/GNSS settings
+        GPSSettings gps_settings;
 
         /**
          * Default constructor.

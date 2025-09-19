@@ -2,6 +2,7 @@
 if (TARGET application)
     # Primary RP2040 application.
     add_subdirectory(adsb/nasa_cpr)
+    add_subdirectory(gnss)
     target_sources(application PRIVATE
         # NOTE: Annoyingly, all source files need to end with .c or .cpp to be seen by the ESP IDF.
         settings/settings_strs.cpp
@@ -38,6 +39,10 @@ if (TARGET application)
         coprocessor
         firmware_update
         settings
+        gnss
+    )
+    target_link_libraries(application PRIVATE
+        gnss_common
     )
 elseif (TARGET bootloader)
     # RP2040 bootloader.
@@ -79,6 +84,7 @@ elseif (TARGET sub_ghz_radio)
 elseif (TARGET host_test)
     # Off-target unit testing.
     add_subdirectory(adsb/nasa_cpr)
+    add_subdirectory(gnss)
     target_sources(host_test PRIVATE
         adsb/transponder_packet.cpp
         adsb/aircraft_dictionary.cpp
@@ -107,5 +113,9 @@ elseif (TARGET host_test)
         utils/crc
         utils/geo
         settings
+        gnss
+    )
+    target_link_libraries(host_test PRIVATE
+        gnss_common
     )
 endif()

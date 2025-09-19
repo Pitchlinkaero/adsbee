@@ -39,6 +39,19 @@ public:
         kPPPBeiDouB2b = 7,   // BeiDou PPP-B2b (Asia)
         kPPPAuto = 255       // Auto-select best available
     };
+    
+    static constexpr const char* kPPPServiceStrs[] = {
+        "NONE",
+        "SBAS",
+        "GALILEO_HAS",
+        "IGS_RTS",
+        "POINTPERFECT",
+        "RTX",
+        "TERRASTAR",
+        "BEIDOU_B2B"
+    };
+    
+    static constexpr int kPPPServiceCount = 8;
 
     // Position structure optimized for ADSBEE use case
     struct Position {

@@ -20,10 +20,19 @@ struct GPSSettings {
     enum GPSSource : uint8_t {
         kGPSSourceNone = 0,
         kGPSSourceUART = 1,        // Physical GPS on GNSS UART
-        kGPSSourceUDPNMEA = 2,     // Network NMEA over UDP
+        kGPSSourceNetwork = 2,     // Network NMEA over UDP
         kGPSSourceMAVLink = 3,     // Extract from MAVLink stream
         kGPSSourceAuto = 255       // Auto-detect best source
     };
+    
+    static constexpr const char* kGPSSourceStrs[] = {
+        "NONE",
+        "UART",
+        "NETWORK",
+        "MAVLINK"
+    };
+    
+    static constexpr int kGPSSourceCount = 4;
     
     // UART protocol types
     enum UARTProtocol : uint8_t {
@@ -101,7 +110,7 @@ struct GPSSettings {
         switch (gps_source) {
             case kGPSSourceNone: return "NONE";
             case kGPSSourceUART: return "UART";
-            case kGPSSourceUDPNMEA: return "UDP_NMEA";
+            case kGPSSourceNetwork: return "NETWORK";
             case kGPSSourceMAVLink: return "MAVLINK";
             case kGPSSourceAuto: return "AUTO";
             default: return "UNKNOWN";

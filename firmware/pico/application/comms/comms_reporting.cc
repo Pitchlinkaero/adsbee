@@ -3,6 +3,7 @@
 #include "comms.hh"
 #include "csbee_utils.hh"
 #include "gdl90_utils.hh"
+#include "gnss/gnss_manager.hh"
 #include "hal.hh"  // For timestamping.
 #include "mavlink_utils.hh"
 #include "raw_utils.hh"
@@ -10,6 +11,7 @@
 #include "unit_conversions.hh"
 
 extern ADSBee adsbee;
+extern GNSSManager gnss_manager;
 
 GDL90Reporter gdl90;
 
@@ -208,16 +210,56 @@ bool CommsManager::ReportGDL90(SettingsManager::SerialInterface iface) {
     uint8_t buf[GDL90Reporter::kGDL90MessageMaxLenBytes];
     uint16_t msg_len;
 
+    // Update GPS status for heartbeat
+    gdl90.gnss_position_valid = gnss_manager.IsPositionValid();
+
     // Heartbeat Message
     msg_len = gdl90.WriteGDL90HeartbeatMessage(buf, get_time_since_boot_ms() / 1000,
                                                adsbee.aircraft_dictionary.metrics.valid_extended_squitter_frames);
     SendBuf(iface, (char *)buf, msg_len);
 
-    // Ownship Report
-    GDL90Reporter::GDL90TargetReportData ownship_data;
-    // TODO: Actually fill out ownship data!
-    msg_len = gdl90.WriteGDL90TargetReportMessage(buf, ownship_data, true);
-    SendBuf(iface, (char *)buf, msg_len);
+    // Ownship Report (only send if GPS is valid)
+    if (settings_manager.settings.gps_settings.gps_output_enabled && gnss_manager.IsPositionValid()) {
+        GDL90Reporter::GDL90TargetReportData ownship_data;
+        GNSSInterface::Position gps_pos = gnss_manager.GetCurrentPosition();
+        
+        // Fill ownship data from GPS
+        ownship_data.address_type = GDL90Reporter::GDL90TargetReportData::kAddressTypeADSBWithICAOAddress;
+        ownship_data.participant_address = 0xADBEE0;  // Default ICAO address for ADSBEE
+        ownship_data.latitude_deg = gps_pos.latitude_deg;
+        ownship_data.longitude_deg = gps_pos.longitude_deg;
+        ownship_data.altitude_ft = gps_pos.altitude_m * 3.28084;  // Convert meters to feet
+        
+        // Set misc indicators based on GPS data
+        ownship_data.SetMiscIndicator(
+            gps_pos.ground_speed_mps > 0.5 ? 
+                GDL90Reporter::GDL90TargetReportData::kMiscIndicatorTTIsTrueTrackAngle : 
+                GDL90Reporter::GDL90TargetReportData::kMiscIndicatorTTNotValid,
+            false,  // Not extrapolated
+            false   // Ground station (not airborne)
+        );
+        
+        // Navigation accuracy based on GPS accuracy
+        if (gps_pos.accuracy_horizontal_m < 3.0) {
+            ownship_data.navigation_integrity_category = 11;  // <7.5m
+            ownship_data.navigation_accuracy_category_position = 10;  // <10m
+        } else if (gps_pos.accuracy_horizontal_m < 10.0) {
+            ownship_data.navigation_integrity_category = 10;  // <25m
+            ownship_data.navigation_accuracy_category_position = 9;  // <30m
+        } else {
+            ownship_data.navigation_integrity_category = 8;  // <92.6m
+            ownship_data.navigation_accuracy_category_position = 8;  // <92.6m
+        }
+        
+        ownship_data.velocity_kts = gps_pos.ground_speed_mps * 1.94384;  // Convert m/s to knots
+        ownship_data.vertical_rate_fpm = gps_pos.vertical_velocity_mps * 196.85;  // Convert m/s to fpm
+        ownship_data.direction_deg = gps_pos.track_deg;
+        ownship_data.emitter_category = 0;  // Ground vehicle/station
+        strcpy(ownship_data.callsign, "ADSBEE");
+        
+        msg_len = gdl90.WriteGDL90TargetReportMessage(buf, ownship_data, true);
+        SendBuf(iface, (char *)buf, msg_len);
+    }
 
     // Traffic Reports
     for (auto &itr : adsbee.aircraft_dictionary.dict) {
