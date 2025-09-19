@@ -78,7 +78,7 @@ class ADSBeeOTAPublisher:
         self.device_id = None
         self.session_id = str(uuid.uuid4())
         # Default chunk size - must be multiple of 256 (FLASH_PAGE_SIZE)
-        self.chunk_size = 2048  # Back to larger chunks with proper delays
+        self.chunk_size = 4096  # Match flash sector size (same as web OTA)
         self.firmware_data = None
         self.firmware_size = 0
         self.total_chunks = 0
@@ -857,8 +857,8 @@ Examples:
     parser.add_argument("--username", help="MQTT username")
     parser.add_argument("--password", help="MQTT password")
     parser.add_argument("--tls", action="store_true", help="Use TLS/SSL")
-    parser.add_argument("--chunk-size", type=int, default=2048,
-                       help="Chunk size in bytes (default: 2048, must be multiple of 256)")
+    parser.add_argument("--chunk-size", type=int, default=4096,
+                       help="Chunk size in bytes (default: 4096 to match flash sector, must be multiple of 256)")
     parser.add_argument("--keepalive", type=int, default=60,
                        help="MQTT keepalive seconds (default: 60)")
     parser.add_argument("--auto-boot", action="store_true",

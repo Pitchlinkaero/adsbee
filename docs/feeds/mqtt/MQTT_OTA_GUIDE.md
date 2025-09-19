@@ -102,7 +102,7 @@ python3 mqtt_ota_publisher.py \
 - `--username` - MQTT username for authentication
 - `--password` - MQTT password for authentication
 - `--tls` - Enable TLS/SSL connection
-- `--chunk-size` - Size of firmware chunks in bytes (default: 2048, max: 4096; multiple of 256)
+- `--chunk-size` - Size of firmware chunks in bytes (default: 4096 to match flash sector; multiple of 256)
 - `--pre-reboot` - Reboot device before OTA for clean state
 - `--auto-boot` - Automatically reboot to new firmware after verification
 - `--version` - Firmware version string (default: 0.8.3)
@@ -229,13 +229,13 @@ The Pico implements these AT commands for OTA:
 ```c
 #define CONFIG_MQTT_OTA_ENABLED 1        // Enable OTA support
 #define CONFIG_MQTT_OTA_PASSTHROUGH 1    // Use pass-through mode
-#define MQTT_OTA_CHUNK_SIZE 2048         // Default chunk size
+#define MQTT_OTA_CHUNK_SIZE 4096         // Default chunk size (matches flash sector)
 #define MQTT_OTA_MAX_CHUNK_SIZE 4096     // Maximum chunk size supported
 ```
 
 ### Python Publisher Defaults
 ```python
-chunk_size = 2048        # Default chunk size
+chunk_size = 4096        # Default chunk size (matches flash sector)
 pre_reboot = False       # Don't reboot before OTA
 auto_boot = False        # Don't auto-boot after verification
 timeout = 60             # Seconds to wait for device

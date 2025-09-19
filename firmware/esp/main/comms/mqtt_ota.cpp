@@ -444,6 +444,21 @@ bool MQTTOTAHandler::BootNewFirmware() {
 bool MQTTOTAHandler::RebootDevice() {
     CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Rebooting device for clean state");
 
+    // IMPORTANT: Clear all OTA state FIRST to prevent "already in progress" errors
+    // This ensures that if reboot is delayed, we won't reject new manifests
+    state_ = OTAState::IDLE;
+    g_mqtt_ota_active = false;
+    current_session_id_.clear();
+    expected_session_id32_ = 0;
+    manifest_ = Manifest();
+    received_chunks_.clear();
+    chunks_received_ = 0;
+    total_chunks_ = 0;
+    bytes_received_ = 0;
+    total_bytes_ = 0;
+
+    PublishStatus();
+
     // Send AT+REBOOT command to Pico (reboots without resetting settings)
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "AT+REBOOT\r\n");
@@ -451,9 +466,12 @@ bool MQTTOTAHandler::RebootDevice() {
 
     if (success) {
         CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Sent REBOOT command to Pico");
-        // Reset OTA state after reboot command
-        state_ = OTAState::IDLE;
-        PublishStatus();
+        // Brief delay to allow Pico to consume the command
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // Reboot ESP32 as well to ensure full system reset
+        CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Rebooting ESP32 now");
+        esp_restart();
     }
 
     return success;
