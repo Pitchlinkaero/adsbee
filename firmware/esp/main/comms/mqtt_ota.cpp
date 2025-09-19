@@ -90,8 +90,16 @@ bool MQTTOTAHandler::HandleCommand(const std::string& command, const std::string
     if (command != "ABORT" && command != "REBOOT") {
         // Session consistency: if manifest provided a session_id, enforce it on commands
         if (!manifest_.session_id.empty() && session_id != manifest_.session_id) {
-            CONSOLE_ERROR("MQTTOTAHandler::HandleCommand", "Session mismatch: manifest=%s command=%s",
+            CONSOLE_ERROR("MQTTOTAHandler::HandleCommand",
+                          "Session mismatch: manifest=%s command=%s (send ABORT first to clear old session)",
                           manifest_.session_id.c_str(), session_id.c_str());
+
+            // Auto-abort if we get a START command with wrong session to help recovery
+            if (command == "START") {
+                CONSOLE_INFO("MQTTOTAHandler::HandleCommand",
+                            "Auto-aborting old session to allow new OTA");
+                AbortOTA();
+            }
             return false;
         }
     }

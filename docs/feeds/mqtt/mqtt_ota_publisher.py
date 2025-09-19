@@ -657,6 +657,10 @@ class ADSBeeOTAPublisher:
 
         # Optional: Reboot device to clean state
         if self.pre_reboot:
+            print("Sending ABORT to clear any previous OTA session...")
+            self.send_command("ABORT")
+            time.sleep(1)
+
             print("Rebooting device to clean state...")
             self.send_command("REBOOT")
             time.sleep(5)  # Wait for device to start rebooting
@@ -667,6 +671,11 @@ class ADSBeeOTAPublisher:
                 return False
             print("✓ Device back online after reboot")
             time.sleep(2)  # Give it a moment to stabilize
+        else:
+            # Even without reboot, send ABORT to clear any stuck session
+            print("Sending ABORT to clear any previous OTA session...")
+            self.send_command("ABORT")
+            time.sleep(1)
 
         # Load firmware
         if not self.load_firmware(firmware_path):
