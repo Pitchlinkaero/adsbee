@@ -20,6 +20,8 @@ idf_component_register(
         "peripherals/pico"
         "server"
         "target_test"
+    SRCS
+        "comms/mqtt_ota.cpp"  # Explicitly include MQTT OTA handler
     INCLUDE_DIRS
         "."
         "../../common"
@@ -43,6 +45,3 @@ idf_component_register(
 )
 
 message("PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}")
-
-# Include MQTT component configuration
-include(${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists_mqtt.cmake)
