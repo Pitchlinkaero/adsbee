@@ -7,6 +7,7 @@
 #include "esp_system.h"
 #include <cstring>
 #include <sstream>
+#include <cstdlib>
 
 extern SPICoprocessor pico;
 extern SettingsManager settings_manager;
@@ -24,9 +25,7 @@ MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index
       total_bytes_(0),
       last_chunk_timestamp_ms_(0),
       ota_start_timestamp_ms_(0),
-      timeout_ms_(30000) {
-    memset(chunk_buffer_, 0, kMaxChunkSize);
-}
+      timeout_ms_(30000) {}
 
 MQTTOTAHandler::~MQTTOTAHandler() {
     if (state_ != OTAState::IDLE) {

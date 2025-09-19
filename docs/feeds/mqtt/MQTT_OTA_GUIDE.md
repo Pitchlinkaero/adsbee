@@ -89,7 +89,7 @@ python3 mqtt_ota_publisher.py \
     --device bee0003a59b3356e \
     --username myuser \
     --password mypass \
-    --chunk-size 1024 \
+    --chunk-size 2048 \
     --pre-reboot \
     --auto-boot \
     firmware.ota
@@ -102,7 +102,7 @@ python3 mqtt_ota_publisher.py \
 - `--username` - MQTT username for authentication
 - `--password` - MQTT password for authentication
 - `--tls` - Enable TLS/SSL connection
-- `--chunk-size` - Size of firmware chunks in bytes (default: 1024, max: 2048)
+- `--chunk-size` - Size of firmware chunks in bytes (default: 2048, max: 4096; multiple of 256)
 - `--pre-reboot` - Reboot device before OTA for clean state
 - `--auto-boot` - Automatically reboot to new firmware after verification
 - `--version` - Firmware version string (default: 0.8.3)
@@ -167,7 +167,7 @@ Publisher                 Device                 Pico
 Publisher                 Device                 Pico
     |                        |                     |
     |                        |--AT+OTA=VERIFY----->|
-    |                        |<--SHA256 Match------|
+    |                        |<--CRC Verify OK-----|
     |<--State: READY_TO_BOOT-|                     |
     |                        |                     |
     |--Send BOOT command---->|--AT+OTA=BOOT------->|
@@ -193,7 +193,7 @@ The Pico implements these AT commands for OTA:
 - `AT+OTA=ERASE` - Erase complementary partition
 - `AT+OTA=ERASE,offset,length` - Partial erase
 - `AT+OTA=WRITE,offset,length,crc` - Write firmware chunk
-- `AT+OTA=VERIFY,sha256` - Verify firmware SHA256
+- `AT+OTA=VERIFY` - Verify firmware integrity (CRC32 via header)
 - `AT+OTA=BOOT` - Boot from new partition
 
 ## Troubleshooting
@@ -211,16 +211,17 @@ The Pico implements these AT commands for OTA:
 4. Ensure MQTT_OTA_ENABLED=1 in firmware
 
 ### Chunks Not Acknowledged
-1. Check chunk size (max 8192 bytes)
+1. Check chunk size (max 4096 bytes)
 2. Verify SPI communication between ESP32 and Pico
 3. Check network console queue isn't full
 4. Monitor Pico serial output for AT command responses
+5. Ensure `session_id` matches between manifest, commands, and chunk headers
 
 ### Verification Fails
 1. Ensure complete firmware file
-2. Check SHA256 calculation matches
-3. Verify no data corruption during transfer
-4. Check CRC32 on individual chunks
+2. Verify no data corruption during transfer
+3. Ensure CRC32 algorithm matches Pico (no final inversion)
+4. For the last chunk, ensure CRC is computed on the exact bytes written (no padding)
 
 ## Configuration Files
 
@@ -228,13 +229,13 @@ The Pico implements these AT commands for OTA:
 ```c
 #define CONFIG_MQTT_OTA_ENABLED 1        // Enable OTA support
 #define CONFIG_MQTT_OTA_PASSTHROUGH 1    // Use pass-through mode
-#define MQTT_OTA_CHUNK_SIZE 1024         // Default chunk size (limited by console)
-#define MQTT_OTA_MAX_CHUNK_SIZE 2048     // Maximum chunk size (console limit)
+#define MQTT_OTA_CHUNK_SIZE 2048         // Default chunk size
+#define MQTT_OTA_MAX_CHUNK_SIZE 4096     // Maximum chunk size supported
 ```
 
 ### Python Publisher Defaults
 ```python
-chunk_size = 4096        # Default chunk size
+chunk_size = 2048        # Default chunk size
 pre_reboot = False       # Don't reboot before OTA
 auto_boot = False        # Don't auto-boot after verification
 timeout = 60             # Seconds to wait for device
@@ -258,24 +259,38 @@ The OTA system uses optimized timing based on RP2040 flash characteristics:
    - **Result**: ~6 chunks/second throughput after initial erase
 
 3. **Last Chunk Handling:**
-   - Publisher pads last chunk to 2048 bytes for transmission
-   - Device accepts padded chunk but only writes actual firmware bytes
-   - Prevents firmware corruption from padding bytes
+   - Publisher may pad the last chunk for transmission
+   - Device writes only the actual firmware bytes (padding is ignored)
+   - ESP32 recalculates CRC on the exact bytes written so Pico verification matches
 
 ### Verification Process
 
 1. **ACK-based flow control** - Each chunk must be acknowledged before proceeding
-2. **CRC validation** - Each chunk includes CRC16 (lower 16 bits of CRC32)
-3. **Final verification** - Complete firmware SHA256 hash verification
-4. **Version confirmation** - Verifies device telemetry reports expected version after reboot
+2. **Per-chunk CRC** - Header includes CRC16 (lower 16 bits of CRC32 over transmitted bytes)
+3. **Write CRC** - ESP32 sends CRC32 of the exact bytes written; Pico verifies RAM buffer and flash
+4. **Final verification** - Pico computes CRC32 over the flashed app and validates header
+5. **Version confirmation** - Verifies device telemetry reports expected version after reboot
 
-### Automatic Features
+### MQTT Partial Message Handling
 
-1. **Logging** - Automatic log file creation with timestamp and version
-2. **Retry logic** - Up to 5 retries per chunk with exponential backoff
-3. **Device online detection** - Monitors telemetry to ensure device connectivity
-4. **Reboot verification** - Confirms device comes back online with new firmware
-5. **Progress tracking** - Real-time chunk rate and ETA calculation
+- ESP32 reassembles fragmented MQTT payloads using current offset and total length.
+- Chunks are processed only after the full payload is received; ACK is deferred until then.
+
+### Session Consistency
+
+- Manifest contains `session_id` (UUID string). The first 8 hex chars are embedded in chunk headers.
+- Commands include `session_id`; the device validates manifest, commands, and chunk headers match.
+- Mismatched session IDs are rejected to prevent mixing transfers.
+
+### Chunk Header Format
+
+Big-endian header (16 bytes):
+
+1. `uint32` session_id (first 8 chars of UUID)
+2. `uint32` chunk_index
+3. `uint16` chunk_size (bytes transmitted for this chunk)
+4. `uint16` crc16 (lower 16 bits of CRC32 over transmitted bytes)
+5. `uint32` flags (reserved)
 
 ## Security Considerations
 
