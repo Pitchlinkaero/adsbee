@@ -41,7 +41,7 @@ if (TARGET application)
         settings
         gnss
     )
-    target_link_libraries(application PRIVATE
+    target_link_libraries(application
         gnss_common
     )
 elseif (TARGET bootloader)
