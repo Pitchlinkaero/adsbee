@@ -141,8 +141,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         return true;
     }
 
-    // Parse chunk header (16 bytes: session_id(4) + index(4) + size(2) + crc16(2) + flags(4))
-    const size_t kHeaderSize = 16;
+    // Parse chunk header (18 bytes: session_id(4) + index(4) + size(2) + crc32(4))
+    const size_t kHeaderSize = 18;
     if (len < kHeaderSize) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "Chunk too small for header: %zu bytes (need %zu)", len, kHeaderSize);
@@ -153,9 +153,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     // Parse header fields (big-endian from Python)
     uint32_t session_id32 = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
     uint32_t chunk_index = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
-    // uint16_t chunk_size = (data[8] << 8) | data[9]; // Currently unused
-    uint16_t crc16 = (data[10] << 8) | data[11];
-    // uint32_t flags = (data[12] << 24) | (data[13] << 16) | (data[14] << 8) | data[15]; // Currently unused
+    uint16_t chunk_size = (data[8] << 8) | data[9];
+    uint32_t crc32 = (data[10] << 24) | (data[11] << 16) | (data[12] << 8) | data[13];
 
     // Validate session and chunk index
     if (expected_session_id32_ != 0 && session_id32 != expected_session_id32_) {
@@ -207,20 +206,18 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         }
     }
 
-    // Verify CRC (using lower 16 bits of CRC32)
-    // Note: CRC should be calculated on the padded data as sent by publisher
+    // Verify CRC32 for MQTT transport integrity
     uint32_t calculated_crc = CalculateCRC32(chunk_data, chunk_data_len);
-    uint16_t calculated_crc16 = calculated_crc & 0xFFFF;
 
     // Debug logging for CRC verification
     CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
-                 "Chunk %" PRIu32 " CRC: calculated=0x%08" PRIX32 " (16-bit: 0x%04X), expected=0x%04X, data_len=%zu",
-                 index, calculated_crc, calculated_crc16, crc16, chunk_data_len);
+                 "Chunk %" PRIu32 " CRC32: calculated=0x%08" PRIX32 ", expected=0x%08" PRIX32 ", data_len=%zu",
+                 index, calculated_crc, crc32, chunk_data_len);
 
-    if (calculated_crc16 != crc16) {
+    if (calculated_crc != crc32) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "CRC mismatch for chunk %" PRIu32 ": expected 0x%04X, got 0x%04X (full: 0x%08" PRIX32 ")",
-                      index, crc16, calculated_crc16, calculated_crc);
+                      "CRC32 mismatch for chunk %" PRIu32 ": expected 0x%08" PRIX32 ", got 0x%08" PRIX32,
+                      index, crc32, calculated_crc);
         // Log first and last few bytes of data for debugging
         if (chunk_data_len > 0) {
             CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
