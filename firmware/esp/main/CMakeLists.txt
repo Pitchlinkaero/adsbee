@@ -19,6 +19,7 @@ idf_component_register(
         "comms"
         "peripherals/pico"
         "server"
+        "target_test"
     INCLUDE_DIRS
         "."
         "../../common"
@@ -34,6 +35,7 @@ idf_component_register(
         "comms"
         "peripherals/pico"
         "server"
+        "target_test"
     EMBED_TXTFILES
         "server/web/index.html"
         "server/web/style.css"
