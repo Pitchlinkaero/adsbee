@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <vector>
 #include <map>
+#include <functional>
 
 /**
  * UBX Protocol parser for u-blox GPS receivers (M10, F9P, etc).
@@ -119,6 +120,7 @@ private:
     bool ProcessByte(uint8_t byte);
     bool ProcessMessage(const UBXMessage& msg);
     void CalculateChecksum(const UBXMessage& msg, uint8_t& ck_a, uint8_t& ck_b);
+    uint32_t GetTimeMs() const;
     
     // Message handlers
     bool HandleNavPvt(const uint8_t* payload, size_t length);
@@ -163,6 +165,7 @@ private:
     PPPStats ppp_stats_;
     uint32_t ppp_start_time_ms_ = 0;
     bool ppp_converged_ = false;
+    bool supports_ppp_ = false;
     
     // RTK data (optional/advanced)
     bool rtk_enabled_ = false;

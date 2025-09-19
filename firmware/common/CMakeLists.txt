@@ -76,6 +76,7 @@ elseif (TARGET sub_ghz_radio)
         comms/json # Not actually used, but added to avoid compile errors.
         coprocessor
         settings
+        gnss
         utils
         utils/crc
         utils/geo

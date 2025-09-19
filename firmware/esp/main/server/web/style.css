@@ -109,6 +109,24 @@
     color: #0f172a;
 }
 
+.metrics-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+    font-size: 0.9rem;
+}
+
+.metrics-label {
+    color: #64748b;
+    font-weight: normal;
+}
+
+.metrics-item .metrics-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
 .sparkline {
     margin-top: 0.5rem;
     height: 30px;

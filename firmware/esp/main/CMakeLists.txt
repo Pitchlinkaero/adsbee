@@ -25,6 +25,7 @@ idf_component_register(
         "../../common"
         "../../common/adsb"
         "../../common/adsb/nasa_cpr"
+        "../../common/gnss"
         "../../common/comms"
         "../../common/comms/json"
         "../../common/coprocessor"

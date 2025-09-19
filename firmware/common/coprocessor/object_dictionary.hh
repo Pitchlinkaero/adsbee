@@ -51,6 +51,9 @@ class ObjectDictionary {
         kAddrLogMessages = 0x0D,   // Used to retrieve log messages from ESP32 and CC1312.
         kAddrRollQueue = 0x0E,     // Used to roll various queues on coprocessor slaves to confirm they have been read.
         kAddrSCCommandRequests = 0x0F,  // Used by slave to request commands from master.
+        kAddrGPSNetworkMessage = 0x10,  // GPS data from network sources (ESP32 to RP2040).
+        kAddrGPSNetworkMessageArray = 0x11,  // Array of GPS messages for bulk transfer.
+        kAddrGPSStatus = 0x12,      // GPS status information for web interface.
         kNumAddrs
     };
 
@@ -120,6 +123,53 @@ class ObjectDictionary {
         uint8_t ethernet_mac[kMACAddrLenBytes];
     };
 
+    /**
+     * Struct for GPS status information shared between RP2040 and ESP32.
+     * Used for web interface display.
+     */
+    struct __attribute__((__packed__)) GPSStatus {
+        // Position data
+        bool valid = false;
+        uint8_t fix_type = 0;  // 0=no fix, 2=2D, 3=3D, 5=PPP converging, 6=PPP converged
+        double latitude_deg = 0.0;
+        double longitude_deg = 0.0;
+        float altitude_m = 0.0;
+        float accuracy_horizontal_m = 999.0;
+        float accuracy_vertical_m = 999.0;
+        
+        // Velocity
+        float ground_speed_mps = 0.0;
+        float track_deg = 0.0;
+        
+        // Satellites
+        uint8_t satellites_used = 0;
+        uint8_t satellites_visible = 0;
+        float hdop = 99.99;
+        float pdop = 99.99;
+        
+        // PPP status
+        uint8_t ppp_service = 0;  // PPPService enum
+        float ppp_convergence_percent = 0.0;
+        uint32_t ppp_eta_seconds = 0;
+        
+        // Source info
+        uint8_t gps_source = 0;  // GPSSource enum
+        char receiver_type[32] = {0};
+        
+        // Network GPS status
+        uint8_t network_clients_nmea = 0;
+        uint8_t network_clients_mavlink = 0;
+        uint32_t network_messages_received = 0;
+        
+        // Timing
+        uint32_t timestamp_ms = 0;
+        uint32_t time_since_fix_ms = 0;
+        
+        // Statistics
+        uint32_t messages_processed = 0;
+        uint32_t parse_errors = 0;
+    };
+    
     /**
      * Struct used to retrieve network information from the ESP32.
      */
