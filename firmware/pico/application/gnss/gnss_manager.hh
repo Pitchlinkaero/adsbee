@@ -45,6 +45,15 @@ public:
     bool ProcessData(const uint8_t* buffer, size_t length);
     
     /**
+     * Process GPS message from network (received via ESP32)
+     * @param type Message type (NMEA, MAVLink, etc)
+     * @param buffer Data buffer
+     * @param length Data length in bytes
+     * @return true if data was processed successfully
+     */
+    bool ProcessNetworkGPSMessage(uint8_t type, const uint8_t* buffer, size_t length);
+    
+    /**
      * Update position from current source
      * Should be called periodically (at configured rate)
      * @return true if position was updated

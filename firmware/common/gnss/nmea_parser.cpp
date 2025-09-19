@@ -2,7 +2,7 @@
 #include <cmath>
 #include <cstring>
 
-#ifdef ON_PICO
+#ifdef ON_EMBEDDED_DEVICE
 #include "pico/stdlib.h"
 #define GET_TIME_MS() to_ms_since_boot(get_absolute_time())
 #else

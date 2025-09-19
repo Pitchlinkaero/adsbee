@@ -1,6 +1,7 @@
 #include "adsbee_server.hh"
 
 #include "comms.hh"
+#include "gps/gps_network_server.hh"
 #include "json_utils.hh"
 #include "pico.hh"
 #include "settings.hh"
@@ -245,6 +246,15 @@ bool ADSBeeServer::Update() {
 
     // Prune inactive WebSocket clients and other housekeeping.
     network_console.Update();
+    
+    // Forward GPS network messages to RP2040
+    GPSNetworkServer::GPSNetworkMessage gps_msg;
+    while (gps_network_server.GetNextMessage(gps_msg, 0)) {
+        // Send GPS message to RP2040 via SPI
+        if (!pico.Write(ObjectDictionary::Address::kAddrGPSNetworkMessage, gps_msg)) {
+            CONSOLE_ERROR("ADSBeeServer::Update", "Failed to send GPS message to RP2040");
+        }
+    }
 
     // Check to see whether the RP2040 sent over new metrics.
     xQueueReceive(rp2040_aircraft_dictionary_metrics_queue, &rp2040_aircraft_dictionary_metrics, 0);

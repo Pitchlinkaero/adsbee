@@ -20,6 +20,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "gps/gps_network_server.hh"
 #include "hardware_unit_tests.hh"
 #include "pico.hh"
 #include "settings.hh"
@@ -41,6 +42,14 @@ extern "C" void app_main(void) {
     ESP_LOGI("app_main", "Default task priority: %d", uxTaskPriorityGet(NULL));
 
     adsbee_server.Init();
+    
+    // Initialize GPS network server
+    if (gps_network_server.Init()) {
+        gps_network_server.Start();
+        ESP_LOGI("app_main", "GPS network server started");
+    } else {
+        ESP_LOGW("app_main", "Failed to initialize GPS network server");
+    }
 
 #ifdef HARDWARE_UNIT_TESTS
     RunHardwareUnitTests();
