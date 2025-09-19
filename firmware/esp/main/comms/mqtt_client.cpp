@@ -10,10 +10,8 @@
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
-#if CONFIG_MQTT_OTA_ENABLED
 #include "mqtt_ota.hh"
 #include <memory>
-#endif
 
 static const char* TAG = "MQTT";
 
@@ -56,7 +54,6 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
     // Initialize statistics
     stats_ = {};
 
-#if CONFIG_MQTT_OTA_ENABLED
     // Create OTA handler if enabled
     if (config_.ota_enabled) {
         ota_handler_ = std::make_unique<MQTTOTAHandler>(config_.device_id, feed_index_);
@@ -65,9 +62,6 @@ MQTTClient::MQTTClient(const Config& config, uint16_t feed_index)
         ota_handler_ = nullptr;
         ESP_LOGD(TAG, "OTA disabled for MQTT feed %d", feed_index_);
     }
-#else
-    ESP_LOGI(TAG, "OTA handler NOT created for feed %d (CONFIG_MQTT_OTA_ENABLED not defined)", feed_index_);
-#endif
 
     // Configure MQTT client
     esp_mqtt_client_config_t mqtt_cfg = {};
@@ -232,7 +226,6 @@ void MQTTClient::HandleConnect() {
     std::string online_topic = GetOnlineTopic();
     esp_mqtt_client_publish(client_, online_topic.c_str(), "1", 1, 1, true);
 
-#if CONFIG_MQTT_OTA_ENABLED
     // Initialize and subscribe to OTA topics if enabled
     if (ota_handler_) {
         // Initialize the OTA handler with this client
@@ -251,7 +244,6 @@ void MQTTClient::HandleConnect() {
 
         ESP_LOGI(TAG, "Initialized and subscribed to OTA topics for device %s", config_.device_id.c_str());
     }
-#endif
 
     // Clear rate limiter to start fresh
     rate_limiter_.Reset();
@@ -264,7 +256,6 @@ void MQTTClient::HandleDisconnect() {
 }
 
 void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
-#if CONFIG_MQTT_OTA_ENABLED
     // Extract topic first to check if it's an OTA message
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
@@ -410,10 +401,6 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
                                    progress_json.c_str(), progress_json.length(), 0, false);
         }
     }
-#else
-    // OTA not compiled in
-    (void)event;  // Suppress unused parameter warning
-#endif
 }
 
 void MQTTClient::ScheduleReconnect() {
@@ -735,11 +722,7 @@ std::string MQTTClient::SerializeTelemetryJSON(const Telemetry& telemetry) const
     cJSON_AddStringToObject(root, "fw_version", telemetry.fw_version.c_str());
 
     // Add OTA status to help diagnose configuration issues
-#if CONFIG_MQTT_OTA_ENABLED
     cJSON_AddBoolToObject(root, "ota_enabled", config_.ota_enabled);
-#else
-    cJSON_AddBoolToObject(root, "ota_enabled", false);
-#endif
 
     if (telemetry.mps_total > 0) {
         cJSON_AddNumberToObject(root, "mps_total", telemetry.mps_total);
@@ -1116,11 +1099,7 @@ size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, ch
         object_dictionary.kFirmwareVersionMajor,
         object_dictionary.kFirmwareVersionMinor,
         object_dictionary.kFirmwareVersionPatch,
-#if CONFIG_MQTT_OTA_ENABLED
         config_.ota_enabled ? "true" : "false"
-#else
-        "false"
-#endif
         );
 
     // Add optional fields if present and buffer space allows
