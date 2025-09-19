@@ -34,8 +34,32 @@ static const uint8_t MAVLINK_CRC_EXTRA[256] = {
 
 MAVLinkGPSParser::MAVLinkGPSParser() {
     // Initialize to defaults
+    Reset();
+}
+
+void MAVLinkGPSParser::Reset() {
+    // Reset parser state
+    parser_state_ = MAVLINK_PARSE_STATE_IDLE;
+    packet_idx_ = 0;
+    packet_drops_ = 0;
+    
+    // Reset position
     last_position_ = Position(); // Use default constructor
+    
+    // Reset packet
     memset(&current_packet_, 0, sizeof(current_packet_));
+    
+    // Reset statistics
+    messages_received_ = 0;
+    gps_messages_received_ = 0;
+    parse_errors_ = 0;
+    last_heartbeat_ms_ = 0;
+    
+    // Reset autopilot detection
+    autopilot_detected_ = false;
+    autopilot_sysid_ = 0;
+    autopilot_compid_ = 0;
+    autopilot_type_ = 0;
 }
 
 bool MAVLinkGPSParser::Configure(const Config& config) {
@@ -70,13 +94,8 @@ bool MAVLinkGPSParser::ParseByte(uint8_t byte) {
             
         case MAVLINK_PARSE_STATE_GOT_STX:
             current_packet_.len = byte;
-            if (byte > 255) {
-                // Invalid length
-                parser_state_ = MAVLINK_PARSE_STATE_IDLE;
-                parse_errors_++;
-            } else {
-                parser_state_ = MAVLINK_PARSE_STATE_GOT_LENGTH;
-            }
+            // MAVLink v1 max payload is 255 bytes
+            parser_state_ = MAVLINK_PARSE_STATE_GOT_LENGTH;
             break;
             
         case MAVLINK_PARSE_STATE_GOT_LENGTH:

@@ -163,7 +163,7 @@ bool GNSSManager::InitializeMAVLinkSource() {
     
     // Configure for autopilot connection
     GNSSInterface::Config config;
-    config.use_fused_position = settings_.mavlink_extract_gps;
+    config.update_rate_hz = settings_.gps_update_rate_hz;
     parser_->Configure(config);
     
     LOG_INFO("MAVLink GPS parser initialized\n");
