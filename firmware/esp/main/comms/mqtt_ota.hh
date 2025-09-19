@@ -51,7 +51,7 @@ public:
 
     // Handle incoming MQTT messages
     bool HandleManifest(const Manifest& manifest);
-    bool HandleCommand(const std::string& command);
+    bool HandleCommand(const std::string& command, const std::string& session_id);
     bool HandleChunk(uint32_t index, const uint8_t* data, size_t len);
 
     // Get status/progress as JSON
@@ -95,6 +95,7 @@ private:
     OTAState state_;
     Manifest manifest_;
     std::string current_session_id_;
+    uint32_t expected_session_id32_ = 0;  // First 4 bytes of session (hex) from manifest
 
     // Chunk management
     std::vector<bool> received_chunks_;
@@ -108,9 +109,7 @@ private:
     uint32_t ota_start_timestamp_ms_;
     uint32_t timeout_ms_;
 
-    // Buffer for accumulating chunks
-    static constexpr size_t kMaxChunkSize = MQTT_OTA_MAX_CHUNK_SIZE;
-    uint8_t chunk_buffer_[kMaxChunkSize];
+    // No local buffering required in pass-through mode
 
     // Pass-through mode - no local storage needed
     // Pico handles all flash operations

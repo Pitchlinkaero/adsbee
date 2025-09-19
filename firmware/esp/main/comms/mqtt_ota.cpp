@@ -59,6 +59,13 @@ bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
     }
 
     manifest_ = manifest;
+    current_session_id_ = manifest_.session_id;
+    // Convert first 8 hex chars of session_id to 32-bit if available
+    expected_session_id32_ = 0;
+    if (manifest_.session_id.length() >= 8) {
+        std::string first8 = manifest_.session_id.substr(0, 8);
+        expected_session_id32_ = (uint32_t)strtoul(first8.c_str(), nullptr, 16);
+    }
 
     // Validate manifest
     if (manifest_.size == 0 || manifest_.total_chunks == 0 || manifest_.chunk_size == 0) {
@@ -77,8 +84,17 @@ bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
     return true;
 }
 
-bool MQTTOTAHandler::HandleCommand(const std::string& command) {
+bool MQTTOTAHandler::HandleCommand(const std::string& command, const std::string& session_id) {
     CONSOLE_INFO("MQTTOTAHandler::HandleCommand", "Received command: %s", command.c_str());
+
+    // Session consistency: if manifest provided a session_id, enforce it on commands
+    if (!manifest_.session_id.empty()) {
+        if (session_id != manifest_.session_id) {
+            CONSOLE_ERROR("MQTTOTAHandler::HandleCommand", "Session mismatch: manifest=%s command=%s",
+                          manifest_.session_id.c_str(), session_id.c_str());
+            return false;
+        }
+    }
 
     if (command == "START") {
         return StartOTA();
@@ -135,11 +151,19 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     }
 
     // Parse header fields (big-endian from Python)
-    // uint32_t session_id = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // Currently unused
+    uint32_t session_id32 = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
     uint32_t chunk_index = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
     // uint16_t chunk_size = (data[8] << 8) | data[9]; // Currently unused
     uint16_t crc16 = (data[10] << 8) | data[11];
     // uint32_t flags = (data[12] << 24) | (data[13] << 16) | (data[14] << 8) | data[15]; // Currently unused
+
+    // Validate session and chunk index
+    if (expected_session_id32_ != 0 && session_id32 != expected_session_id32_) {
+        CONSOLE_ERROR("MQTTOTAHandler::HandleChunk", "Session ID mismatch in chunk: expected 0x%08" PRIX32 ", got 0x%08" PRIX32,
+                      expected_session_id32_, session_id32);
+        PublishAck(index, false);
+        return false;
+    }
 
     // Validate chunk index matches
     if (chunk_index != index) {
@@ -190,12 +214,12 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
 
     // Debug logging for CRC verification
     CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
-                 "Chunk %" PRIu32 " CRC: calculated=0x%08X (16-bit: 0x%04X), expected=0x%04X, data_len=%zu",
+                 "Chunk %" PRIu32 " CRC: calculated=0x%08" PRIX32 " (16-bit: 0x%04X), expected=0x%04X, data_len=%zu",
                  index, calculated_crc, calculated_crc16, crc16, chunk_data_len);
 
     if (calculated_crc16 != crc16) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "CRC mismatch for chunk %" PRIu32 ": expected 0x%04X, got 0x%04X (full: 0x%08X)",
+                      "CRC mismatch for chunk %" PRIu32 ": expected 0x%04X, got 0x%04X (full: 0x%08" PRIX32 ")",
                       index, crc16, calculated_crc16, calculated_crc);
         // Log first and last few bytes of data for debugging
         if (chunk_data_len > 0) {
@@ -215,7 +239,6 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     constexpr uint32_t OTA_HEADER_SIZE = 20;  // 5 * 4 bytes
     constexpr uint32_t APP_OFFSET = 4 * 1024; // App starts at 4KB in flash
 
-    uint32_t data_offset = index * manifest_.chunk_size;
     uint32_t flash_offset;
 
     // For the last chunk, only write the actual data bytes, not padding
@@ -242,6 +265,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     if (is_last_chunk && chunk_data_len > expected_chunk_size) {
         // Chunk is padded, only write the actual firmware bytes
         bytes_to_write = expected_chunk_size;
+        // Recalculate CRC on the exact bytes we will write so Pico's verify matches
+        calculated_crc = CalculateCRC32(chunk_data, bytes_to_write);
         CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
                      "Last chunk: writing %zu bytes (ignoring %zu bytes of padding)",
                      bytes_to_write, chunk_data_len - bytes_to_write);
@@ -249,13 +274,13 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
 
     // Log write operation details
     CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
-                 "Writing chunk %" PRIu32 ": offset=0x%08X, size=%zu, crc=0x%08X",
+                 "Writing chunk %" PRIu32 ": offset=0x%08" PRIX32 ", size=%zu, crc=0x%08" PRIX32 "",
                  index, flash_offset, bytes_to_write, calculated_crc);
 
     // Write to flash via AT command
     if (!WriteChunkToFlash(flash_offset, chunk_data, bytes_to_write, calculated_crc)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
-                      "Failed to write chunk %" PRIu32 " to flash at offset 0x%08X",
+                      "Failed to write chunk %" PRIu32 " to flash at offset 0x%08" PRIX32 "",
                       index, flash_offset);
         PublishAck(index, false);
         return false;
@@ -611,9 +636,9 @@ bool MQTTOTAHandler::CompleteOTAUpdate() {
 }
 
 bool MQTTOTAHandler::VerifyFlashPartition() {
-    // Send AT+OTA=VERIFY command to Pico
+    // Send AT+OTA=VERIFY command to Pico (no SHA arg; Pico verifies header CRC)
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "AT+OTA=VERIFY,%s\r\n", manifest_.sha256.c_str());
+    snprintf(cmd, sizeof(cmd), "AT+OTA=VERIFY\r\n");
 
     bool success = SendCommandToPico(cmd);
 

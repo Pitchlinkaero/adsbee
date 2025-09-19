@@ -497,7 +497,7 @@ bool ADSBeeServer::TCPServerInit() {
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &css));
 
         // Favicon URI handler
-        httpd_uri_t favicon = {.uri = "/favicon.png", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL};
+        httpd_uri_t favicon = {.uri = "/favicon.png", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL, .supported_subprotocol = NULL};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &favicon));
 
         network_console = WebSocketServer({.label = "Network Console",

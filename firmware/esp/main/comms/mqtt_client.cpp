@@ -334,9 +334,11 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
         }
 
         cJSON* cmd = cJSON_GetObjectItem(root, "command");
+        cJSON* session_id = cJSON_GetObjectItem(root, "session_id");
         if (cmd && cJSON_IsString(cmd)) {
             std::string command = cmd->valuestring;
-            ota_handler_->HandleCommand(command);
+            std::string sid = (session_id && cJSON_IsString(session_id)) ? session_id->valuestring : std::string();
+            ota_handler_->HandleCommand(command, sid);
 
             // Publish current state
             std::string state_topic = ota_base + "/status/state";
@@ -356,16 +358,28 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
         ESP_LOGI(TAG, "Received chunk %lu: data_len=%d, topic_len=%d, total_data_len=%d",
                  (unsigned long)chunk_index, event->data_len, event->topic_len, event->total_data_len);
 
-        // Check if this is a partial message
-        if (event->data_len != event->total_data_len) {
-            ESP_LOGW(TAG, "Received partial MQTT message: got %d of %d bytes",
-                     event->data_len, event->total_data_len);
+        // Defensive reassembly for partial MQTT messages
+        static std::unordered_map<uint32_t, std::string> chunk_bufs;  // keyed by chunk index
+        if (event->current_data_offset == 0) {
+            chunk_bufs[chunk_index].clear();
+            chunk_bufs[chunk_index].reserve(event->total_data_len);
         }
+        chunk_bufs[chunk_index].append(event->data, event->data_len);
 
-        // Process chunk
-        bool success = ota_handler_->HandleChunk(chunk_index,
-                                                 (const uint8_t*)event->data,
-                                                 event->data_len);
+        bool success = false;
+        if ((int)chunk_bufs[chunk_index].size() >= event->total_data_len) {
+            // Have full payload; process once
+            success = ota_handler_->HandleChunk(chunk_index,
+                                                (const uint8_t*)chunk_bufs[chunk_index].data(),
+                                                chunk_bufs[chunk_index].size());
+            chunk_bufs.erase(chunk_index);
+        } else {
+            // Not complete yet; wait for more fragments
+            ESP_LOGI(TAG, "Chunk %lu partial: %d/%d bytes",
+                     (unsigned long)chunk_index, (int)chunk_bufs[chunk_index].size(), event->total_data_len);
+            // Defer ACK until full
+            return;
+        }
 
         // Publish ACK/NACK
         std::string ack_topic = ota_base + "/status/ack/" + chunk_idx_str;
