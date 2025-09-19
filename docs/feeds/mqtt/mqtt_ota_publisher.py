@@ -221,6 +221,30 @@ class ADSBeeOTAPublisher:
         """MQTT publish callback"""
         pass
 
+    def clear_retained_messages(self, device_id: str):
+        """Clear any retained OTA messages from previous sessions
+
+        This prevents old retained messages from interfering with new OTA sessions.
+        """
+        print("Clearing any retained OTA messages from broker...")
+
+        # Topics that might have retained messages
+        retained_topics = [
+            f"{device_id}/ota/control/manifest",
+            f"{device_id}/ota/control/command",
+            f"{device_id}/ota/status/state",
+            f"{device_id}/ota/status/manifest_ack",
+            f"{device_id}/ota/status/progress"
+        ]
+
+        for topic in retained_topics:
+            # Publish empty retained message to clear
+            self.client.publish(topic, "", qos=1, retain=True)
+
+        # Give broker time to process
+        time.sleep(1)
+        print("✓ Cleared retained messages")
+
     def subscribe_to_device(self, device_id: str):
         """Subscribe to device OTA topics"""
         self.device_id = device_id
@@ -643,6 +667,9 @@ class ADSBeeOTAPublisher:
         """
         # Store target version for verification
         self.target_version = version
+
+        # Clear any retained messages from previous OTA sessions
+        self.clear_retained_messages(device_id)
 
         # Subscribe to device
         self.subscribe_to_device(device_id)

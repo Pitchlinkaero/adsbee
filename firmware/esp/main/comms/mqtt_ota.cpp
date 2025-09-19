@@ -19,6 +19,8 @@ MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index
     : device_id_(device_id),
       feed_index_(feed_index),
       state_(OTAState::IDLE),
+      current_session_id_(""),          // Explicitly initialize to empty
+      expected_session_id32_(0),         // Explicitly initialize to 0
       chunks_received_(0),
       total_chunks_(0),
       bytes_received_(0),
@@ -51,6 +53,20 @@ bool MQTTOTAHandler::Initialize(MQTT::MQTTClient* mqtt_client) {
 }
 
 bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
+    CONSOLE_INFO("MQTTOTAHandler::HandleManifest",
+                 "Received manifest with session=%s (current state=%d, current session=%s)",
+                 manifest.session_id.c_str(), (int)state_, current_session_id_.c_str());
+
+    // If we're in MANIFEST_RECEIVED state with a different session, auto-abort the old one
+    if (state_ == OTAState::MANIFEST_RECEIVED &&
+        !current_session_id_.empty() &&
+        current_session_id_ != manifest.session_id) {
+        CONSOLE_INFO("MQTTOTAHandler::HandleManifest",
+                     "Different session detected, aborting old session %s for new %s",
+                     current_session_id_.c_str(), manifest.session_id.c_str());
+        AbortOTA();
+    }
+
     if (state_ != OTAState::IDLE) {
         CONSOLE_WARNING("MQTTOTAHandler::HandleManifest",
                         "Ignoring manifest - OTA already in progress");
@@ -385,12 +401,18 @@ bool MQTTOTAHandler::AbortOTA() {
 
     // Clear session
     current_session_id_.clear();
+    expected_session_id32_ = 0;  // Clear expected session ID as well
     manifest_ = Manifest();
     received_chunks_.clear();
     chunks_received_ = 0;
     total_chunks_ = 0;
     bytes_received_ = 0;
     total_bytes_ = 0;
+
+    // Send AT+OTA=ABORT to Pico to clear any OTA state there
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=ABORT\r\n");
+    SendCommandToPico(cmd);
 
     PublishStatus();
     return true;
@@ -463,6 +485,12 @@ bool MQTTOTAHandler::RebootDevice() {
     total_bytes_ = 0;
 
     PublishStatus();
+
+    // First send AT+OTA=ABORT to clear any Pico-side OTA state
+    char abort_cmd[64];
+    snprintf(abort_cmd, sizeof(abort_cmd), "AT+OTA=ABORT\r\n");
+    SendCommandToPico(abort_cmd);
+    vTaskDelay(pdMS_TO_TICKS(50));  // Give Pico time to clear OTA state
 
     // Send AT+REBOOT command to Pico (reboots without resetting settings)
     char cmd[64];
