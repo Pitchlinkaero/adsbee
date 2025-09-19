@@ -1102,7 +1102,8 @@ size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, ch
     int written = snprintf(buf, buf_size,
         "{\"up\":%lu,\"rx\":%lu,\"tx\":%lu,\"cpu\":%ld,\"mem\":%lu,"
         "\"r1090\":%s,\"r978\":%s,\"wifi\":%s,\"mqtt\":%s,"
-        "\"fw\":\"%d.%d.%d\"",
+        "\"fw\":\"%d.%d.%d\","
+        "\"ota\":%s",
         (unsigned long)telemetry.uptime_sec,
         (unsigned long)telemetry.msgs_rx,
         (unsigned long)telemetry.msgs_tx,
@@ -1114,7 +1115,13 @@ size_t MQTTClient::SerializeTelemetryJSONToBuffer(const Telemetry& telemetry, ch
         telemetry.mqtt ? "true" : "false",
         object_dictionary.kFirmwareVersionMajor,
         object_dictionary.kFirmwareVersionMinor,
-        object_dictionary.kFirmwareVersionPatch);
+        object_dictionary.kFirmwareVersionPatch,
+#if CONFIG_MQTT_OTA_ENABLED
+        config_.ota_enabled ? "true" : "false"
+#else
+        "false"
+#endif
+        );
 
     // Add optional fields if present and buffer space allows
     if (telemetry.mps_total > 0 && written < buf_size - 20) {

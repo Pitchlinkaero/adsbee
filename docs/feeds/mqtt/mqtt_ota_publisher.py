@@ -150,10 +150,16 @@ class ADSBeeOTAPublisher:
         if topic.endswith("/telemetry"):
             self.device_online = True
             self.last_telemetry_time = time.time()
-            # Parse telemetry to get firmware version if available
+            # Parse telemetry to get firmware version and OTA status
             try:
                 telemetry = json.loads(msg.payload.decode())
                 self.current_firmware_version = telemetry.get("firmware_version", None)
+                # Check if OTA is enabled on the device
+                # Support both full and compact telemetry formats
+                ota_enabled = telemetry.get("ota_enabled", telemetry.get("ota", None))
+                if ota_enabled is False or ota_enabled == "false":
+                    print("  ⚠️  WARNING: OTA is disabled on device (ota=false in telemetry)")
+                    print("     Enable with: AT+MQTTOTA=<feed>,1")
             except (json.JSONDecodeError, AttributeError):
                 pass
             return
@@ -175,6 +181,16 @@ class ADSBeeOTAPublisher:
 
                 if status.get("error"):
                     print(f"Device error: {status['error']}")
+
+                # Check if OTA is disabled
+                if self.ota_state == "DISABLED":
+                    print("\n❌ ERROR: OTA is disabled on the device!")
+                    print("To enable OTA:")
+                    print("  1. Connect to device console")
+                    print("  2. Run: AT+MQTTOTA=<feed>,1")
+                    print("  3. Run: AT+SAVE")
+                    print("  4. Run: AT+REBOOT")
+                    self.stop_requested = True
 
             except json.JSONDecodeError:
                 pass
