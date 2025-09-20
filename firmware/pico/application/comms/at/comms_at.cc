@@ -540,7 +540,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSFailoverCallback) {
         case '=':
             {
                 // Set failover timeout
-                if (argc != 1) {
+                if (!CPP_AT_HAS_ARG(0)) {
                     CPP_AT_ERROR("Invalid number of arguments. Usage: AT+GPS_FAILOVER=<timeout_seconds>");
                 }
                 
@@ -552,14 +552,11 @@ CPP_AT_CALLBACK(CommsManager::ATGPSFailoverCallback) {
                 }
                 
                 settings_manager.settings.gps_settings.failover_timeout_ms = timeout_s * 1000;
-                settings_manager.Write();
                 
                 // Reinitialize GPS with new failover settings
                 gnss_manager.Initialize(settings_manager.settings.gps_settings);
                 
-                char response[64];
-                snprintf(response, sizeof(response), "GPS failover timeout set to %u seconds", timeout_s);
-                CPP_AT_SEND(response);
+                CPP_AT_PRINTF("GPS failover timeout set to %u seconds\r\n", timeout_s);
                 CPP_AT_SUCCESS();
             }
             break;
