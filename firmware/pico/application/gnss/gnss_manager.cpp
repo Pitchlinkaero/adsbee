@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 #include "mavlink_gps_parser.hh"
+#include "ubx_parser.hh"
 
 #ifdef ON_EMBEDDED_DEVICE
 #include "pico/stdlib.h"
@@ -18,8 +19,10 @@ extern BSP bsp;  // External BSP instance
 
 // For logging
 #ifdef ON_EMBEDDED_DEVICE
-#define LOG_INFO(...) // TODO: Add proper logging
-#define LOG_ERROR(...) // TODO: Add proper logging
+#include "comms.hh"
+extern CommsManager comms_manager;
+#define LOG_INFO(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kInfo, __VA_ARGS__)
+#define LOG_ERROR(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kErrors, __VA_ARGS__)
 #else
 #include <cstdio>
 #define LOG_INFO(...) printf(__VA_ARGS__)
@@ -286,8 +289,22 @@ bool GNSSManager::ProcessUARTData() {
 }
 
 bool GNSSManager::ProcessNetworkData() {
-    // Network data would come from ESP32 via SPI
-    // This is a placeholder for the actual implementation
+    // Network GPS data comes from ESP32 via SPI
+    // The ESP32 queues GPS messages and we poll for them
+    
+    // Check if we have network GPS messages waiting
+    // This would be implemented by checking the ESP32 object dictionary
+    // for GPS network messages
+    
+    // For now, we rely on ProcessNetworkGPSMessage being called
+    // from main.cc when ESP32 has data
+    
+    // Return true if we've received recent network GPS data
+    uint32_t current_time = GetTimeMs();
+    if (current_time - last_network_gps_ms_ < 2000) {  // Within 2 seconds
+        return true;  // We have recent network GPS data
+    }
+    
     return false;
 }
 
@@ -296,26 +313,50 @@ bool GNSSManager::ProcessNetworkGPSMessage(uint8_t type, const uint8_t* buffer, 
         return false;
     }
     
+    // Update timestamp for network GPS activity
+    last_network_gps_ms_ = GetTimeMs();
+    
+    // Ensure we're in network mode or auto mode
+    if (current_source_ != GPSSettings::kGPSSourceNetwork && 
+        current_source_ != GPSSettings::kGPSSourceAuto) {
+        // If in auto mode, switch to network
+        if (settings_.gps_source == GPSSettings::kGPSSourceAuto) {
+            current_source_ = GPSSettings::kGPSSourceNetwork;
+            LOG_INFO("Auto-switched to Network GPS source\n");
+        } else {
+            return false;  // Not configured for network GPS
+        }
+    }
+    
     // Handle different message types
     switch (type) {
         case 0: // NMEA
+            if (!parser_ || current_source_ != GPSSettings::kGPSSourceNetwork) {
+                parser_ = std::make_unique<NMEAParser>();
+                current_source_ = GPSSettings::kGPSSourceNetwork;
+            }
+            stats_.messages_processed++;
+            return ProcessData(buffer, length);
+            
+        case 1: // MAVLink GPS
+            if (!parser_ || current_source_ != GPSSettings::kGPSSourceNetwork) {
+                parser_ = std::make_unique<MAVLinkGPSParser>();
+                current_source_ = GPSSettings::kGPSSourceNetwork;
+            }
+            stats_.messages_processed++;
+            return ProcessData(buffer, length);
+            
+        case 2: // UBX binary
+            // For now, treat UBX as raw binary data that NMEA parser will ignore
+            LOG_INFO("Received UBX GPS message (parsing as NMEA for now)\n");
             if (!parser_) {
                 parser_ = std::make_unique<NMEAParser>();
             }
             return ProcessData(buffer, length);
             
-        case 1: // MAVLink GPS
-            // TODO: Process MAVLink GPS messages when parser is implemented
-            LOG_INFO("Received MAVLink GPS message (not yet supported)\n");
-            return false;
-            
-        case 2: // UBX binary
-            // TODO: Process UBX messages when parser is implemented
-            LOG_INFO("Received UBX GPS message (not yet supported)\n");
-            return false;
-            
         default:
             LOG_ERROR("Unknown GPS message type: %d\n", type);
+            stats_.parse_errors++;
             return false;
     }
 }
@@ -369,8 +410,56 @@ bool GNSSManager::DetectUARTProtocol() {
         return true;
     }
     
-    // TODO: Add UBX detection (look for 0xB5 0x62 sync bytes)
-    // TODO: Add SBF detection (look for SBF sync pattern)
+    // Check for UBX protocol (u-blox binary)
+    // Look for UBX sync bytes: 0xB5 0x62
+    for (size_t i = 0; i < uart_buffer_pos_ - 1; i++) {
+        if (uart_buffer_[i] == 0xB5 && uart_buffer_[i + 1] == 0x62) {
+            LOG_INFO("Detected UBX protocol (u-blox binary)\n");
+            
+            // Switch to UBX parser
+            parser_ = std::make_unique<UBXParser>();
+            
+            // Configure parser
+            GNSSInterface::Config config;
+            config.update_rate_hz = settings_.gps_update_rate_hz;
+            config.enable_sbas = settings_.enable_sbas;
+            config.ppp_service = settings_.ppp_service;
+            parser_->Configure(config);
+            
+            detected_protocol_ = GPSSettings::kUARTProtoUBX;
+            auto_detect_active_ = false;
+            
+            // Process the buffered data with new parser
+            parser_->ParseData(uart_buffer_, uart_buffer_pos_);
+            return true;
+        }
+    }
+    
+    // Check for SBF protocol (Septentrio binary)
+    // SBF sync bytes: '$@' (0x24 0x40) or 'SBF' in some messages
+    for (size_t i = 0; i < uart_buffer_pos_ - 1; i++) {
+        if (uart_buffer_[i] == 0x24 && uart_buffer_[i + 1] == 0x40) {
+            LOG_INFO("Detected SBF protocol (Septentrio binary)\n");
+            
+            // For now, fall back to NMEA since SBF parser not implemented
+            LOG_INFO("SBF parser not yet implemented, using NMEA\n");
+            detected_protocol_ = GPSSettings::kUARTProtoNMEA;
+            auto_detect_active_ = false;
+            return true;
+        }
+    }
+    
+    // Check for RTCM messages (for RTK base stations)
+    // RTCM3 preamble: 0xD3
+    if (uart_buffer_pos_ > 0 && uart_buffer_[0] == 0xD3) {
+        LOG_INFO("Detected RTCM protocol (RTK corrections)\n");
+        detected_protocol_ = GPSSettings::kUARTProtoRTCM;
+        auto_detect_active_ = false;
+        
+        // RTCM is usually input, not output
+        // This might be a base station or correction service
+        return false;  // Don't try to parse as position
+    }
     
     return false;
 }
@@ -517,18 +606,73 @@ uint32_t GNSSManager::GetTimeMs() const {
 }
 
 bool GNSSManager::CheckForFailover() {
-    if (backup_source_ == GPSSettings::kGPSSourceNone) {
+    // Don't failover if we have no backup or we're in manual mode
+    if (settings_.gps_source != GPSSettings::kGPSSourceAuto) {
         return false;
     }
     
     uint32_t now = GetTimeMs();
     uint32_t time_since_valid = now - last_valid_position_ms_;
     
-    if (time_since_valid > kFailoverTimeoutMs) {
-        LOG_INFO("GPS failover triggered after %u ms\n", time_since_valid);
-        return SetSource(backup_source_);
+    // Check if current source has failed
+    bool should_failover = false;
+    
+    switch (current_source_) {
+        case GPSSettings::kGPSSourceUART:
+            // UART failed if no valid position for timeout period
+            should_failover = (time_since_valid > kFailoverTimeoutMs);
+            break;
+            
+        case GPSSettings::kGPSSourceNetwork:
+            // Network failed if no data received recently
+            should_failover = (now - last_network_gps_ms_ > kFailoverTimeoutMs);
+            break;
+            
+        case GPSSettings::kGPSSourceMAVLink:
+            // MAVLink failed if no messages recently
+            should_failover = (time_since_valid > kFailoverTimeoutMs);
+            break;
+            
+        default:
+            break;
     }
     
+    if (!should_failover) {
+        return false;
+    }
+    
+    LOG_INFO("GPS source %s failed, attempting failover\n", 
+             settings_.GetSourceString());
+    
+    // Try next source in priority order
+    const GPSSettings::GPSSource priority_order[] = {
+        GPSSettings::kGPSSourceUART,     // Highest priority
+        GPSSettings::kGPSSourceNetwork,  // Second priority
+        GPSSettings::kGPSSourceMAVLink   // Lowest priority
+    };
+    
+    for (auto source : priority_order) {
+        // Skip current failed source
+        if (source == current_source_) {
+            continue;
+        }
+        
+        LOG_INFO("Trying GPS source: %s\n", GPSSettings::kGPSSourceStrs[source]);
+        
+        if (SetSource(source)) {
+            LOG_INFO("Failover successful to %s\n", GPSSettings::kGPSSourceStrs[source]);
+            stats_.failover_count++;
+            
+            // Remember failed source
+            if (current_source_ != GPSSettings::kGPSSourceNone) {
+                backup_source_ = current_source_;
+            }
+            return true;
+        }
+    }
+    
+    LOG_ERROR("All GPS sources failed, no position available\n");
+    current_source_ = GPSSettings::kGPSSourceNone;
     return false;
 }
 
