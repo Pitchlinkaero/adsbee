@@ -520,9 +520,9 @@ size_t NMEAParser::GetDiagnostics(char* buffer, size_t max_len) const {
     
     int written = snprintf(buffer, max_len,
         "NMEA Parser Diagnostics:\n"
-        "  Sentences parsed: %u\n"
-        "  Checksum errors: %u\n"
-        "  Parse errors: %u\n"
+        "  Sentences parsed: %lu\n"
+        "  Checksum errors: %lu\n"
+        "  Parse errors: %lu\n"
         "  Satellites in view: %u\n"
         "  Last fix: %s\n"
         "  Position: %.6f, %.6f @ %.1fm\n"
