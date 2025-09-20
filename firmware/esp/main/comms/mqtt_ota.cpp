@@ -206,7 +206,7 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     // Parse header fields (big-endian from Python)
     uint32_t session_id32 = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
     uint32_t chunk_index = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
-    uint16_t chunk_size = (data[8] << 8) | data[9];
+    uint16_t chunk_size __attribute__((unused)) = (data[8] << 8) | data[9];
     uint32_t crc32 = (data[10] << 24) | (data[11] << 16) | (data[12] << 8) | data[13];
 
     // Validate session and chunk index

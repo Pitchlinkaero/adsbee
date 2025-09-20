@@ -6,6 +6,8 @@
 #include <vector>
 #include <map>
 #include <cstdint>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 // Pass-through OTA - no ESP flash operations needed
 
 // Forward declaration to avoid circular include with mqtt_client.hh
@@ -154,6 +156,7 @@ private:
     // Called by network console to feed responses
     void OnPicoResponse(const char* message, size_t len);
 
+public:
     // Static callback for global access
     static MQTTOTAHandler* active_ota_handler_;
     static void GlobalPicoResponseCallback(const char* message, size_t len);
