@@ -125,7 +125,7 @@ bool SBFParser::ProcessByte(uint8_t byte) {
             current_block_.data.push_back(byte);
             data_index_++;
             
-            if (data_index_ >= (current_block_.header.length - 8)) {
+            if (data_index_ >= static_cast<size_t>(current_block_.header.length - 8)) {
                 parser_state_ = kCheckingCRC;
             }
             break;
@@ -135,7 +135,7 @@ bool SBFParser::ProcessByte(uint8_t byte) {
             current_block_.data.push_back(byte);
             data_index_++;
             
-            if (data_index_ >= (current_block_.header.length - 6)) {
+            if (data_index_ >= static_cast<size_t>(current_block_.header.length - 6)) {
                 // Validate data CRC
                 size_t data_len = current_block_.data.size() - 2;
                 uint16_t calc_crc = CalculateCRC(current_block_.data.data(), data_len);
@@ -192,9 +192,13 @@ bool SBFParser::ProcessBlock(const SBFBlock& block) {
 bool SBFParser::HandlePVTGeodetic(const uint8_t* data, size_t length) {
     if (length < 80) return false;  // Minimum size for PVTGeodetic
     
-    // Extract time of week (ms)
+    // Extract time of week (ms) and GPS week
     uint32_t tow_ms = *reinterpret_cast<const uint32_t*>(&data[0]);
     uint16_t week = *reinterpret_cast<const uint16_t*>(&data[4]);
+    
+    // Set GPS time in Position struct
+    last_position_.gps_time_ms = tow_ms;
+    last_position_.gps_time_week = week;
     
     // Extract position (radians and meters)
     double lat_rad = *reinterpret_cast<const double*>(&data[8]);
@@ -268,8 +272,8 @@ bool SBFParser::HandleReceiverStatus(const uint8_t* data, size_t length) {
     if (length < 16) return false;
     
     // Extract receiver status fields
-    uint8_t cpu_load = data[8];
-    uint8_t ext_error = data[9];
+    // uint8_t cpu_load = data[8];  // For future diagnostics
+    // uint8_t ext_error = data[9];  // For future error reporting
     uint32_t rx_status = *reinterpret_cast<const uint32_t*>(&data[12]);
     
     // Check for RTK/PPP status bits
@@ -289,9 +293,12 @@ bool SBFParser::HandleQualityIndicators(const uint8_t* data, size_t length) {
     vdop_ = *reinterpret_cast<const float*>(&data[20]);
     pdop_ = *reinterpret_cast<const float*>(&data[24]);
     
-    // Update accuracy estimate
-    last_position_.horizontal_accuracy = position_rms_m_;
+    // Update accuracy estimate and DOP values
+    last_position_.accuracy_horizontal_m = position_rms_m_;
     last_position_.accuracy_vertical_m = position_rms_m_ * 1.5;  // Approximate
+    last_position_.hdop = hdop_;
+    last_position_.vdop = vdop_;
+    last_position_.pdop = pdop_;
     
     return true;
 }
@@ -309,6 +316,10 @@ bool SBFParser::HandleBaseVector(const uint8_t* data, size_t length) {
     // Extract carrier phase status
     carrier_phase_status_ = data[48];  // 0=No RTK, 1=Float, 2=Fixed
     
+    // Update RTK fields in Position struct
+    last_position_.rtk_available = (carrier_phase_status_ > 0);
+    last_position_.rtk_baseline_m = baseline_length_m_;
+    
     return true;
 }
 
@@ -319,20 +330,40 @@ bool SBFParser::HandleDOP(const uint8_t* data, size_t length) {
     hdop_ = *reinterpret_cast<const float*>(&data[12]);
     vdop_ = *reinterpret_cast<const float*>(&data[16]);
     
+    // Update Position struct with DOP values
+    last_position_.hdop = hdop_;
+    last_position_.vdop = vdop_;
+    last_position_.pdop = pdop_;
+    
     return true;
 }
 
 void SBFParser::UpdateFixType() {
     if (!last_position_.valid) {
         last_position_.fix_type = FixType::kNoFix;  // No fix
+        last_position_.ppp_status = 0;
     } else if (carrier_phase_status_ == 2) {
         last_position_.fix_type = FixType::kRTKFixed;  // RTK Fixed
+        last_position_.ppp_status = 0;  // RTK, not PPP
     } else if (carrier_phase_status_ == 1) {
         last_position_.fix_type = FixType::kRTKFloat;  // RTK Float
+        last_position_.ppp_status = 0;  // RTK, not PPP
+    } else if (solution_type_ >= 4 && ppp_enabled_) {
+        // PPP solution
+        if (position_rms_m_ < 0.5) {
+            last_position_.fix_type = FixType::kPPPConverged;
+            last_position_.ppp_status = 2;  // Converged
+        } else {
+            last_position_.fix_type = FixType::kPPPConverging;
+            last_position_.ppp_status = 1;  // Converging
+        }
+        last_position_.ppp_service = PPPService::kPPPSBAS;  // Default for Septentrio
     } else if (solution_type_ >= 4) {
-        last_position_.fix_type = FixType::kGNSSDGPS;  // 3D fix with SBAS/PPP
+        last_position_.fix_type = FixType::kGNSSDGPS;  // 3D fix with SBAS (no PPP)
+        last_position_.ppp_status = 0;
     } else {
         last_position_.fix_type = FixType::k3DFix;  // Standard 3D fix
+        last_position_.ppp_status = 0;
     }
 }
 
@@ -357,7 +388,7 @@ bool SBFParser::Configure(const Config& config) {
     }
     
     // Enable PPP if requested
-    if (config.enable_ppp) {
+    if (config.ppp_service != PPPService::kPPPNone) {
         EnablePPPInternal();
     }
     
