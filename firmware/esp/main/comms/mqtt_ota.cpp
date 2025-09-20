@@ -54,8 +54,15 @@ bool MQTTOTAHandler::Initialize(MQTT::MQTTClient* mqtt_client) {
 
 bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
     CONSOLE_INFO("MQTTOTAHandler::HandleManifest",
-                 "Received manifest with session=%s (current state=%d, current session=%s)",
+                 "ENTER - Received manifest with session=%s (current state=%d, current session=%s)",
                  manifest.session_id.c_str(), (int)state_, current_session_id_.c_str());
+
+    // Log the actual state value and what IDLE should be
+    CONSOLE_INFO("MQTTOTAHandler::HandleManifest",
+                 "State check: current=%d, IDLE=%d, equal=%s",
+                 static_cast<int>(state_),
+                 static_cast<int>(OTAState::IDLE),
+                 (state_ == OTAState::IDLE) ? "YES" : "NO");
 
     // If we're in MANIFEST_RECEIVED state with a different session, auto-abort the old one
     if (state_ == OTAState::MANIFEST_RECEIVED &&

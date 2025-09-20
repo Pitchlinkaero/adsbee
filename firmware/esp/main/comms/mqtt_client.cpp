@@ -275,9 +275,10 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
 
-    ESP_LOGI(TAG, "HandleMessage: Received message on topic: %s", topic.c_str());
-    ESP_LOGI(TAG, "HandleMessage: OTA base topic: %s", ota_base.c_str());
-    ESP_LOGI(TAG, "HandleMessage: OTA handler exists: %s", ota_handler_ ? "YES" : "NO");
+    ESP_LOGI(TAG, "HandleMessage: Feed %d received message on topic: %s", feed_index_, topic.c_str());
+    ESP_LOGI(TAG, "HandleMessage: Feed %d OTA base topic: %s", feed_index_, ota_base.c_str());
+    ESP_LOGI(TAG, "HandleMessage: Feed %d OTA handler exists: %s", feed_index_, ota_handler_ ? "YES" : "NO");
+    ESP_LOGI(TAG, "HandleMessage: Feed %d OTA enabled in config: %s", feed_index_, config_.ota_enabled ? "YES" : "NO");
 
     // Check if it's an OTA message
     if (topic.find(ota_base) == 0) {
@@ -354,6 +355,13 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
         // Process manifest
         bool manifest_result = ota_handler_->HandleManifest(manifest);
         ESP_LOGI(TAG, "HandleMessage: HandleManifest returned: %s", manifest_result ? "TRUE" : "FALSE");
+
+        // CRITICAL: Publish status after handling manifest so MQTT Broker sees state change
+        std::string state_topic = ota_base + "/status/state";
+        std::string state_json = ota_handler_->GetStateJSON();
+        ESP_LOGI(TAG, "HandleMessage: Publishing state after manifest: %s", state_json.c_str());
+        esp_mqtt_client_publish(client_, state_topic.c_str(),
+                               state_json.c_str(), state_json.length(), 1, false);
 
         if (manifest_result) {
             // Publish acknowledgment
