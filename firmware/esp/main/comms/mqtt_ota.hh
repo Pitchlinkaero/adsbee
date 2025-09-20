@@ -119,6 +119,7 @@ private:
     // Helper functions
     bool EraseFlashPartition();
     bool WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc);
+    bool WriteChunkToFlashWithTimeout(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc, uint32_t timeout_ms);
     bool CompleteOTAUpdate();
     bool VerifyFlashPartition();
     std::vector<uint32_t> GetMissingChunks() const;

@@ -267,6 +267,14 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
                  "Chunk %" PRIu32 " CRC32: calculated=0x%08" PRIX32 ", expected=0x%08" PRIX32 ", data_len=%zu",
                  index, calculated_crc, crc32, chunk_data_len);
 
+    // Debug: Log first 16 bytes of chunk data for chunk 0
+    if (index == 0) {
+        CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
+                     "Chunk 0 first 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                     chunk_data[0], chunk_data[1], chunk_data[2], chunk_data[3], chunk_data[4], chunk_data[5], chunk_data[6], chunk_data[7],
+                     chunk_data[8], chunk_data[9], chunk_data[10], chunk_data[11], chunk_data[12], chunk_data[13], chunk_data[14], chunk_data[15]);
+    }
+
     if (calculated_crc != crc32) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "CRC32 mismatch for chunk %" PRIu32 ": expected 0x%08" PRIX32 ", got 0x%08" PRIX32,
@@ -328,7 +336,9 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
                  index, flash_offset, bytes_to_write, calculated_crc);
 
     // Write to flash via AT command
-    if (!WriteChunkToFlash(flash_offset, chunk_data, bytes_to_write, calculated_crc)) {
+    // Special handling for chunk 0: needs longer timeout due to flash erase operations
+    uint32_t write_timeout = (index == 0) ? 45000 : 5000;  // 45s for chunk 0, 5s for others
+    if (!WriteChunkToFlashWithTimeout(flash_offset, chunk_data, bytes_to_write, calculated_crc, write_timeout)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "Failed to write chunk %" PRIu32 " to flash at offset 0x%08" PRIX32 "",
                       index, flash_offset);
@@ -666,40 +676,49 @@ bool MQTTOTAHandler::EraseFlashPartition() {
 }
 
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
+    return WriteChunkToFlashWithTimeout(offset, data, len, crc, 5000);  // Default 5s timeout
+}
+
+bool MQTTOTAHandler::WriteChunkToFlashWithTimeout(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc, uint32_t timeout_ms) {
     // Send AT+OTA=WRITE command followed by binary data with handshakes
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "AT+OTA=WRITE,%lX,%lu,%lX\r\n",
              (unsigned long)offset, (unsigned long)len, (unsigned long)crc);
 
+    CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
+                 "Writing chunk at offset 0x%08lX with %lums timeout",
+                 (unsigned long)offset, (unsigned long)timeout_ms);
+
     // Send command
     if (!SendCommandToPico(cmd)) {
-        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
                       "Failed to send WRITE command to Pico");
         return false;
     }
 
     // Wait for READY from Pico
     if (!WaitForPicoResponse("READY", 1000)) {
-        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
                       "Timeout waiting for READY from Pico");
         return false;
     }
 
     // Send binary data after getting READY
     if (!SendDataToPico(data, len)) {
-        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
                       "Failed to send chunk data to Pico");
         return false;
     }
 
-    // Wait for OK after Pico verifies write
-    if (!WaitForPicoResponse("OK", 5000)) {
-        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlash",
-                      "Flash write verification failed - Pico returned ERROR or timeout");
+    // Wait for OK after Pico verifies write (use custom timeout)
+    if (!WaitForPicoResponse("OK", timeout_ms)) {
+        CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
+                      "Flash write verification failed - Pico returned ERROR or timeout after %lums",
+                      (unsigned long)timeout_ms);
         return false;
     }
 
-    CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlash",
+    CONSOLE_INFO("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
                  "Successfully wrote and verified chunk: offset=0x%08lX len=%zu crc=0x%08lX",
                  (unsigned long)offset, len, (unsigned long)crc);
 
@@ -854,7 +873,7 @@ std::string MQTTOTAHandler::CreateProgressJson() const {
 }
 
 uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
-    // CRC32 implementation matching web OTA and Pico's expectation (with final inversion)
+    // CRC32 implementation matching Python publisher (no final inversion to match Pico DMA CRC)
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; i++) {
         crc ^= data[i];
@@ -862,7 +881,9 @@ uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
             crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
         }
     }
-    return crc ^ 0xFFFFFFFF;  // Final XOR to match standard CRC32 (same as web OTA)
+
+    // Return raw CRC without final XOR to match Python publisher and Pico expectations
+    return crc & 0xFFFFFFFF;
 }
 
 bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
