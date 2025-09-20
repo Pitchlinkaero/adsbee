@@ -13,6 +13,8 @@
 #include "sdkconfig.h"
 #include "task_utils.hh"  // For delayed reconnect callbacks.
 
+static const char* TAG = "Ethernet";
+
 /** "Pass-Through" functions used to access member functions in callbacks. **/
 void ethernet_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     comms_manager.EthernetEventHandler(arg, event_base, event_id, event_data);
