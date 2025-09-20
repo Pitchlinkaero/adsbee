@@ -69,7 +69,12 @@ bool MQTTOTAHandler::HandleManifest(const Manifest& manifest) {
 
     if (state_ != OTAState::IDLE) {
         CONSOLE_WARNING("MQTTOTAHandler::HandleManifest",
-                        "Ignoring manifest - OTA already in progress");
+                        "Ignoring manifest - OTA already in progress. Current state: %d (IDLE=%d, MANIFEST_RECEIVED=%d, DOWNLOADING=%d, ERROR=%d)",
+                        static_cast<int>(state_),
+                        static_cast<int>(OTAState::IDLE),
+                        static_cast<int>(OTAState::MANIFEST_RECEIVED),
+                        static_cast<int>(OTAState::DOWNLOADING),
+                        static_cast<int>(OTAState::ERROR));
         return false;
     }
 

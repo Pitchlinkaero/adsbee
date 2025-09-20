@@ -260,6 +260,13 @@ void MQTTClient::HandleConnect() {
 void MQTTClient::HandleDisconnect() {
     connected_ = false;
     stats_.reconnect_count++;
+
+    // Reset OTA state on disconnect to prevent stuck state
+    if (ota_handler_) {
+        ESP_LOGI(TAG, "HandleDisconnect: Aborting OTA due to disconnect");
+        ota_handler_->AbortOTA();
+    }
+
     ScheduleReconnect();
 }
 
@@ -298,7 +305,8 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
     // Handle different OTA messages
     ESP_LOGI(TAG, "HandleMessage: OTA topic suffix: %s", ota_topic.c_str());
     if (ota_topic == "/control/manifest") {
-        ESP_LOGI(TAG, "HandleMessage: Processing OTA manifest");
+        ESP_LOGI(TAG, "HandleMessage: Processing OTA manifest - data_len=%d", event->data_len);
+        ESP_LOGI(TAG, "HandleMessage: Manifest data: %.*s", event->data_len, event->data);
         // Parse JSON manifest
         cJSON* root = cJSON_ParseWithLength(event->data, event->data_len);
         if (!root) {
@@ -340,11 +348,20 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
 
         cJSON_Delete(root);
 
+        ESP_LOGI(TAG, "HandleMessage: Manifest parsed - version=%s, size=%d, chunks=%d, session=%s",
+                 manifest.version.c_str(), manifest.size, manifest.total_chunks, manifest.session_id.c_str());
+
         // Process manifest
-        if (ota_handler_->HandleManifest(manifest)) {
+        bool manifest_result = ota_handler_->HandleManifest(manifest);
+        ESP_LOGI(TAG, "HandleMessage: HandleManifest returned: %s", manifest_result ? "TRUE" : "FALSE");
+
+        if (manifest_result) {
             // Publish acknowledgment
             std::string ack_topic = ota_base + "/status/manifest_ack";
             esp_mqtt_client_publish(client_, ack_topic.c_str(), "1", 1, 1, false);
+            ESP_LOGI(TAG, "HandleMessage: Published manifest ACK");
+        } else {
+            ESP_LOGE(TAG, "HandleMessage: Manifest rejected by handler");
         }
 
     } else if (ota_topic == "/control/command") {
