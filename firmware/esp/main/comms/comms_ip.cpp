@@ -281,14 +281,21 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 telemetry.msgs_tx = feed_mps[i];
 
                 // Get CPU temperature (ESP32-S3 specific)
+                // Use static sensor initialized once to avoid log spam
+                static temperature_sensor_handle_t temp_sensor = NULL;
+                static bool temp_sensor_initialized = false;
                 float temp_celsius = 0.0f;
-                temperature_sensor_handle_t temp_sensor = NULL;
-                temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
-                if (temperature_sensor_install(&temp_sensor_config, &temp_sensor) == ESP_OK) {
-                    temperature_sensor_enable(temp_sensor);
+
+                if (!temp_sensor_initialized) {
+                    temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+                    if (temperature_sensor_install(&temp_sensor_config, &temp_sensor) == ESP_OK) {
+                        temperature_sensor_enable(temp_sensor);
+                        temp_sensor_initialized = true;
+                    }
+                }
+
+                if (temp_sensor_initialized && temp_sensor != NULL) {
                     temperature_sensor_get_celsius(temp_sensor, &temp_celsius);
-                    temperature_sensor_disable(temp_sensor);
-                    temperature_sensor_uninstall(temp_sensor);
                 }
                 telemetry.cpu_temp_c = (int32_t)temp_celsius;
 

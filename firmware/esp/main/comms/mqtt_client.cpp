@@ -271,6 +271,16 @@ void MQTTClient::HandleDisconnect() {
 }
 
 void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
+    // Debug: Check all event fields
+    ESP_LOGI(TAG, "HandleMessage: Event - topic_len=%d, data_len=%d, current_data_offset=%d, total_data_len=%d",
+             event->topic_len, event->data_len, event->current_data_offset, event->total_data_len);
+
+    // Check if this is a fragmented message
+    if (event->total_data_len > 0 && event->current_data_offset > 0) {
+        ESP_LOGW(TAG, "HandleMessage: Fragmented message detected - not handling fragments yet!");
+        return;  // TODO: Need to handle message fragments
+    }
+
     // Extract topic first to check if it's an OTA message
     std::string topic(event->topic, event->topic_len);
     std::string ota_base = GetOTABaseTopic();
