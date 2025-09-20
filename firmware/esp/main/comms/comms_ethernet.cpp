@@ -141,17 +141,33 @@ bool CommsManager::EthernetInit() {
     esp_eth_phy_t* phy = esp_eth_phy_new_w5500(&phy_config);
 
     esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
-    ESP_ERROR_CHECK(esp_eth_driver_install(&eth_config, &ethernet_handle_));
+    esp_err_t err = esp_eth_driver_install(&eth_config, &ethernet_handle_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to install Ethernet driver: %s", esp_err_to_name(err));
+        return false;
+    }
 
     // Set MAC address.
     ObjectDictionary::ESP32DeviceInfo device_info = GetESP32DeviceInfo();
-    ESP_ERROR_CHECK(esp_eth_ioctl(ethernet_handle_, ETH_CMD_S_MAC_ADDR, device_info.ethernet_mac));
+    err = esp_eth_ioctl(ethernet_handle_, ETH_CMD_S_MAC_ADDR, device_info.ethernet_mac);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set MAC address: %s", esp_err_to_name(err));
+        return false;
+    }
 
     // Attach Ethernet driver to TCP/IP stack
-    ESP_ERROR_CHECK(esp_netif_attach(ethernet_netif_, esp_eth_new_netif_glue(ethernet_handle_)));
+    err = esp_netif_attach(ethernet_netif_, esp_eth_new_netif_glue(ethernet_handle_));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to attach Ethernet to netif: %s", esp_err_to_name(err));
+        return false;
+    }
 
     // Start Ethernet driver
-    ESP_ERROR_CHECK(esp_eth_start(ethernet_handle_));
+    err = esp_eth_start(ethernet_handle_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start Ethernet: %s", esp_err_to_name(err));
+        return false;
+    }
 
     return true;
 }
