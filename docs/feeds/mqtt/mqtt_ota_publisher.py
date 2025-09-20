@@ -467,7 +467,9 @@ class ADSBeeOTAPublisher:
                 # Send the chunk
                 if self.publish_chunk(i):
                     # Wait for ACK with more intelligent timeout handling
-                    ack_received = self._wait_for_chunk_ack(i, ACK_TIMEOUT)
+                    # Chunk 0 needs much longer timeout due to flash erase operations
+                    timeout = 50 if i == 0 else ACK_TIMEOUT
+                    ack_received = self._wait_for_chunk_ack(i, timeout)
 
                     if ack_received:
                         # Success!
