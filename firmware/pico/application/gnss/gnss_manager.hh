@@ -133,6 +133,7 @@ public:
         uint32_t position_updates = 0;
         uint32_t parse_errors = 0;
         uint32_t source_switches = 0;
+        uint32_t failover_count = 0;
         uint32_t ppp_convergence_time_s = 0;
         float best_accuracy_m = 999.0f;
         uint32_t uptime_s = 0;
@@ -176,6 +177,7 @@ private:
     // Network handling
     uint8_t network_buffer_[1024];
     size_t network_buffer_pos_ = 0;
+    uint32_t last_network_gps_ms_ = 0;  // Timestamp of last network GPS data
     
     // Rate limiting
     uint8_t update_rate_hz_ = 1;
