@@ -349,8 +349,8 @@ void MQTTClient::HandleMessage(esp_mqtt_event_handle_t event) {
 
         cJSON_Delete(root);
 
-        ESP_LOGI(TAG, "HandleMessage: Manifest parsed - version=%s, size=%d, chunks=%d, session=%s",
-                 manifest.version.c_str(), manifest.size, manifest.total_chunks, manifest.session_id.c_str());
+        ESP_LOGI(TAG, "HandleMessage: Manifest parsed - version=%s, size=%lu, chunks=%lu, session=%s",
+                 manifest.version.c_str(), (unsigned long)manifest.size, (unsigned long)manifest.total_chunks, manifest.session_id.c_str());
 
         // Process manifest
         bool manifest_result = ota_handler_->HandleManifest(manifest);
