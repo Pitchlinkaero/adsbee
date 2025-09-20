@@ -4,6 +4,9 @@
 #ifdef ON_ESP32
 #include "adsbee_server.hh"
 #include "device_info.hh"
+
+// Forward declaration for MQTT OTA response callback
+extern "C" void MQTTOTAHandler_GlobalPicoResponseCallback(const char* message, size_t len);
 #endif
 
 #include "comms.hh"
@@ -107,7 +110,6 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             // message);
 
             // Forward to OTA handler if active (for response parsing)
-            extern "C" void MQTTOTAHandler_GlobalPicoResponseCallback(const char* message, size_t len);
             MQTTOTAHandler_GlobalPicoResponseCallback(message, buf_len);
 
             adsbee_server.network_console.BroadcastMessage(message, buf_len);
