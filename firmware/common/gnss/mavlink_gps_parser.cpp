@@ -398,9 +398,9 @@ size_t MAVLinkGPSParser::GetDiagnostics(char* buffer, size_t max_len) const {
     int written = snprintf(buffer, max_len,
         "MAVLink GPS Parser:\n"
         "  Autopilot: %s (ID %d:%d)\n"
-        "  Messages: %u (GPS: %u)\n"
-        "  Errors: %u\n"
-        "  Last heartbeat: %u ms ago\n"
+        "  Messages: %lu (GPS: %lu)\n"
+        "  Errors: %lu\n"
+        "  Last heartbeat: %llu ms ago\n"
         "  Using: %s\n",
         autopilot_detected_ ? ap_name : "Not detected",
         autopilot_sysid_, autopilot_compid_,

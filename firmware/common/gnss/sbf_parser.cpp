@@ -212,20 +212,20 @@ bool SBFParser::HandlePVTGeodetic(const uint8_t* data, size_t length) {
     nr_sv_ = data[72];         // Number of satellites
     
     // Update position
-    last_position_.latitude = ConvertRadiansToDegrees(lat_rad);
-    last_position_.longitude = ConvertRadiansToDegrees(lon_rad);
-    last_position_.altitude_msl = height_m;
-    last_position_.altitude_hae = height_m;  // Approximate
+    last_position_.latitude_deg = ConvertRadiansToDegrees(lat_rad);
+    last_position_.longitude_deg = ConvertRadiansToDegrees(lon_rad);
+    last_position_.altitude_msl_m = height_m;
+    last_position_.altitude_m = height_m;  // HAE approximately same as MSL for Septentrio
     
     // Calculate ground speed and track
     float speed_ms = sqrt(vn * vn + ve * ve);
-    last_position_.speed_knots = speed_ms * 1.94384;  // m/s to knots
+    last_position_.ground_speed_mps = speed_ms;
     last_position_.track_deg = atan2(ve, vn) * 180.0 / M_PI;
     if (last_position_.track_deg < 0) {
         last_position_.track_deg += 360.0;
     }
     
-    last_position_.vertical_speed_ms = vu;
+    last_position_.vertical_velocity_mps = vu;
     last_position_.satellites_used = nr_sv_;
     
     // Set solution type based on mode
@@ -257,9 +257,9 @@ bool SBFParser::HandlePVTCartesian(const uint8_t* data, size_t length) {
     double lon_rad = atan2(y, x);
     double height = p / cos(lat_rad) - 6378137.0;  // Approximate
     
-    last_position_.latitude = ConvertRadiansToDegrees(lat_rad);
-    last_position_.longitude = ConvertRadiansToDegrees(lon_rad);
-    last_position_.altitude_msl = height;
+    last_position_.latitude_deg = ConvertRadiansToDegrees(lat_rad);
+    last_position_.longitude_deg = ConvertRadiansToDegrees(lon_rad);
+    last_position_.altitude_msl_m = height;
     
     return true;
 }
@@ -291,7 +291,7 @@ bool SBFParser::HandleQualityIndicators(const uint8_t* data, size_t length) {
     
     // Update accuracy estimate
     last_position_.horizontal_accuracy = position_rms_m_;
-    last_position_.vertical_accuracy = position_rms_m_ * 1.5;  // Approximate
+    last_position_.accuracy_vertical_m = position_rms_m_ * 1.5;  // Approximate
     
     return true;
 }
@@ -324,15 +324,15 @@ bool SBFParser::HandleDOP(const uint8_t* data, size_t length) {
 
 void SBFParser::UpdateFixType() {
     if (!last_position_.valid) {
-        last_position_.fix_type = 0;  // No fix
+        last_position_.fix_type = FixType::kNoFix;  // No fix
     } else if (carrier_phase_status_ == 2) {
-        last_position_.fix_type = 4;  // RTK Fixed
+        last_position_.fix_type = FixType::kRTKFixed;  // RTK Fixed
     } else if (carrier_phase_status_ == 1) {
-        last_position_.fix_type = 5;  // RTK Float
+        last_position_.fix_type = FixType::kRTKFloat;  // RTK Float
     } else if (solution_type_ >= 4) {
-        last_position_.fix_type = 3;  // 3D fix with SBAS/PPP
+        last_position_.fix_type = FixType::kGNSSDGPS;  // 3D fix with SBAS/PPP
     } else {
-        last_position_.fix_type = 3;  // Standard 3D fix
+        last_position_.fix_type = FixType::k3DFix;  // Standard 3D fix
     }
 }
 
@@ -397,24 +397,24 @@ bool SBFParser::SendCommand(const char* command) {
     return true;
 }
 
-bool SBFParser::SupportsPPPService(PPPService service) const {
+bool SBFParser::SupportsPPPService(GNSSInterface::PPPService service) const {
     switch (service) {
-        case kPPPSBAS:
+        case PPPService::kPPPSBAS:
             return true;  // All Septentrio receivers support SBAS
-        case kPPPGalileoHAS:
+        case PPPService::kPPPGalileoHAS:
             return detected_model_ >= kModelMosaicX5;  // Newer models only
-        case kPPPAuto:
+        case PPPService::kPPPAuto:
             return true;
         default:
             return false;
     }
 }
 
-PPPService SBFParser::GetPPPStatus(float& convergence_percent, uint32_t& eta_seconds) const {
+GNSSInterface::PPPService SBFParser::GetPPPStatus(float& convergence_percent, uint32_t& eta_seconds) const {
     if (!ppp_enabled_) {
         convergence_percent = 0;
         eta_seconds = 0;
-        return kPPPNone;
+        return PPPService::kPPPNone;
     }
     
     // Estimate convergence based on accuracy
@@ -429,14 +429,14 @@ PPPService SBFParser::GetPPPStatus(float& convergence_percent, uint32_t& eta_sec
         eta_seconds = 1200;  // 20 minutes
     }
     
-    return kPPPSBAS;  // Default to SBAS
+    return PPPService::kPPPSBAS;  // Default to SBAS
 }
 
-bool SBFParser::EnablePPP(PPPService service, const char* key) {
+bool SBFParser::EnablePPP(GNSSInterface::PPPService service, const char* key) {
     switch (service) {
-        case kPPPSBAS:
+        case PPPService::kPPPSBAS:
             return SendCommand("setSBASMode, on\n");
-        case kPPPGalileoHAS:
+        case PPPService::kPPPGalileoHAS:
             if (detected_model_ >= kModelMosaicX5) {
                 return SendCommand("setGalileoHAS, on\n");
             }
