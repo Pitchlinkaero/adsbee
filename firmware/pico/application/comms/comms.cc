@@ -44,6 +44,9 @@ bool CommsManager::InitGNSSUART() {
         return false;
     }
 
+    // Ensure config points to uart0 (should already be set, but be explicit)
+    config_.gnss_uart_handle = uart0;
+    
     console_printf("GNSS UART initialized at %d baud\r\n", settings_manager.settings.gnss_uart_baud_rate);
     return true;
 }
