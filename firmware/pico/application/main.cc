@@ -16,6 +16,7 @@
 #include "spi_coprocessor.hh"
 #include "transponder_packet.hh"
 #include "unit_conversions.hh"
+#include "uart_switch.hh"
 
 // #define DEBUG_DISABLE_ESP32_FLASH  // Uncomment this to stop the RP2040 from flashing the ESP32.
 
@@ -75,17 +76,17 @@ int main() {
                    SPI_MSB_FIRST);
 
     adsbee.Init();
-    comms_manager.Init();
+    comms_manager.Init();  // Note: This does NOT initialize GNSS UART yet
     comms_manager.console_printf("ADSBee 1090\r\nSoftware Version %d.%d.%d\r\n",
                                  object_dictionary.kFirmwareVersionMajor, object_dictionary.kFirmwareVersionMinor,
                                  object_dictionary.kFirmwareVersionPatch);
 
     settings_manager.Load();
     
-    // Initialize GPS manager with current settings
-    if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
-        comms_manager.console_printf("GPS initialized: %s source\r\n", 
-                                    settings_manager.settings.gps_settings.GetSourceString());
+    // Initialize UART0 for ESP32 programming first (before GNSS)
+    comms_manager.console_printf("Initializing UART0 for ESP32 firmware check...\r\n");
+    if (!UARTSwitch::InitForESP32()) {
+        comms_manager.console_printf("Warning: Failed to initialize UART0 for ESP32\r\n");
     }
 
     uint16_t num_status_led_blinks = FirmwareUpdateManager::AmWithinFlashPartition(0) ? 1 : 2;
@@ -149,6 +150,18 @@ int main() {
             adsbee.EnableWatchdog();  // Restore watchdog after flashing.
         }
 #endif
+    }
+
+    // Now that ESP32 firmware check is complete, initialize GNSS UART
+    comms_manager.console_printf("ESP32 firmware check complete, initializing GNSS UART...\r\n");
+    if (!comms_manager.InitGNSSUART()) {
+        comms_manager.console_printf("Warning: Failed to initialize GNSS UART\r\n");
+    }
+    
+    // Initialize GPS manager with current settings
+    if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
+        comms_manager.console_printf("GPS initialized: %s source\r\n", 
+                                    settings_manager.settings.gps_settings.GetSourceString());
     }
 
     multicore_reset_core1();

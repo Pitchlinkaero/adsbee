@@ -5,6 +5,7 @@
 
 #include "pico/stdlib.h"
 #include "spi_coprocessor.hh"
+#include "uart_switch.hh"
 
 CommsManager::CommsManager(CommsManagerConfig config_in)
     : config_(config_in), at_parser_(CppAT(at_command_list, at_command_list_num_commands, true)) {}
@@ -12,15 +13,14 @@ CommsManager::CommsManager(CommsManagerConfig config_in)
 bool CommsManager::Init() {
     InitReporting();
 
+    // Initialize UART1 for general communications (not shared)
     gpio_set_function(config_.comms_uart_tx_pin, GPIO_FUNC_UART);
     gpio_set_function(config_.comms_uart_rx_pin, GPIO_FUNC_UART);
     uart_set_translate_crlf(config_.comms_uart_handle, false);
     uart_init(config_.comms_uart_handle, SettingsManager::Settings::kDefaultCommsUARTBaudrate);
 
-    gpio_set_function(config_.gnss_uart_tx_pin, GPIO_FUNC_UART);
-    gpio_set_function(config_.gnss_uart_rx_pin, GPIO_FUNC_UART);
-    uart_set_translate_crlf(config_.gnss_uart_handle, false);
-    uart_init(config_.gnss_uart_handle, SettingsManager::Settings::kDefaultGNSSUARTBaudrate);
+    // NOTE: GNSS UART0 initialization is deferred to InitGNSSUART()
+    // to allow ESP32 firmware updates first
 
     // Don't mess with ESP32 enable / reset GPIOs here, since they need to be toggled by the programmer. Only initialize
     // them if no programming is required. Don't mess with ESP32 wifi pin until we're ready to try firmware updates.
@@ -28,6 +28,23 @@ bool CommsManager::Init() {
     stdio_init_all();
     stdio_set_translate_crlf(&stdio_usb, false);
 
+    return true;
+}
+
+bool CommsManager::InitGNSSUART() {
+    // Switch UART0 from ESP32 mode to GNSS mode
+    if (UARTSwitch::GetCurrentMode() == UARTSwitch::kModeESP32) {
+        console_printf("Switching UART0 from ESP32 to GNSS mode\r\n");
+        UARTSwitch::Deinit();
+    }
+
+    // Initialize UART0 for GNSS
+    if (!UARTSwitch::InitForGNSS(settings_manager.settings.gnss_uart_baud_rate)) {
+        console_printf("Failed to initialize UART0 for GNSS\r\n");
+        return false;
+    }
+
+    console_printf("GNSS UART initialized at %d baud\r\n", settings_manager.settings.gnss_uart_baud_rate);
     return true;
 }
 

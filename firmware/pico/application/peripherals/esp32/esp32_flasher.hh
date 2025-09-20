@@ -9,6 +9,7 @@
 #include "led_flasher.hh"
 #include "pico/stdlib.h"
 #include "unit_conversions.hh"
+#include "uart_switch.hh"
 
 class ESP32SerialFlasher {
    public:
@@ -16,9 +17,9 @@ class ESP32SerialFlasher {
     static constexpr uint32_t kSerialFlasherBootHoldTimeMs = 50;
 
     struct ESP32SerialFlasherConfig {
-        uart_inst_t *esp32_uart_handle = bsp.esp32_uart_handle;
-        uint16_t esp32_uart_tx_pin = bsp.esp32_uart_tx_pin;
-        uint16_t esp32_uart_rx_pin = bsp.esp32_uart_rx_pin;
+        uart_inst_t *esp32_uart_handle = uart0;  // UART0 is shared with GNSS
+        uint16_t esp32_uart_tx_pin = 0;  // GPIO 0 - shared with GNSS
+        uint16_t esp32_uart_rx_pin = 1;  // GPIO 1 - shared with GNSS
         uint16_t esp32_enable_pin = bsp.esp32_enable_pin;
         uint16_t esp32_gpio0_boot_pin = bsp.esp32_spi_handshake_pin;
         uint32_t esp32_baudrate = 115200;         // Previously 115200
@@ -32,10 +33,9 @@ class ESP32SerialFlasher {
 
     bool DeInit() {
         CONSOLE_INFO("ESP32SerialFlasher::DeInit", "De-Initializing ESP32 firmware upgrade peripherals.");
-        uart_deinit(config_.esp32_uart_handle);
-
-        gpio_deinit(config_.esp32_uart_tx_pin);
-        gpio_deinit(config_.esp32_uart_rx_pin);
+        
+        // Release UART0 so it can be used for GNSS later
+        UARTSwitch::Deinit();
 
         // Re-enable receiver after update if it was previously enabled.
         adsbee.SetReceiver1090Enable(receiver_was_enabled_before_update_);
@@ -44,13 +44,12 @@ class ESP32SerialFlasher {
 
     bool Init() {
         CONSOLE_INFO("ESP32SerialFlasher::Init", "Initializing ESP32 firmware upgrade peripherals.");
-        // Initialize the UART.
-        gpio_set_function(config_.esp32_uart_tx_pin, GPIO_FUNC_UART);
-        gpio_set_function(config_.esp32_uart_rx_pin, GPIO_FUNC_UART);
-        uart_set_translate_crlf(config_.esp32_uart_handle, false);
-        uart_set_fifo_enabled(config_.esp32_uart_handle, true);
-        uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
-        uart_tx_wait_blocking(config_.esp32_uart_handle);  // Wait for the UART tx buffer to drain.
+        
+        // Switch UART0 to ESP32 mode for programming
+        if (!UARTSwitch::InitForESP32(config_.esp32_baudrate)) {
+            CONSOLE_ERROR("ESP32SerialFlasher::Init", "Failed to initialize UART0 for ESP32 programming.");
+            return false;
+        }
 
         // Initialize the enable and boot pins.
         gpio_init(config_.esp32_enable_pin);

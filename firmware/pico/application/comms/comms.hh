@@ -42,6 +42,13 @@ class CommsManager {
     bool Init();
 
     /**
+     * Initialize GNSS UART after ESP32 firmware check is complete.
+     * This is separate from Init() to allow ESP32 firmware updates first.
+     * @retval True if initialization succeeded, false otherwise.
+     */
+    bool InitGNSSUART();
+
+    /**
      * Update the CommsManager. Runs all the update subroutines required for normal operation.
      * @retval True if update succeeded, false otherwise.
      */
