@@ -2,7 +2,7 @@
 #define GPS_SETTINGS_HH_
 
 #include <cstdint>
-#include "gnss_interface.hh"
+#include "../gnss/gnss_interface.hh"
 
 /**
  * GPS/GNSS settings structure to be integrated into main Settings struct.
