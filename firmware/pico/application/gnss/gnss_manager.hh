@@ -201,7 +201,7 @@ private:
     
     // Failover
     uint32_t last_valid_position_ms_ = 0;
-    static constexpr uint32_t kFailoverTimeoutMs = 10000;  // 10 seconds
+    uint32_t failover_timeout_ms_ = 10000;  // Configurable timeout (from settings)
     
     // Statistics
     Statistics stats_;

@@ -525,23 +525,85 @@ CPP_AT_CALLBACK(CommsManager::ATGPSPPPCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+CPP_AT_CALLBACK(CommsManager::ATGPSFailoverCallback) {
+    switch (op) {
+        case '?':
+            {
+                // Query current failover settings
+                CPP_AT_CMD_PRINTF("=%u,%s",
+                    settings_manager.settings.gps_settings.failover_timeout_ms / 1000,
+                    settings_manager.settings.gps_settings.auto_failover_enabled ? "ENABLED" : "DISABLED");
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+            
+        case '=':
+            {
+                // Set failover timeout
+                if (args.size() != 1) {
+                    CPP_AT_ERROR("Invalid number of arguments. Usage: AT+GPS_FAILOVER=<timeout_seconds>");
+                }
+                
+                uint32_t timeout_s = atoi(args[0].c_str());
+                if (timeout_s < 5 || timeout_s > 30) {
+                    CPP_AT_ERROR("Failover timeout must be between 5-30 seconds.");
+                }
+                
+                settings_manager.settings.gps_settings.failover_timeout_ms = timeout_s * 1000;
+                settings_manager.WriteSettings();
+                
+                // Reinitialize GPS with new failover settings
+                gnss_manager.Initialize(settings_manager.settings.gps_settings);
+                
+                CPP_AT_SUCCESS("GPS failover timeout set to %u seconds", timeout_s);
+            }
+            break;
+            
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
 CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
     switch (op) {
         case '?':
             {
                 char diag_buf[256];
                 gnss_manager.GetDiagnostics(diag_buf, sizeof(diag_buf));
+                
+                // Basic status
                 CPP_AT_CMD_PRINTF("=%s,%s,%s",
                     gnss_manager.GetReceiverType(),
                     gnss_manager.IsPositionValid() ? "VALID" : "INVALID",
                     gnss_manager.SupportsHighPrecision() ? "HIGH_PRECISION" : "STANDARD");
+                
+                // Current source and protocol
+                const char* source_str = "UNKNOWN";
+                if (gnss_manager.GetCurrentSource() < GPSSettings::kGPSSourceCount) {
+                    source_str = GPSSettings::kGPSSourceStrs[gnss_manager.GetCurrentSource()];
+                }
+                CPP_AT_CMD_PRINTF("\r\nSource: %s", source_str);
+                
+                // Detailed statistics
+                GNSSManager::Statistics stats = gnss_manager.GetStatistics();
+                CPP_AT_CMD_PRINTF("\r\n--- GPS Statistics ---");
+                CPP_AT_CMD_PRINTF("\r\nMessages Processed: %u", stats.messages_processed);
+                CPP_AT_CMD_PRINTF("\r\nPosition Updates: %u", stats.position_updates);
+                CPP_AT_CMD_PRINTF("\r\nParse Errors: %u", stats.parse_errors);
+                CPP_AT_CMD_PRINTF("\r\nSource Switches: %u", stats.source_switches);
+                CPP_AT_CMD_PRINTF("\r\nFailover Count: %u", stats.failover_count);
+                CPP_AT_CMD_PRINTF("\r\nBest Accuracy: %.1fm", stats.best_accuracy_m);
+                CPP_AT_CMD_PRINTF("\r\nUptime: %us", stats.uptime_s);
+                
+                // PPP status if enabled
+                if (stats.ppp_convergence_time_s > 0) {
+                    CPP_AT_CMD_PRINTF("\r\nPPP Convergence Time: %us", stats.ppp_convergence_time_s);
+                }
+                
+                // Additional diagnostics
+                CPP_AT_CMD_PRINTF("\r\n--- Diagnostics ---");
                 CPP_AT_CMD_PRINTF("\r\n%s", diag_buf);
                 
-                GNSSManager::Statistics stats = gnss_manager.GetStatistics();
-                CPP_AT_CMD_PRINTF("\r\nMessages: %d, Updates: %d, Errors: %d",
-                    stats.messages_processed,
-                    stats.position_updates,
-                    stats.parse_errors);
                 CPP_AT_SILENT_SUCCESS();
             }
             break;
@@ -1252,6 +1314,12 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 0,
      .help_string_buf = "AT+GPS_STATUS?\r\n\tQuery GPS receiver status and diagnostics.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSStatusCallback, comms_manager)},
+    {.command_buf = "+GPS_FAILOVER",
+     .min_args = 0,
+     .max_args = 1,
+     .help_string_buf = "AT+GPS_FAILOVER=<timeout_seconds>\r\n\tSet GPS failover timeout (5-30 seconds).\r\n\t"
+                        "AT+GPS_FAILOVER?\r\n\tQuery current failover settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSFailoverCallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,
