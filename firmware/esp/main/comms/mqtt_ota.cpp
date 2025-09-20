@@ -8,12 +8,18 @@
 #include <cstring>
 #include <sstream>
 #include <cstdlib>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 extern SPICoprocessor pico;
 extern SettingsManager settings_manager;
 
 // Global flag for OTA state - accessible by other modules
 volatile bool g_mqtt_ota_active = false;
+
+// Static member initialization
+MQTTOTAHandler* MQTTOTAHandler::active_ota_handler_ = nullptr;
 
 MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index)
     : device_id_(device_id),
@@ -27,11 +33,20 @@ MQTTOTAHandler::MQTTOTAHandler(const std::string& device_id, uint16_t feed_index
       total_bytes_(0),
       last_chunk_timestamp_ms_(0),
       ota_start_timestamp_ms_(0),
-      timeout_ms_(30000) {}
+      timeout_ms_(30000) {
+    // Create semaphore for response synchronization
+    response_semaphore_ = xSemaphoreCreateBinary();
+    if (!response_semaphore_) {
+        CONSOLE_ERROR("MQTTOTAHandler", "Failed to create response semaphore");
+    }
+}
 
 MQTTOTAHandler::~MQTTOTAHandler() {
     if (state_ != OTAState::IDLE) {
         AbortOTA();
+    }
+    if (response_semaphore_) {
+        vSemaphoreDelete(response_semaphore_);
     }
 }
 
@@ -379,6 +394,9 @@ bool MQTTOTAHandler::StartOTA() {
     // Set global OTA active flag to block console input
     g_mqtt_ota_active = true;
 
+    // Register as active OTA handler to receive Pico responses
+    active_ota_handler_ = this;
+
     // Initialize chunk tracking
     total_chunks_ = manifest_.total_chunks;
     total_bytes_ = manifest_.size;
@@ -417,6 +435,11 @@ bool MQTTOTAHandler::AbortOTA() {
 
     // Clear global OTA active flag
     g_mqtt_ota_active = false;
+
+    // Unregister as active handler
+    if (active_ota_handler_ == this) {
+        active_ota_handler_ = nullptr;
+    }
 
     // Clear session
     current_session_id_.clear();
@@ -516,9 +539,9 @@ bool MQTTOTAHandler::RebootDevice() {
         // Brief delay to allow Pico to consume the command
         vTaskDelay(pdMS_TO_TICKS(100));
 
-        // Reboot ESP32 as well to ensure full system reset
-        CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Rebooting ESP32 now");
-        esp_restart();
+        // Note: Only rebooting Pico, not ESP32. ESP32 stays running to continue OTA process.
+        // This prevents the double-reboot issue where both Pico and ESP32 restart.
+        CONSOLE_INFO("MQTTOTAHandler::RebootDevice", "Pico rebooting, ESP32 staying online for OTA");
     }
 
     return success;
@@ -831,7 +854,7 @@ std::string MQTTOTAHandler::CreateProgressJson() const {
 }
 
 uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
-    // CRC32 implementation matching Pico's hardware CRC (no final inversion)
+    // CRC32 implementation matching web OTA and Pico's expectation (with final inversion)
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; i++) {
         crc ^= data[i];
@@ -839,7 +862,7 @@ uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
             crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
         }
     }
-    return crc;  // No inversion to match Pico's DMA CRC
+    return crc ^ 0xFFFFFFFF;  // Final XOR to match standard CRC32 (same as web OTA)
 }
 
 bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
@@ -903,17 +926,73 @@ continue_outer:
     return true;
 }
 bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_response, uint32_t timeout_ms) {
-    // TODO: Implement proper response parsing from Pico via SPI interface
-    // Current implementation: Assumes success after a delay
-    // Future work needed:
-    // 1. Parse actual AT command responses from Pico
-    // 2. Implement timeout handling
-    // 3. Return false on actual errors/timeouts
-    // For now, we rely on Pico's internal CRC verification
+    // Clear response buffer and flags
+    response_buffer_pos_ = 0;
+    response_received_ = false;
+    memset(response_buffer_, 0, kResponseBufferSize);
 
-    // Add a small delay to allow Pico to process the command
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // Wait for response with timeout
+    TickType_t start_time = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
 
-    // For now, return true to indicate assumed success
-    return true;
+    while ((xTaskGetTickCount() - start_time) < timeout_ticks) {
+        // Check if we have a complete response line
+        if (xSemaphoreTake(response_semaphore_, pdMS_TO_TICKS(10)) == pdTRUE) {
+            // Response received, check if it matches expected
+            if (strstr(response_buffer_, expected_response) != nullptr) {
+                CONSOLE_INFO("MQTTOTAHandler::WaitForPicoResponse",
+                           "Got expected response: %s", expected_response);
+                return true;
+            } else if (strstr(response_buffer_, "ERROR") != nullptr) {
+                CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
+                            "Got ERROR response: %s", response_buffer_);
+                return false;
+            }
+            // Not the expected response, clear and continue waiting
+            response_buffer_pos_ = 0;
+            response_received_ = false;
+        }
+    }
+
+    CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
+                  "Timeout waiting for response '%s' after %lu ms",
+                  expected_response, (unsigned long)timeout_ms);
+    return false;
+}
+
+void MQTTOTAHandler::OnPicoResponse(const char* message, size_t len) {
+    // Called when Pico sends a response via network console
+    // Buffer the message and signal if it's a complete line
+
+    for (size_t i = 0; i < len && response_buffer_pos_ < kResponseBufferSize - 1; i++) {
+        response_buffer_[response_buffer_pos_++] = message[i];
+
+        // Check for line ending (\r\n or \n)
+        if (message[i] == '\n' ||
+            (message[i] == '\r' && i + 1 < len && message[i + 1] == '\n')) {
+            // Complete line received
+            response_buffer_[response_buffer_pos_] = '\0';
+            response_received_ = true;
+
+            // Signal the waiting task
+            xSemaphoreGive(response_semaphore_);
+
+            // Skip \n if we had \r\n
+            if (message[i] == '\r' && i + 1 < len && message[i + 1] == '\n') {
+                i++;
+            }
+        }
+    }
+}
+
+void MQTTOTAHandler::GlobalPicoResponseCallback(const char* message, size_t len) {
+    // Static callback that forwards to active OTA handler if one exists
+    if (active_ota_handler_ != nullptr) {
+        active_ota_handler_->OnPicoResponse(message, len);
+    }
+}
+
+// C-linkage wrapper for calling from object_dictionary.cpp
+extern "C" void MQTTOTAHandler_GlobalPicoResponseCallback(const char* message, size_t len) {
+    MQTTOTAHandler::GlobalPicoResponseCallback(message, len);
 }

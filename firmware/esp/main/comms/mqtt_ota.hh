@@ -143,6 +143,20 @@ private:
     bool SendCommandToPico(const char* cmd);
     bool SendDataToPico(const uint8_t* data, size_t len);
     bool WaitForPicoResponse(const char* expected_response, uint32_t timeout_ms);
+
+    // Response buffer for capturing Pico messages
+    static constexpr size_t kResponseBufferSize = 256;
+    char response_buffer_[kResponseBufferSize];
+    size_t response_buffer_pos_ = 0;
+    SemaphoreHandle_t response_semaphore_ = nullptr;
+    bool response_received_ = false;
+
+    // Called by network console to feed responses
+    void OnPicoResponse(const char* message, size_t len);
+
+    // Static callback for global access
+    static MQTTOTAHandler* active_ota_handler_;
+    static void GlobalPicoResponseCallback(const char* message, size_t len);
 };
 
 #endif // MQTT_OTA_HH

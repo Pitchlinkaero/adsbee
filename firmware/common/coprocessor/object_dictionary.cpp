@@ -105,6 +105,11 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             // Don't print here to avoid print of print doom loop explosion.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Forwarding message to network console: %s",
             // message);
+
+            // Forward to OTA handler if active (for response parsing)
+            extern void MQTTOTAHandler_GlobalPicoResponseCallback(const char* message, size_t len);
+            MQTTOTAHandler_GlobalPicoResponseCallback(message, buf_len);
+
             adsbee_server.network_console.BroadcastMessage(message, buf_len);
             break;
         }

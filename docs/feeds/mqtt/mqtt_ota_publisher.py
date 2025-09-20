@@ -708,6 +708,10 @@ class ADSBeeOTAPublisher:
             self.send_command("REBOOT")
             time.sleep(5)  # Wait for device to start rebooting
 
+            # Reset online status to force waiting for fresh telemetry after reboot
+            self.device_online = False
+            self.last_telemetry_time = 0
+
             print("Waiting for device to come back online (up to 90s)...")
             if not self.wait_for_device_online(timeout=90):  # Give more time after reboot
                 print("Device failed to come back online after reboot")
