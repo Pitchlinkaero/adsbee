@@ -13,6 +13,7 @@ else()
     add_subdirectory(../gnss gnss_build)
     target_sources(application PRIVATE
         eeprom.cc
+        uart_switch.cc
         # si4362/si4362.cc
         cc1312/cc1312.cc
     )
