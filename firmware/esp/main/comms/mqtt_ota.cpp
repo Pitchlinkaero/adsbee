@@ -873,7 +873,7 @@ std::string MQTTOTAHandler::CreateProgressJson() const {
 }
 
 uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
-    // CRC32 implementation matching Python publisher (no final inversion to match Pico DMA CRC)
+    // CRC32 implementation matching web OTA and standard CRC32 (with final inversion)
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; i++) {
         crc ^= data[i];
@@ -882,8 +882,8 @@ uint32_t MQTTOTAHandler::CalculateCRC32(const uint8_t* data, size_t len) {
         }
     }
 
-    // Return raw CRC without final XOR to match Python publisher and Pico expectations
-    return crc & 0xFFFFFFFF;
+    // Return standard CRC32 with final XOR to match web OTA and other ESP32 components
+    return crc ^ 0xFFFFFFFF;
 }
 
 bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {

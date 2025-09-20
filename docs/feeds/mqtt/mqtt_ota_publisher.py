@@ -871,20 +871,20 @@ class ADSBeeOTAPublisher:
         return False
 
     def _crc32(self, data: bytes) -> int:
-        """Calculate CRC32 checksum matching Pico's hardware CRC
+        """Calculate CRC32 checksum matching ESP32's standard CRC32
 
         Args:
             data: Data to checksum
 
         Returns:
-            CRC32 value (no final inversion to match Pico DMA CRC)
+            Standard CRC32 value (with final inversion to match ESP32 web OTA)
         """
         crc = 0xFFFFFFFF
         for byte in data:
             crc ^= byte
             for _ in range(8):
                 crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1))
-        return crc & 0xFFFFFFFF  # No inversion to match Pico
+        return crc ^ 0xFFFFFFFF  # Standard CRC32 with final inversion
 
 
 def main():
