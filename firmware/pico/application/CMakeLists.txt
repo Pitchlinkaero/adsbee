@@ -90,6 +90,7 @@ if (ON_EMBEDDED_DEVICE)
         # ${ADSBEE_MODULES_DIR}/cppAT/settings # No longer need this since it's being overridden.
         ${ADSBEE_MODULES_DIR}/cppAT/src
         .
+        peripherals  # Add peripherals directory for uart_switch.hh
     )
     target_sources(application PRIVATE
         ${ADSBEE_MODULES_DIR}/cppAT/src/cpp_at.cc
