@@ -13,6 +13,7 @@
 #include "driver/temperature_sensor.h"  // For CPU temperature
 #include "esp_app_desc.h"  // For firmware version
 #include "server/adsbee_server.hh"  // For aircraft_dictionary metrics
+#include "object_dictionary.hh"  // For firmware version constants
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
 
@@ -299,9 +300,13 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 telemetry.wifi = wifi_sta_has_ip_;
                 telemetry.mqtt = true;
 
-                // Get firmware version from app descriptor
-                const esp_app_desc_t* app_desc = esp_app_get_description();
-                telemetry.fw_version = app_desc ? app_desc->version : "unknown";
+                // Get firmware version from ObjectDictionary
+                char version_str[16];
+                snprintf(version_str, sizeof(version_str), "%d.%d.%d",
+                        object_dictionary.kFirmwareVersionMajor,
+                        object_dictionary.kFirmwareVersionMinor,
+                        object_dictionary.kFirmwareVersionPatch);
+                telemetry.fw_version = version_str;
 
                 telemetry.mps_total = 0;
                 for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
