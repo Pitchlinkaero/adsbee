@@ -228,7 +228,9 @@ bool CommsManager::ReportGDL90(SettingsManager::SerialInterface iface) {
         ownship_data.participant_address = 0xADBEE0;  // Default ICAO address for ADSBEE
         ownship_data.latitude_deg = gps_pos.latitude_deg;
         ownship_data.longitude_deg = gps_pos.longitude_deg;
-        ownship_data.altitude_ft = gps_pos.altitude_m * 3.28084;  // Convert meters to feet
+        // Use MSL altitude (closer to pressure altitude) if available, otherwise HAE
+        float altitude_m = (gps_pos.altitude_msl_m != 0.0) ? gps_pos.altitude_msl_m : gps_pos.altitude_m;
+        ownship_data.altitude_ft = altitude_m * 3.28084;  // Convert meters to feet
         
         // Set misc indicators based on GPS data
         ownship_data.SetMiscIndicator(
