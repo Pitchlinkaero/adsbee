@@ -75,6 +75,10 @@ struct GPSSettings {
     bool enable_sbas = true;                         // WAAS/EGNOS/MSAS for quick fix
     uint8_t min_satellites = 4;                      // Minimum for position
     
+    // Failover configuration
+    uint32_t failover_timeout_ms = 10000;            // 10 seconds default (configurable 5-30s)
+    bool auto_failover_enabled = true;               // Auto switch sources on failure
+    
     // MAVLink relay settings (for drone integration)
     bool mavlink_relay_enabled = false;              // Relay MAVLink messages
     bool mavlink_inject_adsb = true;                 // Inject ADS-B into MAVLink

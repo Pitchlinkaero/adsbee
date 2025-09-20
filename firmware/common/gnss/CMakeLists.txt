@@ -4,6 +4,7 @@
 add_library(gnss_common STATIC
     nmea_parser.cpp
     ubx_parser.cpp
+    sbf_parser.cpp
     mavlink_gps_parser.cpp
 )
 

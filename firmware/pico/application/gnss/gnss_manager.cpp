@@ -3,6 +3,7 @@
 #include <algorithm>
 #include "mavlink_gps_parser.hh"
 #include "ubx_parser.hh"
+#include "sbf_parser.hh"
 
 #ifdef ON_EMBEDDED_DEVICE
 #include "pico/stdlib.h"
@@ -43,6 +44,13 @@ bool GNSSManager::Initialize(const GPSSettings& settings) {
     
     // Set update rate
     SetUpdateRate(settings.gps_update_rate_hz);
+    
+    // Configure failover timeout
+    if (settings.failover_timeout_ms >= 5000 && settings.failover_timeout_ms <= 30000) {
+        failover_timeout_ms_ = settings.failover_timeout_ms;
+    } else {
+        failover_timeout_ms_ = 10000;  // Default to 10 seconds if out of range
+    }
     
     // Initialize based on configured source
     bool success = false;
@@ -184,9 +192,8 @@ std::unique_ptr<GNSSInterface> GNSSManager::CreateParser(GPSSettings::UARTProtoc
             return std::make_unique<NMEAParser>();
             
         case GPSSettings::kUARTProtoSBF:
-            // TODO: return std::make_unique<SBFParser>();
-            LOG_INFO("SBF parser not yet implemented, using NMEA\n");
-            return std::make_unique<NMEAParser>();
+            LOG_INFO("Using SBF parser for Septentrio receiver\n");
+            return std::make_unique<SBFParser>();
             
         default:
             return std::make_unique<NMEAParser>();
@@ -620,17 +627,17 @@ bool GNSSManager::CheckForFailover() {
     switch (current_source_) {
         case GPSSettings::kGPSSourceUART:
             // UART failed if no valid position for timeout period
-            should_failover = (time_since_valid > kFailoverTimeoutMs);
+            should_failover = (time_since_valid > failover_timeout_ms_);
             break;
             
         case GPSSettings::kGPSSourceNetwork:
             // Network failed if no data received recently
-            should_failover = (now - last_network_gps_ms_ > kFailoverTimeoutMs);
+            should_failover = (now - last_network_gps_ms_ > failover_timeout_ms_);
             break;
             
         case GPSSettings::kGPSSourceMAVLink:
             // MAVLink failed if no messages recently
-            should_failover = (time_since_valid > kFailoverTimeoutMs);
+            should_failover = (time_since_valid > failover_timeout_ms_);
             break;
             
         default:
