@@ -291,12 +291,24 @@ class ADSBeeOTAPublisher:
                 print(f"Firmware file not found: {firmware_path}")
                 return False
 
-            self.firmware_data = firmware_path.read_bytes()
+            # Read the entire .ota file
+            full_data = firmware_path.read_bytes()
+
+            # Skip the 20-byte OTA header to match web OTA behavior
+            # The header will be written by AT+OTA=COMPLETE command
+            HEADER_SIZE = 20  # 5 * 4 bytes
+            if len(full_data) < HEADER_SIZE:
+                print(f"Firmware file too small: {len(full_data)} bytes")
+                return False
+
+            # Extract just the application data (skip header)
+            self.firmware_data = full_data[HEADER_SIZE:]
             self.firmware_size = len(self.firmware_data)
             self.total_chunks = (self.firmware_size + self.chunk_size - 1) // self.chunk_size
 
             print(f"Loaded firmware: {firmware_path.name}")
-            print(f"  Size: {self.firmware_size:,} bytes")
+            print(f"  Full file size: {len(full_data):,} bytes")
+            print(f"  Application size: {self.firmware_size:,} bytes (skipped 20-byte header)")
             print(f"  Chunks: {self.total_chunks} x {self.chunk_size} bytes")
 
             return True
