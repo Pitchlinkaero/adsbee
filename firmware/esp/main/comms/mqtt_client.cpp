@@ -1249,4 +1249,23 @@ size_t MQTTClient::SerializeGPSBinaryToBuffer(const GPS& gps, uint8_t* buf, size
     return pos;
 }
 
+bool MQTTClient::Publish(const std::string& topic, const std::string& payload, int qos, bool retain) {
+    if (!IsConnected()) {
+        return false;
+    }
+
+    int msg_id = esp_mqtt_client_publish(client_, topic.c_str(),
+                                         payload.c_str(), payload.length(),
+                                         qos, retain);
+
+    if (msg_id < 0) {
+        stats_.messages_dropped++;
+        return false;
+    }
+
+    stats_.messages_published++;
+    stats_.bytes_sent += payload.length();
+    return true;
+}
+
 }  // namespace MQTT

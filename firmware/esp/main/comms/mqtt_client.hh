@@ -122,6 +122,9 @@ public:
     };
     Stats GetStats() const { return stats_; }
 
+    // Generic publish method for OTA handler to use
+    bool Publish(const std::string& topic, const std::string& payload, int qos = 1, bool retain = false);
+
 private:
     // ESP-IDF MQTT event handler
     static void MQTTEventHandler(void* handler_args, esp_event_base_t base,

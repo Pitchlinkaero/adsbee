@@ -593,7 +593,8 @@ void MQTTOTAHandler::PublishProgress() {
     std::string progress_json = CreateProgressJson();
     std::string topic = GetProgressTopic();
 
-    // See note above regarding publishing abstraction.
+    // Publish the progress update
+    mqtt_client_->Publish(topic, progress_json, 1, false);
 }
 
 void MQTTOTAHandler::PublishAck(uint32_t chunk_index, bool success) {
@@ -604,7 +605,8 @@ void MQTTOTAHandler::PublishAck(uint32_t chunk_index, bool success) {
     std::string ack = success ? "1" : "0";
     std::string topic = GetAckTopic(chunk_index);
 
-    // See note above regarding publishing abstraction.
+    // Publish the chunk acknowledgment
+    mqtt_client_->Publish(topic, ack, 1, false);
 }
 
 float MQTTOTAHandler::GetProgress() const {
