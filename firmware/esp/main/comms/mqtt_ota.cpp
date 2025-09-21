@@ -8,6 +8,7 @@
 #include <cstring>
 #include <sstream>
 #include <cstdlib>
+#include <vector>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -299,17 +300,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
     // All chunks are written sequentially starting at APP_OFFSET
     uint32_t flash_offset = APP_OFFSET + (index * manifest_.chunk_size);
 
-    // For the last chunk, only write the actual data bytes, not padding
+    // MATCH WEB OTA EXACTLY - send exact chunk size, no padding
     size_t bytes_to_write = chunk_data_len;
-    if (is_last_chunk && chunk_data_len > expected_chunk_size) {
-        // Chunk is padded, only write the actual firmware bytes
-        bytes_to_write = expected_chunk_size;
-        // Recalculate CRC on the exact bytes we will write so Pico's verify matches
-        calculated_crc = CalculateCRC32(chunk_data, bytes_to_write);
-        CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
-                     "Last chunk: writing %zu bytes (ignoring %zu bytes of padding)",
-                     bytes_to_write, chunk_data_len - bytes_to_write);
-    }
 
     // Log write operation details
     CONSOLE_INFO("MQTTOTAHandler::HandleChunk",

@@ -527,7 +527,7 @@ class ADSBeeOTAPublisher:
                                   f"Current: {current_rate:.1f} chunks/s, ETA: {eta:.1f}s")
 
                         # Add delay between chunks to avoid network buffer overflow
-                        time.sleep(0.1)  # 100ms delay between chunks to prevent buffer issues
+                        time.sleep(0.200)  # 200ms delay between chunks to prevent buffer issues
 
                         break
 
