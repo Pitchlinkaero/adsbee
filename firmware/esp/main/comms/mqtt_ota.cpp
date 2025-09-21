@@ -380,6 +380,43 @@ bool MQTTOTAHandler::StartOTA() {
     // Register as active OTA handler to receive Pico responses
     active_ota_handler_ = this;
 
+    // MATCH WEB OTA: Query which partition to use
+    CONSOLE_INFO("MQTTOTAHandler::StartOTA", "Querying target partition...");
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+OTA=GET_PARTITION\r\n");
+
+    if (!SendCommandToPico(cmd)) {
+        CONSOLE_ERROR("MQTTOTAHandler::StartOTA", "Failed to query partition");
+        state_ = OTAState::ERROR;
+        PublishStatus();
+        return false;
+    }
+
+    // Wait for partition response
+    if (!WaitForPicoResponse("Partition:", 5000)) {
+        CONSOLE_ERROR("MQTTOTAHandler::StartOTA", "Failed to get partition info");
+        state_ = OTAState::ERROR;
+        PublishStatus();
+        return false;
+    }
+
+    // Parse partition number from response
+    // Response format: "Partition: 1"
+    if (response_buffer_pos_ > 0) {
+        char* partition_str = strstr(response_buffer_, "Partition:");
+        if (partition_str) {
+            target_partition_ = atoi(partition_str + 10);
+            CONSOLE_INFO("MQTTOTAHandler::StartOTA", "Using partition %d", target_partition_);
+        }
+    }
+
+    if (target_partition_ < 0) {
+        CONSOLE_ERROR("MQTTOTAHandler::StartOTA", "Invalid partition number");
+        state_ = OTAState::ERROR;
+        PublishStatus();
+        return false;
+    }
+
     // Initialize chunk tracking
     total_chunks_ = manifest_.total_chunks;
     total_bytes_ = manifest_.size;
@@ -433,6 +470,7 @@ bool MQTTOTAHandler::AbortOTA() {
     total_chunks_ = 0;
     bytes_received_ = 0;
     total_bytes_ = 0;
+    target_partition_ = -1;  // Reset partition
 
     // Note: There's no AT+OTA=ABORT command implemented on Pico
     // The OTA state is managed by ESP32, Pico just handles flash operations
@@ -730,17 +768,27 @@ bool MQTTOTAHandler::CompleteOTAUpdate() {
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "AT+OTA=COMPLETE,%lu\r\n", (unsigned long)app_size);
 
-    bool success = SendCommandToPico(cmd);
-
-    if (success) {
-        CONSOLE_INFO("MQTTOTAHandler::CompleteOTAUpdate",
-                     "Sent OTA COMPLETE command to Pico for %lu bytes (app only)", (unsigned long)app_size);
-    } else {
+    if (!SendCommandToPico(cmd)) {
         CONSOLE_ERROR("MQTTOTAHandler::CompleteOTAUpdate",
                       "Failed to send COMPLETE command to Pico");
+        return false;
     }
 
-    return success;
+    CONSOLE_INFO("MQTTOTAHandler::CompleteOTAUpdate",
+                 "Sent OTA COMPLETE command to Pico for %lu bytes (app only)", (unsigned long)app_size);
+
+    // MATCH WEB OTA: Wait for OK response after completion
+    // The Pico will calculate CRC, write header, and auto-verify
+    if (!WaitForPicoResponse("OK", 10000)) {  // 10s timeout for completion
+        CONSOLE_ERROR("MQTTOTAHandler::CompleteOTAUpdate",
+                      "Timeout waiting for OK after COMPLETE");
+        return false;
+    }
+
+    CONSOLE_INFO("MQTTOTAHandler::CompleteOTAUpdate",
+                 "OTA completion successful");
+
+    return true;
 }
 
 bool MQTTOTAHandler::VerifyFlashPartition() {
@@ -748,17 +796,26 @@ bool MQTTOTAHandler::VerifyFlashPartition() {
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "AT+OTA=VERIFY\r\n");
 
-    bool success = SendCommandToPico(cmd);
-
-    if (success) {
-        CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
-                     "Sent OTA VERIFY command to Pico");
-    } else {
+    if (!SendCommandToPico(cmd)) {
         CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
                       "Failed to send VERIFY command to Pico");
+        return false;
     }
 
-    return success;
+    CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
+                 "Sent OTA VERIFY command to Pico");
+
+    // MATCH WEB OTA: Wait for OK response after verification
+    if (!WaitForPicoResponse("OK", 10000)) {  // 10s timeout for verification
+        CONSOLE_ERROR("MQTTOTAHandler::VerifyFlashPartition",
+                      "Verification failed or timeout");
+        return false;
+    }
+
+    CONSOLE_INFO("MQTTOTAHandler::VerifyFlashPartition",
+                 "Verification successful");
+
+    return true;
 }
 
 void MQTTOTAHandler::RequestMissingChunks() {

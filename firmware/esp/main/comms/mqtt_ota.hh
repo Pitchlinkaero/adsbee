@@ -98,6 +98,7 @@ private:
     Manifest manifest_;
     std::string current_session_id_;
     uint32_t expected_session_id32_ = 0;  // First 4 bytes of session (hex) from manifest
+    int target_partition_ = -1;  // Which partition to write to (0 or 1, -1 = unknown)
 
     // Chunk management
     std::vector<bool> received_chunks_;
