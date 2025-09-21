@@ -678,9 +678,9 @@ bool MQTTOTAHandler::WriteChunkToFlashWithTimeout(uint32_t offset, const uint8_t
     }
 
     // Wait for READY from Pico
-    // For chunk 0, the erase operation can take up to 40 seconds
-    // Use a longer timeout for the READY response based on the write timeout
-    uint32_t ready_timeout = (timeout_ms > 10000) ? timeout_ms - 5000 : 1000;  // Leave 5s for data transfer
+    // The Pico needs time to prepare for writing, even after bulk erase
+    // Use a reasonable timeout that leaves time for data transfer and verification
+    uint32_t ready_timeout = 5000;  // 5 seconds should be enough for any flash preparation
     if (!WaitForPicoResponse("READY", ready_timeout)) {
         CONSOLE_ERROR("MQTTOTAHandler::WriteChunkToFlashWithTimeout",
                       "Timeout waiting for READY from Pico after %lums",
