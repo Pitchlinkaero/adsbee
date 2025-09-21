@@ -527,7 +527,7 @@ class ADSBeeOTAPublisher:
                                   f"Current: {current_rate:.1f} chunks/s, ETA: {eta:.1f}s")
 
                         # Add delay between chunks to avoid network buffer overflow
-                        time.sleep(0.25)  # 250ms delay between chunks to prevent buffer issues
+                        time.sleep(0.1)  # 100ms delay between chunks to prevent buffer issues
 
                         break
 
@@ -747,9 +747,19 @@ class ADSBeeOTAPublisher:
         # Send START command
         self.send_command("START")
 
-        # Wait for device to enter DOWNLOADING state
-        print("Waiting for device to start download...")
-        timeout = 30
+        # The ESP32 will send AT+OTA=ERASE to Pico and wait for completion
+        # Flash erase takes approximately 36 seconds on RP2040
+        print("Waiting for flash erase to complete (this takes ~36 seconds)...")
+        print("  The device will transition to DOWNLOADING after erase completes")
+
+        # Wait for erase to complete
+        time.sleep(40)  # 36s erase + buffer
+
+        # Now check if device is in DOWNLOADING state
+        print("Checking device state after erase...")
+
+        # Give a bit more time for state transition
+        timeout = 10
         while self.ota_state != "DOWNLOADING" and timeout > 0:
             time.sleep(1)
             timeout -= 1
