@@ -530,9 +530,13 @@ class ADSBeeOTAPublisher:
                         print(f"  ⚠️  Chunk {i} was rejected by device (attempt {retry + 1}/{MAX_RETRIES})")
                         # Don't increment consecutive_failures here - it's just a retry
 
-                        # Much shorter backoff to stay within device's 30s timeout
-                        # Max total retry time should be < 25s to be safe
-                        backoff_time = min(1.0 + retry * 0.5, 3.0)  # 1s, 1.5s, 2s, 2.5s, 3s max
+                        # Chunk 0 needs much longer backoff due to flash erase operations
+                        if i == 0:
+                            # For chunk 0: wait 50s between retries (device needs time for flash operations)
+                            backoff_time = 50.0
+                        else:
+                            # For other chunks: shorter backoff to stay within device's 30s timeout
+                            backoff_time = min(1.0 + retry * 0.5, 3.0)  # 1s, 1.5s, 2s, 2.5s, 3s max
                         print(f"  Waiting {backoff_time:.1f}s before retry...")
                         time.sleep(backoff_time)
 
@@ -550,15 +554,24 @@ class ADSBeeOTAPublisher:
                                 self.send_command("ABORT")
                                 return False
 
-                        # Short backoff to prevent device timeout
-                        backoff_time = min(1.0 + retry * 0.5, 3.0)  # Same as failed chunks
+                        # Chunk 0 needs much longer backoff due to flash erase operations
+                        if i == 0:
+                            # For chunk 0: wait 50s between retries (device needs time for flash operations)
+                            backoff_time = 50.0
+                        else:
+                            # For other chunks: shorter backoff to prevent device timeout
+                            backoff_time = min(1.0 + retry * 0.5, 3.0)  # Same as failed chunks
                         print(f"  Waiting {backoff_time}s before retry...")
                         time.sleep(backoff_time)
 
                 else:
                     print(f"❌ Failed to publish chunk {i} (attempt {retry + 1}/{MAX_RETRIES})")
                     # Don't increment consecutive_failures here - publishing can be retried
-                    backoff_time = min(1.0 + retry * 0.5, 3.0)  # Keep all retries short
+                    # Chunk 0 needs much longer backoff due to flash erase operations
+                    if i == 0:
+                        backoff_time = 50.0  # For chunk 0: wait 50s between retries
+                    else:
+                        backoff_time = min(1.0 + retry * 0.5, 3.0)  # Keep other retries short
                     print(f"  Waiting {backoff_time}s before retry...")
                     time.sleep(backoff_time)
 

@@ -315,6 +315,10 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
         chunk_data_len -= OTA_HEADER_SIZE;
         bytes_to_write = chunk_data_len;  // Update bytes to write
         flash_offset = APP_OFFSET;
+        // Recalculate CRC on the data we're actually sending (without the header)
+        calculated_crc = CalculateCRC32(chunk_data, bytes_to_write);
+        CONSOLE_INFO("MQTTOTAHandler::HandleChunk",
+                     "Chunk 0: recalculated CRC after removing header: 0x%08" PRIX32 "", calculated_crc);
     } else {
         // Subsequent chunks: calculate offset based on chunk index
         // Each chunk after the first is written sequentially after the previous
