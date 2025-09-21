@@ -317,8 +317,8 @@ bool MQTTOTAHandler::HandleChunk(uint32_t index, const uint8_t* data, size_t len
                  index, flash_offset, bytes_to_write, calculated_crc);
 
     // Write to flash via AT command
-    // Special handling for chunk 0: needs longer timeout due to flash erase operations
-    uint32_t write_timeout = (index == 0) ? 45000 : 5000;  // 45s for chunk 0, 5s for others
+    // All chunks use standard timeout since erase happens separately
+    uint32_t write_timeout = 5000;  // 5s timeout for all chunks
     if (!WriteChunkToFlashWithTimeout(flash_offset, chunk_data, bytes_to_write, calculated_crc, write_timeout)) {
         CONSOLE_ERROR("MQTTOTAHandler::HandleChunk",
                       "Failed to write chunk %" PRIu32 " to flash at offset 0x%08" PRIX32 "",
@@ -638,22 +638,40 @@ std::string MQTTOTAHandler::GetChunkTopic(uint32_t index) const {
 // TODO: Implement these functions
 bool MQTTOTAHandler::EraseFlashPartition() {
     // Send AT+OTA=ERASE command to Pico via network console
+    // This command triggers the full flash erase on the Pico
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "AT+OTA=ERASE\r\n");
 
     // Send command through network console queue
-    bool success = SendCommandToPico(cmd);
-
-    if (success) {
-        CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
-                     "Sent OTA ERASE command to Pico for %" PRIu32 " bytes",
-                     manifest_.size);
-    } else {
+    if (!SendCommandToPico(cmd)) {
         CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
                       "Failed to send ERASE command to Pico");
+        return false;
     }
 
-    return success;
+    CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
+                 "Sent OTA ERASE command to Pico for %" PRIu32 " bytes",
+                 manifest_.size);
+
+    // Wait for OK response from Pico after erase completes
+    // Flash erase for ~5MB takes approximately 36 seconds on RP2040
+    uint32_t erase_timeout = 45000;  // 45 seconds timeout for erase operation
+
+    CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
+                 "Waiting for flash erase to complete (up to %lu seconds)...",
+                 (unsigned long)(erase_timeout / 1000));
+
+    if (!WaitForPicoResponse("OK", erase_timeout)) {
+        CONSOLE_ERROR("MQTTOTAHandler::EraseFlashPartition",
+                      "Timeout waiting for OK after erase (waited %lu ms)",
+                      (unsigned long)erase_timeout);
+        return false;
+    }
+
+    CONSOLE_INFO("MQTTOTAHandler::EraseFlashPartition",
+                 "Flash erase completed successfully, ready for chunks");
+
+    return true;
 }
 
 bool MQTTOTAHandler::WriteChunkToFlash(uint32_t offset, const uint8_t* data, size_t len, uint32_t crc) {
