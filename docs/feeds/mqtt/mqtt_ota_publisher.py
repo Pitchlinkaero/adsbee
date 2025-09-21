@@ -458,7 +458,7 @@ class ADSBeeOTAPublisher:
         # Configuration
         # Device needs significant time to process chunks, especially early ones
         # The device is still erasing flash and processing even after we timeout
-        MAX_RETRIES = 5  # Fewer retries but longer timeouts
+        MAX_RETRIES = 10  # More retries to catch the erase completion window
         ACK_TIMEOUT = 15  # Much longer timeout - device needs time to process
         MAX_CONSECUTIVE_FAILURES = 5  # Reduce since we have longer timeouts
         consecutive_failures = 0
@@ -478,9 +478,17 @@ class ADSBeeOTAPublisher:
 
                 # Send the chunk
                 if self.publish_chunk(i):
-                    # Wait for ACK with more intelligent timeout handling
-                    # Chunk 0 needs much longer timeout due to flash erase operations
-                    timeout = 50 if i == 0 else ACK_TIMEOUT
+                    # Wait for ACK with timeout that accounts for Pico's 5-second data window
+                    # Chunk 0 triggers flash erase which takes ~35-40 seconds
+                    if i == 0 and retry == 0:
+                        print("  ⏳ Chunk 0 triggers flash erase (all sectors)")
+                        print("  This will take approximately 35-40 seconds...")
+                        print("  Will retry every 3 seconds to catch the 5-second response window")
+                        timeout = 4  # Short timeout, we'll retry frequently
+                    elif i == 0:
+                        timeout = 4  # Keep trying with short timeout to catch the window
+                    else:
+                        timeout = ACK_TIMEOUT
                     ack_received = self._wait_for_chunk_ack(i, timeout)
 
                     if ack_received:
@@ -509,7 +517,7 @@ class ADSBeeOTAPublisher:
                             remaining_chunks = self.total_chunks - i - 1
                             if i == 0:
                                 # First chunk: estimate based on expected speeds
-                                eta = 40 + (remaining_chunks * 0.1)  # 40s erase + 100ms per chunk
+                                eta = 40 + (remaining_chunks * 0.25)  # 40s erase + 250ms per chunk
                             elif i < 10:
                                 # Early chunks: still in erase phase potentially
                                 eta = remaining_chunks * 2  # Conservative estimate
@@ -522,30 +530,32 @@ class ADSBeeOTAPublisher:
                                   f"Current: {current_rate:.1f} chunks/s, ETA: {eta:.1f}s")
 
                         # Delay strategy based on observed behavior:
-                        # - First chunk triggers erase of all 160 sectors (~45 seconds)
-                        # - After erase completes, writes are very fast (100ms delay sufficient)
+                        # - First chunk triggers erase of all 160 sectors (happens during write)
+                        # - After chunk 0 succeeds, erase is complete and we can continue
 
                         if i == 0:
-                            print("    Note: First chunk triggers erase of all 160 sectors (~35s)")
-                            print("    After erase completes, chunks can be written with 100ms delays")
-                            # First chunk needs time for full erase
-                            print("    Waiting 40s for device to erase all sectors...")
-                            time.sleep(40.0)
+                            print("    ✓ Chunk 0 succeeded - flash erase is complete")
+                            print("    Continuing with remaining chunks at 250ms intervals...")
+                            # No extra wait needed - erase happened during chunk 0 write
+                            time.sleep(0.25)  # Standard delay before next chunk
                         else:
-                            # After initial bulk erase, chunks can be written very quickly
-                            time.sleep(0.1)  # 100ms delay between chunks
+                            # After initial bulk erase, add delay to avoid network buffer overflow
+                            time.sleep(0.25)  # 250ms delay between chunks to prevent buffer issues
 
                         break
 
                     elif i in self.failed_chunks:
                         # Device explicitly rejected the chunk
-                        print(f"  ⚠️  Chunk {i} was rejected by device (attempt {retry + 1}/{MAX_RETRIES})")
+                        print(f"  ⚠️  Chunk {i} was rejected by device (attempt {retry + 1}/10)")
                         # Don't increment consecutive_failures here - it's just a retry
 
-                        # Chunk 0 needs much longer backoff due to flash erase operations
+                        # Chunk 0 needs careful timing due to Pico's 5001ms timeout
                         if i == 0:
-                            # For chunk 0: wait 50s between retries (device needs time for flash operations)
-                            backoff_time = 50.0
+                            # For chunk 0: must retry within 5 seconds to catch Pico's response window
+                            # After erase starts, Pico will be ready ~35-40s later
+                            # We need to poll frequently enough to catch the 5-second window
+                            # Try: 3s, 3s, 3s, 3s, 3s (keeps us under 5s timeout)
+                            backoff_time = 3.0  # Fixed 3-second retry to stay within Pico's timeout
                         else:
                             # For other chunks: shorter backoff to stay within device's 30s timeout
                             backoff_time = min(1.0 + retry * 0.5, 3.0)  # 1s, 1.5s, 2s, 2.5s, 3s max
@@ -566,10 +576,13 @@ class ADSBeeOTAPublisher:
                                 self.send_command("ABORT")
                                 return False
 
-                        # Chunk 0 needs much longer backoff due to flash erase operations
+                        # Chunk 0 needs careful timing due to Pico's 5001ms timeout
                         if i == 0:
-                            # For chunk 0: wait 50s between retries (device needs time for flash operations)
-                            backoff_time = 50.0
+                            # For chunk 0: must retry within 5 seconds to catch Pico's response window
+                            # After erase starts, Pico will be ready ~35-40s later
+                            # We need to poll frequently enough to catch the 5-second window
+                            # Try: 3s, 3s, 3s, 3s, 3s (keeps us under 5s timeout)
+                            backoff_time = 3.0  # Fixed 3-second retry to stay within Pico's timeout
                         else:
                             # For other chunks: shorter backoff to prevent device timeout
                             backoff_time = min(1.0 + retry * 0.5, 3.0)  # Same as failed chunks
@@ -577,11 +590,12 @@ class ADSBeeOTAPublisher:
                         time.sleep(backoff_time)
 
                 else:
-                    print(f"❌ Failed to publish chunk {i} (attempt {retry + 1}/{MAX_RETRIES})")
+                    print(f"❌ Failed to publish chunk {i} (attempt {retry + 1}/10)")
                     # Don't increment consecutive_failures here - publishing can be retried
-                    # Chunk 0 needs much longer backoff due to flash erase operations
+                    # Chunk 0 needs careful timing due to Pico's 5001ms timeout
                     if i == 0:
-                        backoff_time = 50.0  # For chunk 0: wait 50s between retries
+                        # Must retry within 5 seconds to catch Pico's response window
+                        backoff_time = 3.0  # Fixed 3-second retry to stay within Pico's timeout
                     else:
                         backoff_time = min(1.0 + retry * 0.5, 3.0)  # Keep other retries short
                     print(f"  Waiting {backoff_time}s before retry...")
