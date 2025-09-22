@@ -13,6 +13,8 @@
 #include "sdkconfig.h"
 #include "task_utils.hh"  // For delayed reconnect callbacks.
 
+static const char* TAG = "Ethernet";
+
 /** "Pass-Through" functions used to access member functions in callbacks. **/
 void ethernet_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     comms_manager.EthernetEventHandler(arg, event_base, event_id, event_data);
@@ -102,21 +104,19 @@ bool CommsManager::EthernetInit() {
     };
 
     // W5500 SPI device configuration.
-    spi_device_interface_config_t spi_devcfg = {
-
-        // .command_bits = 16,  // Actually it's the address phase in W5500 SPI frame
-        // .address_bits = 8,   // Actually it's the control phase in W5500 SPI frame
-        // .dummy_bits = 0,
-        .mode = 0,
-        // .clock_source = SPI_CLK_SRC_DEFAULT,
-        .clock_speed_hz = config_.aux_spi_clk_rate_hz,
-        // .input_delay_ns = 0,
-        .spics_io_num = config_.aux_spi_cs_pin,
-        // .flags = 0,
-        .queue_size = 20,
-        // .pre_cb = nullptr,
-        // .post_cb = nullptr,
-    };
+    spi_device_interface_config_t spi_devcfg = {};
+    // .command_bits = 16,  // Actually it's the address phase in W5500 SPI frame
+    // .address_bits = 8,   // Actually it's the control phase in W5500 SPI frame
+    // .dummy_bits = 0,
+    spi_devcfg.mode = 0;
+    // .clock_source = SPI_CLK_SRC_DEFAULT,
+    spi_devcfg.clock_speed_hz = config_.aux_spi_clk_rate_hz;
+    // .input_delay_ns = 0,
+    spi_devcfg.spics_io_num = config_.aux_spi_cs_pin;
+    // .flags = 0,
+    spi_devcfg.queue_size = 20;
+    // .pre_cb = nullptr,
+    // .post_cb = nullptr,
 
     eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(config_.aux_spi_handle, &spi_devcfg);
     w5500_config.int_gpio_num = config_.aux_io_c_pin;
@@ -143,17 +143,33 @@ bool CommsManager::EthernetInit() {
     esp_eth_phy_t* phy = esp_eth_phy_new_w5500(&phy_config);
 
     esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
-    ESP_ERROR_CHECK(esp_eth_driver_install(&eth_config, &ethernet_handle_));
+    esp_err_t err = esp_eth_driver_install(&eth_config, &ethernet_handle_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to install Ethernet driver: %s", esp_err_to_name(err));
+        return false;
+    }
 
     // Set MAC address.
     ObjectDictionary::ESP32DeviceInfo device_info = GetESP32DeviceInfo();
-    ESP_ERROR_CHECK(esp_eth_ioctl(ethernet_handle_, ETH_CMD_S_MAC_ADDR, device_info.ethernet_mac));
+    err = esp_eth_ioctl(ethernet_handle_, ETH_CMD_S_MAC_ADDR, device_info.ethernet_mac);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set MAC address: %s", esp_err_to_name(err));
+        return false;
+    }
 
     // Attach Ethernet driver to TCP/IP stack
-    ESP_ERROR_CHECK(esp_netif_attach(ethernet_netif_, esp_eth_new_netif_glue(ethernet_handle_)));
+    err = esp_netif_attach(ethernet_netif_, esp_eth_new_netif_glue(ethernet_handle_));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to attach Ethernet to netif: %s", esp_err_to_name(err));
+        return false;
+    }
 
     // Start Ethernet driver
-    ESP_ERROR_CHECK(esp_eth_start(ethernet_handle_));
+    err = esp_eth_start(ethernet_handle_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start Ethernet: %s", esp_err_to_name(err));
+        return false;
+    }
 
     return true;
 }

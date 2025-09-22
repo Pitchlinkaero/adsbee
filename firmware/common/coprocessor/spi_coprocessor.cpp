@@ -274,13 +274,15 @@ bool SPICoprocessor::ExecuteSCCommandRequest(const ObjectDictionary::SCCommandRe
                         return false;
                     }
                     // Write settings data to coprocessor.
+                    uint16_t len_to_send = request.len;
                     if (request.len != sizeof(settings_manager.settings)) {
-                        CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
-                                      "Settings data write with invalid length (%d). Expected %d.", request.len,
-                                      sizeof(settings_manager.settings));
-                        return false;
+                        // Prefer the slave-requested length to avoid overruns and reduce transfer time.
+                        uint16_t preferred = MIN(request.len, (uint16_t)sizeof(settings_manager.settings));
+                        CONSOLE_WARNING("SPICoprocessor::ExecuteSCCommandRequest",
+                                         "Settings write requested with len %d, sending %d.", request.len, preferred);
+                        len_to_send = preferred;
                     }
-                    if (!Write(request.addr, settings_manager.settings, write_requires_ack)) {
+                    if (!Write(request.addr, settings_manager.settings, write_requires_ack, len_to_send)) {
                         CONSOLE_ERROR("SPICoprocessor::ExecuteSCCommandRequest",
                                       "Unable to write settings data to coprocessor.");
                         return false;

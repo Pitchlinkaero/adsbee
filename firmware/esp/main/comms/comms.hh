@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include "data_structures.hh"
 #include "driver/gpio.h"
 #include "esp_eth.h"
@@ -16,6 +17,7 @@
 #include "nvs_flash.h"
 #include "object_dictionary.hh"
 #include "settings.hh"
+#include "mqtt_client.hh"  // MQTT client support
 
 class CommsManager {
    public:
@@ -330,6 +332,10 @@ class CommsManager {
     uint32_t last_csbee_report_timestamp_ms_ = 0;
     uint32_t last_mavlink_report_timestamp_ms_ = 0;
     uint32_t last_gdl90_report_timestamp_ms_ = 0;
+
+    // MQTT clients for feeds
+    std::unique_ptr<MQTT::MQTTClient> mqtt_clients_[SettingsManager::Settings::kMaxNumFeeds];
+    uint32_t mqtt_last_connect_attempt_[SettingsManager::Settings::kMaxNumFeeds] = {0};
 };
 
 extern CommsManager comms_manager;

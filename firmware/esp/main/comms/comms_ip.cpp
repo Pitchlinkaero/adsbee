@@ -1,6 +1,5 @@
 #include "beast/beast_utils.hh"  // For beast reporting.
 #include "comms.hh"
-#include "errno_strs.hh"
 #include "esp_event.h"
 #include "esp_mac.h"
 #include "hal.hh"
@@ -11,6 +10,10 @@
 #include "lwip/sys.h"
 #include "mdns.h"
 #include "task_priorities.hh"
+#include "driver/temperature_sensor.h"  // For CPU temperature
+#include "esp_app_desc.h"  // For firmware version
+#include "server/adsbee_server.hh"  // For aircraft_dictionary metrics
+#include "object_dictionary.hh"  // For firmware version constants
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
 
@@ -66,9 +69,8 @@ bool CommsManager::IPInit() {
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &ip_event_handler, NULL));
     ip_event_handler_was_initialized_ = true;
 
-    // IP WAN task needs extra stack space to allow it to dequeue CompositeArray::RawPackets buffers.
-    xTaskCreatePinnedToCore(ip_wan_task, "ip_wan_task", 2 * 4096 + CompositeArray::RawPackets::kMaxLenBytes,
-                            &ip_wan_task_handle, kIPWANTaskPriority, NULL, kIPWANTaskCore);
+    xTaskCreatePinnedToCore(ip_wan_task, "ip_wan_task", 4096, &ip_wan_task_handle, kIPWANTaskPriority, NULL,
+                            kIPWANTaskCore);
 
     // Initialize mDNS service.
     esp_err_t err = mdns_init();
@@ -156,225 +158,505 @@ void CommsManager::IPEventHandler(void* arg, esp_event_base_t event_base, int32_
     }
 }
 
+
 void CommsManager::IPWANTask(void* pvParameters) {
+    Decoded1090Packet decoded_packet;
+
+    int feed_sock[SettingsManager::Settings::kMaxNumFeeds] = {0};
+    bool feed_sock_is_connected[SettingsManager::Settings::kMaxNumFeeds] = {false};
+    uint32_t feed_sock_last_connect_timestamp_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
 
-    alignas(uint32_t) uint8_t raw_packets_buf[CompositeArray::RawPackets::kMaxLenBytes];
+    // Initialize MQTT clients for feeds configured with MQTT protocol
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT &&
+            settings_manager.settings.feed_is_active[i]) {
+
+            MQTT::MQTTClient::Config mqtt_config;
+
+            // Parse URI to extract protocol and hostname
+            std::string full_uri = settings_manager.settings.feed_uris[i];
+            std::string broker_uri = full_uri;
+            bool use_tls = false;
+
+            // Determine TLS based on protocol prefix and extract hostname
+            if (full_uri.find("mqtt://") == 0) {
+                broker_uri = full_uri.substr(7);  // Remove "mqtt://"
+                use_tls = false;
+            } else if (full_uri.find("mqtts://") == 0) {
+                broker_uri = full_uri.substr(8);  // Remove "mqtts://"
+                use_tls = true;
+            }
+
+            mqtt_config.broker_uri = broker_uri;
+            mqtt_config.port = settings_manager.settings.feed_ports[i];
+            mqtt_config.username = settings_manager.settings.mqtt_usernames[i];
+            mqtt_config.password = settings_manager.settings.mqtt_passwords[i];
+            mqtt_config.client_id = settings_manager.settings.mqtt_client_ids[i];
+            mqtt_config.device_id = settings_manager.settings.mqtt_device_id;
+            mqtt_config.use_tls = use_tls;
+            mqtt_config.ota_enabled = settings_manager.settings.mqtt_ota_enabled[i];
+            mqtt_config.format = settings_manager.settings.mqtt_formats[i];
+            mqtt_config.report_mode = settings_manager.settings.mqtt_report_modes[i];
+            mqtt_config.telemetry_interval_sec = settings_manager.settings.mqtt_telemetry_interval_sec;
+            mqtt_config.gps_interval_sec = settings_manager.settings.mqtt_gps_interval_sec;
+            mqtt_config.status_rate_hz = settings_manager.settings.mqtt_status_rate_hz;
+
+
+            mqtt_clients_[i] = std::make_unique<MQTT::MQTTClient>(mqtt_config, i);
+            CONSOLE_INFO("CommsManager::IPWANTask", "Initialized MQTT client for feed %d", i);
+        }
+    }
+
     while (true) {
         // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
-        while (!HasIP()) {
+        while (!wifi_sta_has_ip_ && !ethernet_has_ip_) {
             vTaskDelay(1);  // Delay for 1 tick.
         }
 
-        UpdateFeedMetrics();
-
-        uint16_t num_active_report_sinks = 0;
-        ReportSink active_report_sinks[SettingsManager::Settings::kMaxNumFeeds] = {0};
-        SettingsManager::ReportingProtocol active_reporting_protocols[SettingsManager::Settings::kMaxNumFeeds] = {
-            SettingsManager::ReportingProtocol::kNoReports};
-
-        // Maintain socket connections and build list of acive report sinks.
-        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            // Iterate through feeds, open/close and send message as required.
-            if (!settings_manager.settings.feed_is_active[i]) {
-                // Socket should not be fed.
-                CloseFeedSocket(i);
-                continue;  // Don't need to do anything else if socket should be closed and is closed.
+        // Update feed statistics once per second and print them. Put this before the queue receive so that it runs even
+        // if no packets are received.
+        static const uint16_t kStatsMessageMaxLen = 500;
+        uint32_t timestamp_ms = get_time_since_boot_ms();
+        if (timestamp_ms - feed_mps_last_update_timestamp_ms_ > kMsPerSec) {
+            for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                feed_mps[i] = feed_mps_counter_[i];
+                feed_mps_counter_[i] = 0;
             }
-            // Socket should be open.
-            if (!feed_sock_is_connected_[i]) {
-                // Need to open the socket connection.
-                if (!ConnectFeedSocket(i)) {
-                    continue;  // Failed to connect, try again later.
+            feed_mps_last_update_timestamp_ms_ = timestamp_ms;
+
+            char feeds_stats_message[kStatsMessageMaxLen] = {'\0'};
+
+            for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                char single_feed_stats_message[kStatsMessageMaxLen / SettingsManager::Settings::kMaxNumFeeds] = {'\0'};
+                snprintf(single_feed_stats_message, kStatsMessageMaxLen / SettingsManager::Settings::kMaxNumFeeds,
+                         "%d:[%d] ", i, feed_mps[i]);
+                strcat(feeds_stats_message, single_feed_stats_message);
+            }
+            CONSOLE_INFO("CommsManager::IPWANTask", "Feed msgs/s: %s", feeds_stats_message);
+        }
+
+        // Handle MQTT connections and periodic telemetry
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients_[i]) {
+                continue;  // No MQTT client for this feed
+            }
+
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT ||
+                !settings_manager.settings.feed_is_active[i]) {
+                // Feed is not MQTT or not active, disconnect if connected
+                if (mqtt_clients_[i]->IsConnected()) {
+                    mqtt_clients_[i]->Disconnect();
+                }
+                continue;
+            }
+
+            // Try to connect if not connected
+            if (!mqtt_clients_[i]->IsConnected()) {
+                uint32_t now = get_time_since_boot_ms();
+                if (now - mqtt_last_connect_attempt_[i] > 5000) {  // Try every 5 seconds
+                    CONSOLE_INFO("CommsManager::IPWANTask",
+                                 "Connecting MQTT feed %d to %s:%d",
+                                 i, settings_manager.settings.feed_uris[i],
+                                 settings_manager.settings.feed_ports[i]);
+                    mqtt_clients_[i]->Connect();
+                    mqtt_last_connect_attempt_[i] = now;
                 }
             }
 
-            // Socket is connected, add to active sinks.
-            active_report_sinks[num_active_report_sinks] = i;
-            active_reporting_protocols[num_active_report_sinks] = settings_manager.settings.feed_protocols[i];
-            num_active_report_sinks++;
+            // Publish telemetry if connected
+            if (mqtt_clients_[i]->IsConnected()) {
+                MQTT::Telemetry telemetry = {};
+                telemetry.uptime_sec = get_time_since_boot_ms() / 1000;
+
+                // msgs_rx should be total messages received per second across all feeds
+                uint32_t total_rx_mps = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    total_rx_mps += feed_mps[j];
+                }
+                telemetry.msgs_rx = total_rx_mps;
+
+                // msgs_tx is messages sent by this MQTT feed per second
+                telemetry.msgs_tx = feed_mps[i];
+
+                // Get CPU temperature (ESP32-S3 specific)
+                // Use static sensor initialized once to avoid log spam
+                static temperature_sensor_handle_t temp_sensor = NULL;
+                static bool temp_sensor_initialized = false;
+                float temp_celsius = 0.0f;
+
+                if (!temp_sensor_initialized) {
+                    temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+                    if (temperature_sensor_install(&temp_sensor_config, &temp_sensor) == ESP_OK) {
+                        temperature_sensor_enable(temp_sensor);
+                        temp_sensor_initialized = true;
+                    }
+                }
+
+                if (temp_sensor_initialized && temp_sensor != NULL) {
+                    temperature_sensor_get_celsius(temp_sensor, &temp_celsius);
+                }
+                telemetry.cpu_temp_c = (int32_t)temp_celsius;
+
+                telemetry.mem_free_kb = esp_get_free_heap_size() / 1024;
+                telemetry.noise_floor_dbm = -100;  // TODO: Get actual noise floor from decoder
+                telemetry.rx_1090 = true;  // Always true for now
+                telemetry.rx_978 =
+                    (settings_manager.settings.subg_enabled == SettingsManager::EnableState::kEnableStateEnabled);
+                telemetry.wifi = wifi_sta_has_ip_;
+                telemetry.mqtt = true;
+
+                // Get firmware version from ObjectDictionary
+                char version_str[16];
+                snprintf(version_str, sizeof(version_str), "%d.%d.%d",
+                        object_dictionary.kFirmwareVersionMajor,
+                        object_dictionary.kFirmwareVersionMinor,
+                        object_dictionary.kFirmwareVersionPatch);
+                telemetry.fw_version = version_str;
+
+                telemetry.mps_total = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    telemetry.mps_total += feed_mps[j];
+                }
+
+                // Add per-feed message rates
+                telemetry.mps_feeds.clear();
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    if (settings_manager.settings.feed_is_active[j]) {
+                        telemetry.mps_feeds.push_back(feed_mps[j]);
+                    }
+                }
+
+                // Add decoder statistics from aircraft dictionary
+                // Note: ESP32 uses combined metrics (ESP32 + RP2040)
+                AircraftDictionary::Metrics combined_metrics = adsbee_server.aircraft_dictionary.metrics;
+
+                // Add RP2040 metrics for demodulations and raw frames
+                combined_metrics.demods_1090 = adsbee_server.rp2040_aircraft_dictionary_metrics.demods_1090;
+                combined_metrics.raw_squitter_frames = adsbee_server.rp2040_aircraft_dictionary_metrics.raw_squitter_frames;
+                combined_metrics.raw_extended_squitter_frames =
+                    adsbee_server.rp2040_aircraft_dictionary_metrics.raw_extended_squitter_frames;
+
+                telemetry.demods_1090 = combined_metrics.demods_1090;
+                telemetry.raw_squitter_frames = combined_metrics.raw_squitter_frames;
+                telemetry.valid_squitter_frames = combined_metrics.valid_squitter_frames;
+                telemetry.raw_extended_squitter = combined_metrics.raw_extended_squitter_frames;
+                telemetry.valid_extended_squitter = combined_metrics.valid_extended_squitter_frames;
+
+                mqtt_clients_[i]->PublishTelemetry(telemetry);
+            }
         }
 
         // Gather packet(s) to send.
-        /**
-         * Architecture note: We send packets in the queue as a buffer, since the buffer in the other task gets
-         * deallocated. Here, we can unpack the buffer into a CompositeArray object with pointers because we know it
-         * won't go out of scope till we are done with it.
-         */
-        if (xQueueReceive(ip_wan_reporting_composite_array_queue_, &raw_packets_buf, kWiFiSTATaskUpdateIntervalTicks) !=
+        if (xQueueReceive(ip_wan_decoded_transponder_packet_queue_, &decoded_packet, kWiFiSTATaskUpdateIntervalTicks) !=
             pdTRUE) {
             // No packets available to send, wait and try again.
             continue;
         }
 
-        CompositeArray::RawPackets reporting_composite_array;
-        if (!CompositeArray::UnpackRawPacketsBuffer(reporting_composite_array, raw_packets_buf,
-                                                    sizeof(raw_packets_buf))) {
-            CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to unpack CompositeArray from buffer.");
-            continue;
-        }
+        // Debug: Log that we received a packet for processing
+        CONSOLE_INFO("CommsManager::IPWANTask", "Processing packet for ICAO 0x%06lx, valid=%d",
+                     (unsigned long)decoded_packet.GetICAOAddress(), decoded_packet.IsValid());
 
-        // Update feeds with raw and digested reports.
-        if (!UpdateReporting(active_report_sinks, active_reporting_protocols, num_active_report_sinks,
-                             &reporting_composite_array)) {
-            CONSOLE_ERROR("CommsManager::IPWANTask", "Error during UpdateReporting for feeds.");
+        // NOTE: Construct packets that are shared between feeds here!
+
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            // Iterate through feeds, open/close and send message as required.
+            if (!settings_manager.settings.feed_is_active[i]) {
+                // Socket should not be fed.
+                // Only close raw sockets, not MQTT connections (handled by MQTT client)
+                if (feed_sock_is_connected[i] &&
+                    settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
+                    // Need to close the socket connection.
+                    close(feed_sock[i]);
+                    feed_sock_is_connected[i] = false;
+                    CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", i);
+                }
+                continue;  // Don't need to do anything else if socket should be closed and is closed.
+            }
+
+            // Skip MQTT feeds - they are handled by MQTT client
+            if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+                continue;  // MQTT feeds don't use raw sockets
+            }
+
+            // Socket should be open.
+            if (!feed_sock_is_connected[i]) {
+                // Need to open the socket connection.
+
+                // Meter reconnect attempt interval.
+                uint32_t timestamp_ms = get_time_since_boot_ms();
+                if (timestamp_ms - feed_sock_last_connect_timestamp_ms[i] <= kWiFiTCPSocketReconnectIntervalMs) {
+                    continue;
+                }
+                feed_sock_last_connect_timestamp_ms[i] = timestamp_ms;
+
+                // Create socket.
+                // IPv4, TCP
+                feed_sock[i] = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+                if (feed_sock[i] <= 0) {
+                    CONSOLE_ERROR("CommsManager::IPWANTask", "Unable to create socket for feed %d: errno %d", i, errno);
+                    continue;
+                }
+                CONSOLE_INFO("CommsManager::IPWANTask", "Socket for feed %d created, connecting to %s:%d", i,
+                             settings_manager.settings.feed_uris[i], settings_manager.settings.feed_ports[i]);
+
+                // Enable TCP keepalive
+                setsockopt(feed_sock[i], SOL_SOCKET, SO_KEEPALIVE, &kTCPKeepAliveEnable, sizeof(kTCPKeepAliveEnable));
+                setsockopt(feed_sock[i], IPPROTO_TCP, TCP_KEEPIDLE, &kTCPKeepAliveIdleSecondsBeforeStartingProbe,
+                           sizeof(kTCPKeepAliveIdleSecondsBeforeStartingProbe));
+                setsockopt(feed_sock[i], IPPROTO_TCP, TCP_KEEPINTVL, &kTCPKeepAliveIntervalSecondsBetweenProbes,
+                           sizeof(kTCPKeepAliveIntervalSecondsBetweenProbes));
+                setsockopt(feed_sock[i], IPPROTO_TCP, TCP_KEEPCNT, &kTCPKeepAliveMaxFailedProbesBeforeDisconnect,
+                           sizeof(kTCPKeepAliveMaxFailedProbesBeforeDisconnect));
+                // Allow reuse of local addresses.
+                setsockopt(feed_sock[i], SOL_SOCKET, SO_REUSEADDR, &kTCPReuseAddrEnable, sizeof(kTCPReuseAddrEnable));
+
+                struct sockaddr_in dest_addr;
+                // If the URI contains letters, resolve it to an IP address
+                if (IsNotIPAddress(settings_manager.settings.feed_uris[i])) {
+                    // Is not an IP address, try DNS resolution.
+                    char resolved_ip[16];
+                    if (!ResolveURIToIP(settings_manager.settings.feed_uris[i], resolved_ip)) {
+                        CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to resolve URL %s for feed %d",
+                                      settings_manager.settings.feed_uris[i], i);
+                        close(feed_sock[i]);
+                        feed_sock_is_connected[i] = false;
+                        continue;
+                    }
+                    inet_pton(AF_INET, resolved_ip, &dest_addr.sin_addr);
+                } else {
+                    // Is an IP address, use it directly.
+                    inet_pton(AF_INET, settings_manager.settings.feed_uris[i], &dest_addr.sin_addr);
+                }
+
+                dest_addr.sin_family = AF_INET;
+                dest_addr.sin_port = htons(settings_manager.settings.feed_ports[i]);
+
+                int err = connect(feed_sock[i], (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+                if (err != 0) {
+                    CONSOLE_ERROR(
+                        "CommsManager::IPWANTask", "Socket unable to connect to URI %s:%d for feed %d: errno %d",
+                        settings_manager.settings.feed_uris[i], settings_manager.settings.feed_ports[i], i, errno);
+                    close(feed_sock[i]);
+                    feed_sock_is_connected[i] = false;
+                    continue;
+                }
+                CONSOLE_INFO("CommsManager::IPWANTask", "Successfully connected to %s",
+                             settings_manager.settings.feed_uris[i]);
+                feed_sock_is_connected[i] = true;
+
+                // Perform beginning-of-connection actions here.
+                switch (settings_manager.settings.feed_protocols[i]) {
+                    case SettingsManager::ReportingProtocol::kBeast:
+                        [[fallthrough]];
+                    case SettingsManager::ReportingProtocol::kBeastRaw: {
+                        uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
+                                                  kBeastFrameMaxLenBytes];
+                        uint16_t beast_message_len_bytes =
+                            BuildFeedStartFrame(beast_message_buf, settings_manager.settings.feed_receiver_ids[i]);
+                        int err = send(feed_sock[i], beast_message_buf, beast_message_len_bytes, 0);
+                        if (err < 0) {
+                            CONSOLE_ERROR("CommsManager::IPWANTask",
+                                          "Error occurred while sending %d Byte Beast start of feed message to feed %d "
+                                          "with URI %s "
+                                          "on port %d: "
+                                          "errno %d.",
+                                          beast_message_len_bytes, i, settings_manager.settings.feed_uris[i],
+                                          settings_manager.settings.feed_ports[i], errno);
+                            // Mark socket as disconnected and try reconnecting in next reporting interval.
+                            close(feed_sock[i]);
+                            feed_sock_is_connected[i] = false;
+                            continue;
+                        }
+                        break;
+                    }
+                    default:
+                        // No start of connections actions required for other protocols.
+                        break;
+                }
+            }
+
+            // Send packet!
+            // NOTE: Construct packets that are specific to a feed in case statements here!
+            switch (settings_manager.settings.feed_protocols[i]) {
+                case SettingsManager::ReportingProtocol::kBeast:
+                    if (!decoded_packet.IsValid()) {
+                        // Packet is invalid, don't send.
+                        break;
+                    }
+                    [[fallthrough]];  // Intentional cascade into BEAST_RAW, since reporting code is shared.
+                case SettingsManager::ReportingProtocol::kBeastRaw: {
+                    // Send Beast packet.
+                    // Double the length as a hack to make room for the escaped UUID.
+                    uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
+                                              kBeastFrameMaxLenBytes];
+                    uint16_t beast_message_len_bytes = Build1090BeastFrame(decoded_packet, beast_message_buf);
+
+                    int err = send(feed_sock[i], beast_message_buf, beast_message_len_bytes, 0);
+                    if (err < 0) {
+                        CONSOLE_ERROR("CommsManager::IPWANTask",
+                                      "Error occurred during sending %d Byte beast message to feed %d with URI %s "
+                                      "on port %d: "
+                                      "errno %d.",
+                                      beast_message_len_bytes, i, settings_manager.settings.feed_uris[i],
+                                      settings_manager.settings.feed_ports[i], errno);
+                        // Mark socket as disconnected and try reconnecting in next reporting interval.
+                        close(feed_sock[i]);
+                        feed_sock_is_connected[i] = false;
+                    } else {
+                        // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
+                        feed_mps_counter_[i]++;  // Log that a message was sent in statistics.
+                    }
+                    break;
+                }
+                case SettingsManager::ReportingProtocol::kMQTT: {
+                    // Debug: Log that we're in MQTT case
+                    CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d is MQTT, checking connection", i);
+
+                    // Publish via MQTT
+                    if (!mqtt_clients_[i] || !mqtt_clients_[i]->IsConnected()) {
+                        // No client or not connected
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d MQTT client not connected", i);
+                        break;
+                    }
+
+                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT client %d is connected", i);
+
+                    // Determine band (1090 MHz or UAT)
+                    // TODO: Properly detect band from source
+                    uint8_t band = 1;  // Default to 1090 MHz
+
+                    // Check report mode
+                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT report mode for feed %d is %d",
+                                 i, settings_manager.settings.mqtt_report_modes[i]);
+
+                    // Publish based on report mode
+                    if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
+                        settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
+
+                        // For MQTT, we publish aircraft status even if the packet itself is invalid,
+                        // as long as we have aircraft data in the dictionary
+                        uint32_t icao_address = decoded_packet.GetICAOAddress();
+
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Processing ICAO 0x%06lx for MQTT feed %d",
+                                     (unsigned long)icao_address, i);
+
+                        // Only proceed if we have a valid ICAO address
+                        if (icao_address != 0) {
+                            // Get aircraft data from dictionary for complete information
+                            Aircraft1090* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr(icao_address);
+
+                            if (aircraft != nullptr) {
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Found aircraft 0x%06lx in dictionary",
+                                             (unsigned long)icao_address);
+                            } else {
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Aircraft 0x%06lx NOT in dictionary",
+                                             (unsigned long)icao_address);
+                            }
+
+                            // Convert to TransponderPacket for publishing
+                            TransponderPacket packet;
+                            packet.address = icao_address;
+                            packet.timestamp_ms = decoded_packet.GetTimestampMs();
+
+                            if (aircraft != nullptr) {
+                                // We have aircraft data from the dictionary
+                                packet.latitude = aircraft->latitude_deg;
+                                packet.longitude = aircraft->longitude_deg;
+                                packet.altitude = aircraft->baro_altitude_ft;
+                                packet.heading = aircraft->direction_deg;
+                                packet.velocity = aircraft->velocity_kts;
+                                packet.vertical_rate = aircraft->vertical_rate_fpm;
+                                packet.squawk = aircraft->squawk;
+                                packet.airborne = (aircraft->baro_altitude_ft > 100) ? 1 : 0;  // Simple ground detection
+                                packet.category = aircraft->category_raw;
+
+                                // Copy callsign
+                                strncpy(packet.callsign, aircraft->callsign, 8);
+                                packet.callsign[8] = '\0';
+
+                                // Set validity flags based on available data
+                                packet.flags = 0;
+                                if (aircraft->latitude_deg != 0.0 || aircraft->longitude_deg != 0.0) {
+                                    packet.flags |= TransponderPacket::FLAG_POSITION_VALID;
+                                }
+                                if (aircraft->baro_altitude_ft != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_ALTITUDE_VALID;
+                                }
+                                if (aircraft->velocity_kts > 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VELOCITY_VALID;
+                                }
+                                if (aircraft->direction_deg != 0.0) {
+                                    packet.flags |= TransponderPacket::FLAG_HEADING_VALID;
+                                }
+                                if (aircraft->vertical_rate_fpm != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VERTICAL_RATE_VALID;
+                                }
+                                if (strlen(aircraft->callsign) > 1 && strcmp(aircraft->callsign, "?") != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CALLSIGN_VALID;
+                                }
+                                if (aircraft->squawk != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_SQUAWK_VALID;
+                                }
+                                if (aircraft->category_raw != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CATEGORY_VALID;
+                                }
+                            } else {
+                                // No aircraft data in dictionary, use minimal data
+                                packet.altitude = 0;
+                                packet.latitude = 0.0;
+                                packet.longitude = 0.0;
+                                packet.heading = 0.0;
+                                packet.velocity = 0.0;
+                                packet.vertical_rate = 0;
+                                packet.squawk = 0;
+                                packet.airborne = 1;
+                                packet.category = 0;
+                                memset(packet.callsign, 0, 9);
+                                packet.flags = 0;  // Only address is valid
+                            }
+
+                            CONSOLE_INFO("CommsManager::IPWANTask", "Attempting to publish aircraft 0x%06lx to MQTT",
+                                         (unsigned long)icao_address);
+
+                            if (mqtt_clients_[i]->PublishAircraftStatus(packet, band)) {
+                                feed_mps_counter_[i]++;  // Update statistics
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Successfully published aircraft 0x%06lx",
+                                             (unsigned long)icao_address);
+                            } else {
+                                CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to publish aircraft 0x%06lx",
+                                              (unsigned long)icao_address);
+                            }
+                        } else {
+                            CONSOLE_INFO("CommsManager::IPWANTask", "Skipping ICAO 0 (invalid address)");
+                        }
+                    } else {
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d report mode %d doesn't include status",
+                                     i, settings_manager.settings.mqtt_report_modes[i]);
+                    }
+
+                    // TODO: Add raw packet publishing if report_mode includes RAW
+                    break;
+                }
+                // TODO: add other protocols here
+                default:
+                    // No reporting protocol or unsupported protocol: do nothing.
+                    break;
+            }
         }
     }
 
-    // Close all sockets while exiting.
+    // Close all sockets while exiting (skip MQTT feeds).
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        CloseFeedSocket(i);
+        if (feed_sock_is_connected[i] &&
+            settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
+            // Need to close the socket connection.
+            close(feed_sock[i]);
+            feed_sock_is_connected[i] = false;  // Not necessary but leaving this here in case of refactor.
+        }
     }
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task exiting.");
-}
-
-void CommsManager::CloseFeedSocket(uint16_t feed_index) {
-    if (feed_sock_is_connected_[feed_index]) {
-        // Need to close the socket connection.
-        close(feed_sock_[feed_index]);
-        feed_sock_is_connected_[feed_index] = false;
-        CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", feed_index);
-    }
-}
-
-bool CommsManager::ConnectFeedSocket(uint16_t feed_index) {
-    // Meter reconnect attempt interval.
-    uint32_t timestamp_ms = get_time_since_boot_ms();
-    if (timestamp_ms - feed_sock_last_connect_timestamp_ms_[feed_index] <= kWiFiTCPSocketReconnectIntervalMs) {
-        return false;
-    }
-    feed_sock_last_connect_timestamp_ms_[feed_index] = timestamp_ms;
-
-    // Create socket.
-    // IPv4, TCP
-    feed_sock_[feed_index] = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (feed_sock_[feed_index] <= 0) {
-        CONSOLE_ERROR("CommsManager::IPWANTask", "Unable to create socket for feed %d: errno %d", feed_index, errno);
-        return false;
-    }
-    CONSOLE_INFO("CommsManager::IPWANTask", "Socket for feed %d created, connecting to %s:%d", feed_index,
-                 settings_manager.settings.feed_uris[feed_index], settings_manager.settings.feed_ports[feed_index]);
-
-    // Enable TCP keepalive
-    setsockopt(feed_sock_[feed_index], SOL_SOCKET, SO_KEEPALIVE, &kTCPKeepAliveEnable, sizeof(kTCPKeepAliveEnable));
-    setsockopt(feed_sock_[feed_index], IPPROTO_TCP, TCP_KEEPIDLE, &kTCPKeepAliveIdleSecondsBeforeStartingProbe,
-               sizeof(kTCPKeepAliveIdleSecondsBeforeStartingProbe));
-    setsockopt(feed_sock_[feed_index], IPPROTO_TCP, TCP_KEEPINTVL, &kTCPKeepAliveIntervalSecondsBetweenProbes,
-               sizeof(kTCPKeepAliveIntervalSecondsBetweenProbes));
-    setsockopt(feed_sock_[feed_index], IPPROTO_TCP, TCP_KEEPCNT, &kTCPKeepAliveMaxFailedProbesBeforeDisconnect,
-               sizeof(kTCPKeepAliveMaxFailedProbesBeforeDisconnect));
-    // Allow reuse of local addresses.
-    setsockopt(feed_sock_[feed_index], SOL_SOCKET, SO_REUSEADDR, &kTCPReuseAddrEnable, sizeof(kTCPReuseAddrEnable));
-
-    struct sockaddr_in dest_addr;
-    // If the URI contains letters, resolve it to an IP address
-    if (IsNotIPAddress(settings_manager.settings.feed_uris[feed_index])) {
-        // Is not an IP address, try DNS resolution.
-        char resolved_ip[16];
-        if (!ResolveURIToIP(settings_manager.settings.feed_uris[feed_index], resolved_ip)) {
-            CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to resolve URL %s for feed %d",
-                          settings_manager.settings.feed_uris[feed_index], feed_index);
-            close(feed_sock_[feed_index]);
-            feed_sock_is_connected_[feed_index] = false;
-            return false;
-        }
-        inet_pton(AF_INET, resolved_ip, &dest_addr.sin_addr);
-    } else {
-        // Is an IP address, use it directly.
-        inet_pton(AF_INET, settings_manager.settings.feed_uris[feed_index], &dest_addr.sin_addr);
-    }
-
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(settings_manager.settings.feed_ports[feed_index]);
-
-    int err = connect(feed_sock_[feed_index], (struct sockaddr*)&dest_addr, sizeof(dest_addr));
-    if (err != 0) {
-        CONSOLE_ERROR("CommsManager::IPWANTask", "Socket unable to connect to URI %s:%d for feed %d: errno %d",
-                      settings_manager.settings.feed_uris[feed_index], settings_manager.settings.feed_ports[feed_index],
-                      feed_index, errno);
-        close(feed_sock_[feed_index]);
-        feed_sock_is_connected_[feed_index] = false;
-        return false;
-    }
-    CONSOLE_INFO("CommsManager::IPWANTask", "Successfully connected to %s",
-                 settings_manager.settings.feed_uris[feed_index]);
-    feed_sock_is_connected_[feed_index] = true;
-
-    // Perform beginning-of-connection actions here.
-    switch (settings_manager.settings.feed_protocols[feed_index]) {
-        case SettingsManager::ReportingProtocol::kBeast: {
-            uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
-                                      BeastReporter::kModeSBeastFrameMaxLenBytes];
-            uint16_t beast_message_len_bytes = BeastReporter::BuildFeedStartFrame(
-                beast_message_buf, settings_manager.settings.feed_receiver_ids[feed_index]);
-            int err = send(feed_sock_[feed_index], beast_message_buf, beast_message_len_bytes, 0);
-            if (err < 0) {
-                CONSOLE_ERROR("CommsManager::IPWANTask",
-                              "Error occurred while sending %d Byte Beast start of feed message to feed %d "
-                              "with URI %s "
-                              "on port %d: "
-                              "errno %d.",
-                              beast_message_len_bytes, feed_index, settings_manager.settings.feed_uris[feed_index],
-                              settings_manager.settings.feed_ports[feed_index], errno);
-                // Mark socket as disconnected and try reconnecting in next reporting interval.
-                CloseFeedSocket(feed_index);
-                return false;
-            }
-            break;
-        }
-        default:
-            // No start of connections actions required for other protocols.
-            break;
-    }
-    return true;
-}
-
-bool CommsManager::SendBuf(uint16_t iface, const char* buf, uint16_t buf_len) {
-    if (iface >= SettingsManager::Settings::kMaxNumFeeds) {
-        CONSOLE_ERROR("CommsManager::IPWANTask", "Invalid feed index %d for SendBuf.", iface);
-        return false;
-    }
-    if (!feed_sock_is_connected_[iface]) {
-        return false;
-    }
-    int err = send(feed_sock_[iface], buf, buf_len, 0);
-    if (err < 0) {
-        CONSOLE_ERROR("CommsManager::IPWANTask",
-                      "Error occurred during sending %d byte message to feed %d with URI %s "
-                      "on port %d: "
-                      "errno %d (%s).",
-                      buf_len, iface, settings_manager.settings.feed_uris[iface],
-                      settings_manager.settings.feed_ports[iface], errno, ErrNoToString(errno));
-        CloseFeedSocket(iface);
-        return false;
-    } else {
-        // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
-        feed_mps_counter_[iface]++;  // Log that a message was sent in statistics.
-    }
-    return true;
-}
-
-void CommsManager::UpdateFeedMetrics() {
-    // Update feed statistics once per second and print them. Put this before the queue receive so that it runs even
-    // if no packets are received.
-    static const uint16_t kStatsMessageMaxLen = 500;
-    uint32_t timestamp_ms = get_time_since_boot_ms();
-    if (timestamp_ms - feed_mps_last_update_timestamp_ms_ > kMsPerSec) {
-        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            feed_mps[i] = feed_mps_counter_[i];
-            feed_mps_counter_[i] = 0;
-        }
-        feed_mps_last_update_timestamp_ms_ = timestamp_ms;
-
-        char feeds_metrics_message[kStatsMessageMaxLen] = {'\0'};
-
-        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            char single_feed_metrics_message[kStatsMessageMaxLen / SettingsManager::Settings::kMaxNumFeeds] = {'\0'};
-            snprintf(single_feed_metrics_message, kStatsMessageMaxLen / SettingsManager::Settings::kMaxNumFeeds,
-                     "%d:[%d] ", i, feed_mps[i]);
-            strcat(feeds_metrics_message, single_feed_metrics_message);
-        }
-        CONSOLE_INFO("CommsManager::IPWANTask", "Feed msgs/s: %s", feeds_metrics_message);
-    }
 }
