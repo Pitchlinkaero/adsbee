@@ -13,6 +13,7 @@
 #include "adsbee_server.hh"
 #include "esp_mac.h"   // For retrieving Base MAC address.
 #include "esp_wifi.h"  // For retrieving WiFi Station MAC address.
+#include "gps/gps_network_server.hh"  // For GPSNetworkMessage struct
 #endif
 
 class ObjectDictionary {
@@ -312,6 +313,11 @@ class ObjectDictionary {
         .overwrite_when_full =
             false  // We don't want to overwrite network console messages, since they could be importatnt.
     });
+#endif
+
+#ifdef ON_ESP32
+    // Buffer to store GPS network message for RP2040 to read (public for access in GetBytes/SetBytes)
+    GPSNetworkServer::GPSNetworkMessage gps_network_message_buffer_ = {};
 #endif
 
    private:

@@ -119,6 +119,11 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             xQueueSend(adsbee_server.rp2040_aircraft_dictionary_metrics_queue, &rp2040_metrics, 0);
             break;
         }
+        case kAddrGPSNetworkMessage: {
+            // ESP32 stores GPS network message for RP2040 to read
+            memcpy((uint8_t*)&object_dictionary.gps_network_message_buffer_ + offset, buf, buf_len);
+            break;
+        }
 #elif defined(ON_TI)
 #endif
         default:
@@ -232,6 +237,11 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
                 buf[i] = static_cast<uint8_t>(ch);
             }
             xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
+            break;
+        }
+        case kAddrGPSNetworkMessage: {
+            // RP2040 reading GPS network message from ESP32
+            memcpy(buf, (uint8_t*)&object_dictionary.gps_network_message_buffer_ + offset, buf_len);
             break;
         }
 #elif defined(ON_TI)
