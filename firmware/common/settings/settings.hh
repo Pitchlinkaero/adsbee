@@ -13,7 +13,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 9;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 12;  // Change this when settings format changes!
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -34,11 +34,11 @@ class SettingsManager {
         kNoReports = 0,
         kRaw,
         kBeast,
-        kBeastRaw,
         kCSBee,
         kMAVLINK1,
         kMAVLINK2,
         kGDL90,
+        kMQTT,
         kNumProtocols
     };
     static constexpr uint16_t kReportingProtocolStrMaxLen = 30;
@@ -59,12 +59,28 @@ class SettingsManager {
     };
     static const char kSubGHzModeStrs[kNumSubGHzRadioModes][kSubGHzModeStrMaxLen];
 
+    // MQTT-specific enums
+    enum MQTTFormat : uint8_t {
+        kMQTTFormatJSON = 0,
+        kMQTTFormatBinary = 1
+    };
+
+    enum MQTTReportMode : uint8_t {
+        kMQTTReportModeStatus = 0,
+        kMQTTReportModeRaw = 1,
+        kMQTTReportModeBoth = 2
+    };
+
+    enum MQTTTLSMode : uint8_t {
+        kMQTTTLSModeNoVerify = 0,      // Skip certificate verification (testing only)
+        kMQTTTLSModeVerifyCA = 1,      // Verify server certificate with CA
+        kMQTTTLSModeStrict = 2         // Strict verification including hostname
+    };
+
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
     // firmware upgrade if the format of the settings struct changes.
     struct Settings {
-        static constexpr int kDefaultTLMV = 1300;  // [mV]
-        static constexpr uint16_t kMaxNumTransponderPackets =
-            100;  // Defines size of ADSBPacket circular buffer (PFBQueue).
+        static constexpr int kDefaultTLOffsetMV = 300;  // [mV]
         static constexpr uint32_t kDefaultWatchdogTimeoutSec = 10;
         // NOTE: Lengths do not include null terminator.
         static constexpr uint16_t kHostnameMaxLen = 32;
@@ -79,6 +95,12 @@ class SettingsManager {
         static constexpr uint16_t kIPAddrStrLen = 16;   // XXX.XXX.XXX.XXX (does not include null terminator)
         static constexpr uint16_t kMACAddrStrLen = 18;  // XX:XX:XX:XX:XX:XX (does not include null terminator)
         static constexpr uint16_t kMACAddrNumBytes = 6;
+
+        // MQTT-specific constants
+        static constexpr uint16_t kMQTTUsernameMaxLen = 32;
+        static constexpr uint16_t kMQTTPasswordMaxLen = 64;
+        static constexpr uint16_t kMQTTClientIDMaxLen = 32;
+        static constexpr uint16_t kMQTTDeviceIDMaxLen = 16;  // 16 hex chars
 
         /**
          * Core Network Settings struct is used for storing network settings that should remain unchanged through most
@@ -142,8 +164,8 @@ class SettingsManager {
         CoreNetworkSettings core_network_settings;
 
         // ADSBee settings
-        bool receiver_enabled = true;
-        int tl_mv = kDefaultTLMV;
+        bool r1090_rx_enabled = true;
+        int tl_offset_mv = kDefaultTLOffsetMV;
         bool bias_tee_enabled = false;
         uint32_t watchdog_timeout_sec = kDefaultWatchdogTimeoutSec;
 
@@ -155,14 +177,40 @@ class SettingsManager {
         uint32_t gnss_uart_baud_rate = 9600;
 
         // Sub-GHz settings
-        EnableState subg_enabled = EnableState::kEnableStateEnabled;         // High impedance state by default.
-        SubGHzRadioMode subg_mode = SubGHzRadioMode::kSubGHzRadioModeUATRx;  // Default to UAT mode (978MHz receiver
+        EnableState subg_enabled = EnableState::kEnableStateEnabled;  // High impedance state by default.
+        bool subg_rx_enabled = true;
+        SubGHzRadioMode subg_mode = SubGHzRadioMode::kSubGHzRadioModeUATRx;  // Default to UAT mode (978MHz receiver).
 
+        // Feed settings
         char feed_uris[kMaxNumFeeds][kFeedURIMaxNumChars + 1];
         uint16_t feed_ports[kMaxNumFeeds];
         bool feed_is_active[kMaxNumFeeds];
         ReportingProtocol feed_protocols[kMaxNumFeeds];
         uint8_t feed_receiver_ids[kMaxNumFeeds][kFeedReceiverIDNumBytes];
+
+        // MAVLINK settings
+        uint8_t mavlink_system_id = 1;
+        uint8_t mavlink_component_id = 156;  // Default to MAV_COMP_ID_ADSB (156).
+
+        // MQTT-specific settings (per feed)
+        char mqtt_usernames[kMaxNumFeeds][kMQTTUsernameMaxLen + 1];
+        char mqtt_passwords[kMaxNumFeeds][kMQTTPasswordMaxLen + 1];
+        char mqtt_client_ids[kMaxNumFeeds][kMQTTClientIDMaxLen + 1];
+        MQTTFormat mqtt_formats[kMaxNumFeeds];
+        MQTTReportMode mqtt_report_modes[kMaxNumFeeds];
+        MQTTTLSMode mqtt_tls_modes[kMaxNumFeeds];  // TLS verification mode per feed
+
+        // Global MQTT settings
+        bool mqtt_enabled = false;
+        char mqtt_device_id[kMQTTDeviceIDMaxLen + 1];  // Derived from receiver ID, cached here
+        uint16_t mqtt_telemetry_interval_sec = 60;  // Default 60s
+        uint16_t mqtt_gps_interval_sec = 60;  // Default 60s
+        uint8_t mqtt_status_rate_hz = 1;  // 1 Hz per aircraft by default
+
+        // MQTT OTA settings
+        bool mqtt_ota_enabled[kMaxNumFeeds];  // Enable OTA via MQTT per feed
+        uint16_t mqtt_ota_chunk_size = 4096;  // Default 4KB chunks
+        uint16_t mqtt_ota_timeout_sec = 30;  // Timeout per chunk
 
         /**
          * Default constructor.
@@ -195,7 +243,26 @@ class SettingsManager {
                 // ESP32 will have to query for receiver ID later.
                 memset(feed_receiver_ids[i], 0, kFeedReceiverIDNumBytes);
 #endif
+                // Initialize MQTT settings
+                memset(mqtt_usernames[i], '\0', kMQTTUsernameMaxLen + 1);
+                memset(mqtt_passwords[i], '\0', kMQTTPasswordMaxLen + 1);
+                memset(mqtt_client_ids[i], '\0', kMQTTClientIDMaxLen + 1);
+                mqtt_formats[i] = kMQTTFormatJSON;
+                mqtt_report_modes[i] = kMQTTReportModeStatus;
+                mqtt_tls_modes[i] = kMQTTTLSModeNoVerify;  // Default to no verification for compatibility
+                mqtt_ota_enabled[i] = false;  // OTA disabled by default for safety
             }
+
+            // Initialize global MQTT device ID from receiver ID
+            memset(mqtt_device_id, '\0', kMQTTDeviceIDMaxLen + 1);
+#ifdef ON_PICO
+            // Generate device ID from receiver ID (16 hex chars)
+            uint8_t default_receiver_id[kFeedReceiverIDNumBytes];
+            device_info.GetDefaultFeedReceiverID(default_receiver_id);
+            for (int i = 0; i < kFeedReceiverIDNumBytes && i < 8; i++) {
+                snprintf(&mqtt_device_id[i * 2], 3, "%02x", default_receiver_id[i]);
+            }
+#endif
 
             // Set default feed URIs.
             // adsb.fi: feed.adsb.fi:30004, Beast

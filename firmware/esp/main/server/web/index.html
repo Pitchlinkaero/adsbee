@@ -724,10 +724,8 @@
 
                 await this.otaErase(0, appLenBytes + HEADER_SIZE_BYTES);
 
-                // Write the header
-                await this.otaWriteBytes(0, headerContents);
-
-                // Write the application in chunks
+                // Don't write the header - CompleteOTAUpdate will handle it
+                // Skip header and write only the application chunks
                 for (let i = HEADER_SIZE_BYTES; i < HEADER_SIZE_BYTES + appLenBytes; i += WRITE_CHUNK_BYTES) {
                     const offsetBytes = (i - HEADER_SIZE_BYTES) + APP_OFFSET_BYTES;
                     let success = false;
@@ -748,6 +746,9 @@
                         }
                     }
                 }
+
+                // Complete the OTA by calculating CRC and writing the header
+                await this.sendCmd(`AT+OTA=COMPLETE,${appLenBytes}\r\n`, 0, true, true);
 
                 // Verify and boot the new partition
                 await this.sendCmd("AT+OTA=VERIFY\r\n", 0, true, true);

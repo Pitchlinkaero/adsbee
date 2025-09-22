@@ -1,13 +1,13 @@
 #pragma once
 
-extern "C"
-{
-#include <ti/drivers/rf/RF.h>
+extern "C" {
 #include <ti/drivers/GPIO.h>
+#include <ti/drivers/rf/RF.h>
 #include <ti_radio_config.h>
+
 #include "smartrf/smartrf_settings.h"
 
-    /* clang-format off */
+/* clang-format off */
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/rf_data_entry.h)
 /** clang-format on */
@@ -17,14 +17,13 @@ extern "C"
 // #include "buffer_utils.hh"
 #include "comms.hh"
 #include "unit_conversions.hh"
-#include "RFQueue.hh"
+#include "uat_packet.hh"
 
 class SubGHzRadio
 {
 public:
     static const uint16_t kRxPacketQueueLen = 2;
-    static const uint16_t kRxPacketMaxLenBytes = 272 / kBitsPerByte; // 34 bytes (long UAT packet).
-    static const uint16_t kRxPacketNumAppendedBytes = 2; // 1 header byte + 1 status byte.
+    static const uint16_t kRxPacketMaxLenBytes = RawUATUplinkPacket::kUplinkMessageNumBytes;
 
     struct SubGHzRadioConfig
     {
@@ -35,19 +34,26 @@ public:
     ~SubGHzRadio() {};
 
     bool Init();
+    bool DeInit();
     void Deinit();
 
-    bool HandlePacketRx();
+    bool StartPacketRx();
+    bool Update();
+
+    bool HandlePacketRx(rfc_dataEntryPartial_t *filled_entry);
 
 private:
     SubGHzRadioConfig config_;
 
     RF_Handle rf_handle_;
     RF_Object rf_object_;
-    dataQueue_t data_queue_;
 
-    rfc_dataEntryGeneral_t *current_data_entry_; // Pointer to the data entry being processed (not held by the RF core).
-    uint8_t rx_data_entry_buffer_[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(kRxPacketQueueLen, kRxPacketMaxLenBytes, kRxPacketNumAppendedBytes)]; // Buffer for receiving data entries.
+    rfc_dataEntryPartial_t *current_data_entry_; // Pointer to the data entry being processed (not held by the RF core).
+    rfc_propRxOutput_t rx_statistics_;
+
+    RF_CmdHandle rx_cmd_handle_;
+
+    uint32_t last_rx_start_timestamp_ms_ = 0;
 };
 
 extern SubGHzRadio subg_radio;

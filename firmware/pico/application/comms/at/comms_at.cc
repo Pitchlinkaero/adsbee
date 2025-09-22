@@ -377,13 +377,323 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
                 }
                 // Check that the selected prototcol is valid for use with feeders.
                 if (!(feed_protocol == SettingsManager::ReportingProtocol::kBeast ||
-                      feed_protocol == SettingsManager::ReportingProtocol::kNoReports)) {
+                      feed_protocol == SettingsManager::ReportingProtocol::kNoReports ||
+                      feed_protocol == SettingsManager::ReportingProtocol::kMQTT)) {
                     CPP_AT_ERROR("Protocol %s is not supported for network feeds.",
                                  SettingsManager::kReportingProtocolStrs[feed_protocol]);
                 }
                 settings_manager.settings.feed_protocols[index] = feed_protocol;
             }
             CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+void ATMQTTFormatHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTFMT=<index>,<format>\r\n\tSet MQTT message format for a feed.\r\n"
+        "\tindex = [0-%d], format = [JSON BINARY].\r\n"
+        "\t\r\n\tAT+MQTTFMT?\r\n\tPrint MQTT format for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTFMT?<index>\r\n\tPrint MQTT format for a specific feed.\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTFormatCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed format
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                const char* format = (settings_manager.settings.mqtt_formats[index] ==
+                                      SettingsManager::MQTTFormat::kMQTTFormatJSON) ?
+                                     "JSON" : "BINARY";
+                CPP_AT_CMD_PRINTF("=%d(INDEX),%s(FORMAT)", index, format);
+            } else {
+                // Query all feed formats
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    const char* format = (settings_manager.settings.mqtt_formats[i] ==
+                                          SettingsManager::MQTTFormat::kMQTTFormatJSON) ?
+                                         "JSON" : "BINARY";
+                    CPP_AT_CMD_PRINTF("=%d(INDEX),%s(FORMAT)", i, format);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+
+        case '=':
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTFMT=<index>,<format>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            if (CPP_AT_HAS_ARG(1)) {
+                if (args[1].compare("JSON") == 0) {
+                    settings_manager.settings.mqtt_formats[index] =
+                        SettingsManager::MQTTFormat::kMQTTFormatJSON;
+                    CPP_AT_SUCCESS();
+                } else if (args[1].compare("BINARY") == 0) {
+                    settings_manager.settings.mqtt_formats[index] =
+                        SettingsManager::MQTTFormat::kMQTTFormatBinary;
+                    CPP_AT_SUCCESS();
+                } else {
+                    CPP_AT_ERROR("Format must be JSON or BINARY");
+                }
+            } else {
+                CPP_AT_ERROR("Format required. Usage: AT+MQTTFMT=<index>,<format>");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+void ATMQTTAuthHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTAUTH=<index>,<username>,<password>\r\n\tSet MQTT authentication for a feed.\r\n"
+        "\tindex = [0-%d], username = max %d chars, password = max %d chars.\r\n"
+        "\tLeave username empty to clear authentication.\r\n"
+        "\t\r\n\tAT+MQTTAUTH?\r\n\tShow MQTT authentication status for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTAUTH?<index>\r\n\tShow MQTT authentication status for a specific feed.\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1,
+        SettingsManager::Settings::kMQTTUsernameMaxLen,
+        SettingsManager::Settings::kMQTTPasswordMaxLen);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTAuthCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed authentication
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                // Show if authentication is configured (don't show actual password)
+                bool has_auth = strlen(settings_manager.settings.mqtt_usernames[index]) > 0;
+                CPP_AT_CMD_PRINTF("=%d,%s,%s", index,
+                                  settings_manager.settings.mqtt_usernames[index],
+                                  has_auth ? "****" : "");
+            } else {
+                // Query all feeds authentication
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    bool has_auth = strlen(settings_manager.settings.mqtt_usernames[i]) > 0;
+                    CPP_AT_CMD_PRINTF("=%d,%s,%s", i,
+                                      settings_manager.settings.mqtt_usernames[i],
+                                      has_auth ? "****" : "");
+                    CPP_AT_PRINTF("\r\n");
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set MQTT authentication
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTAUTH=<index>,<username>,<password>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            // Username (optional - empty string clears authentication)
+            if (CPP_AT_HAS_ARG(1)) {
+                if (args[1].size() > SettingsManager::Settings::kMQTTUsernameMaxLen) {
+                    CPP_AT_ERROR("Username too long (max %d chars)",
+                                 SettingsManager::Settings::kMQTTUsernameMaxLen);
+                }
+                strncpy(settings_manager.settings.mqtt_usernames[index], args[1].data(),
+                        SettingsManager::Settings::kMQTTUsernameMaxLen);
+                settings_manager.settings.mqtt_usernames[index][SettingsManager::Settings::kMQTTUsernameMaxLen] = '\0';
+
+                // Password (required if username is provided)
+                if (!args[1].empty() && !CPP_AT_HAS_ARG(2)) {
+                    CPP_AT_ERROR("Password required when username is provided");
+                }
+
+                if (CPP_AT_HAS_ARG(2)) {
+                    if (args[2].size() > SettingsManager::Settings::kMQTTPasswordMaxLen) {
+                        CPP_AT_ERROR("Password too long (max %d chars)",
+                                     SettingsManager::Settings::kMQTTPasswordMaxLen);
+                    }
+                    strncpy(settings_manager.settings.mqtt_passwords[index], args[2].data(),
+                            SettingsManager::Settings::kMQTTPasswordMaxLen);
+                    settings_manager.settings.mqtt_passwords[index][SettingsManager::Settings::kMQTTPasswordMaxLen] = '\0';
+                }
+            } else {
+                // Clear authentication
+                memset(settings_manager.settings.mqtt_usernames[index], '\0',
+                       SettingsManager::Settings::kMQTTUsernameMaxLen + 1);
+                memset(settings_manager.settings.mqtt_passwords[index], '\0',
+                       SettingsManager::Settings::kMQTTPasswordMaxLen + 1);
+            }
+
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+void ATMQTTTLSHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTTLS=<index>,<mode>\r\n\tSet MQTT TLS verification mode for a feed.\r\n"
+        "\tindex = [0-%d], mode = [NONE VERIFY STRICT].\r\n"
+        "\t  NONE   - No certificate verification (testing only)\r\n"
+        "\t  VERIFY - Verify server certificate with CA\r\n"
+        "\t  STRICT - Strict verification including hostname\r\n"
+        "\t\r\n\tAT+MQTTTLS?\r\n\tShow TLS mode for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTTLS?<index>\r\n\tShow TLS mode for a specific feed.\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTTLSCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed TLS mode
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                const char* mode_str = "NONE";
+                switch (settings_manager.settings.mqtt_tls_modes[index]) {
+                    case SettingsManager::MQTTTLSMode::kMQTTTLSModeNoVerify:
+                        mode_str = "NONE";
+                        break;
+                    case SettingsManager::MQTTTLSMode::kMQTTTLSModeVerifyCA:
+                        mode_str = "VERIFY";
+                        break;
+                    case SettingsManager::MQTTTLSMode::kMQTTTLSModeStrict:
+                        mode_str = "STRICT";
+                        break;
+                }
+                CPP_AT_CMD_PRINTF("=%d,%s", index, mode_str);
+            } else {
+                // Query all feeds TLS modes
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    const char* mode_str = "NONE";
+                    switch (settings_manager.settings.mqtt_tls_modes[i]) {
+                        case SettingsManager::MQTTTLSMode::kMQTTTLSModeNoVerify:
+                            mode_str = "NONE";
+                            break;
+                        case SettingsManager::MQTTTLSMode::kMQTTTLSModeVerifyCA:
+                            mode_str = "VERIFY";
+                            break;
+                        case SettingsManager::MQTTTLSMode::kMQTTTLSModeStrict:
+                            mode_str = "STRICT";
+                            break;
+                    }
+                    CPP_AT_CMD_PRINTF("=%d,%s", i, mode_str);
+                    CPP_AT_PRINTF("\r\n");
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set MQTT TLS mode
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTTLS=<index>,<mode>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            if (CPP_AT_HAS_ARG(1)) {
+                if (args[1].compare("NONE") == 0) {
+                    settings_manager.settings.mqtt_tls_modes[index] = SettingsManager::MQTTTLSMode::kMQTTTLSModeNoVerify;
+                    CPP_AT_SUCCESS();
+                } else if (args[1].compare("VERIFY") == 0) {
+                    settings_manager.settings.mqtt_tls_modes[index] = SettingsManager::MQTTTLSMode::kMQTTTLSModeVerifyCA;
+                    CPP_AT_SUCCESS();
+                } else if (args[1].compare("STRICT") == 0) {
+                    settings_manager.settings.mqtt_tls_modes[index] = SettingsManager::MQTTTLSMode::kMQTTTLSModeStrict;
+                    CPP_AT_SUCCESS();
+                } else {
+                    CPP_AT_ERROR("Invalid TLS mode. Use NONE, VERIFY, or STRICT");
+                }
+            } else {
+                CPP_AT_ERROR("TLS mode required. Usage: AT+MQTTTLS=<index>,<mode>");
+            }
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+void ATMQTTOTAHelpCallback() {
+    CPP_AT_PRINTF(
+        "\tAT+MQTTOTA=<index>,<enable>\r\n\tEnable/disable MQTT OTA for a feed.\r\n"
+        "\tindex = [0-%d], enable = [0|1].\r\n"
+        "\t\r\n\tAT+MQTTOTA?\r\n\tShow OTA status for all feeds.\r\n"
+        "\t\r\n\tAT+MQTTOTA?<index>\r\n\tShow OTA status for a specific feed.\r\n"
+        "\t\r\nWARNING: OTA updates can brick your device if interrupted!\r\n",
+        SettingsManager::Settings::kMaxNumFeeds - 1);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTOTACallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed OTA status
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%d", index,
+                                  settings_manager.settings.mqtt_ota_enabled[index] ? 1 : 0);
+            } else {
+                // Query all feeds OTA status
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%d", i,
+                                      settings_manager.settings.mqtt_ota_enabled[i] ? 1 : 0);
+                    CPP_AT_PRINTF("\r\n");
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Enable/disable MQTT OTA
+            uint16_t index = UINT16_MAX;
+            if (!CPP_AT_HAS_ARG(0)) {
+                CPP_AT_ERROR("Feed index required. Usage: AT+MQTTOTA=<index>,<0|1>");
+            }
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            if (CPP_AT_HAS_ARG(1)) {
+                uint16_t enable = 0;
+                CPP_AT_TRY_ARG2NUM(1, enable);
+                settings_manager.settings.mqtt_ota_enabled[index] = (enable != 0);
+
+                if (enable) {
+                    CPP_AT_PRINTF("WARNING: OTA enabled for feed %d. Ensure stable connection!\r\n", index);
+                }
+                CPP_AT_SUCCESS();
+            } else {
+                CPP_AT_ERROR("Enable flag required. Usage: AT+MQTTOTA=<index>,<0|1>");
+            }
             break;
     }
     CPP_AT_ERROR("Operator '%c' not supported.", op);
@@ -508,7 +818,8 @@ CPP_AT_CALLBACK(CommsManager::ATOTACallback) {
                         if (esp32.IsEnabled()) {
                             char network_console_byte;
                             if (esp32_console_rx_queue.Length() > 0) {
-                                while (buf_len_bytes < len_bytes && esp32_console_rx_queue.Pop(network_console_byte)) {
+                                while (buf_len_bytes < len_bytes &&
+                                       esp32_console_rx_queue.Dequeue(network_console_byte)) {
                                     // Was able to read a char from the network buffer.
                                     buf[buf_len_bytes] = network_console_byte;
                                     buf_len_bytes++;
@@ -563,6 +874,25 @@ CPP_AT_CALLBACK(CommsManager::ATOTACallback) {
                     }
                     adsbee.SetReceiver1090Enable(receiver_was_enabled);  // Re-enable receiver before exit.
                     CPP_AT_SUCCESS();
+                } else if (args[0].compare("COMPLETE") == 0) {
+                    // Complete the OTA update by calculating CRC and writing the header
+                    // AT+OTA=COMPLETE,<size_bytes>
+                    if (num_args >= 2) {
+                        // Convert string_view to string for stoul
+                        std::string size_str(args[1]);
+                        uint32_t firmware_size = std::stoul(size_str, nullptr, 10);
+                        CPP_AT_PRINTF("Completing OTA: calculating CRC and writing header for %u bytes\r\n", firmware_size);
+
+                        bool ret = FirmwareUpdateManager::CompleteOTAUpdate(complementary_partition, firmware_size);
+                        if (ret) {
+                            CPP_AT_PRINTF("OTA completion successful, header written\r\n");
+                            CPP_AT_SUCCESS();
+                        } else {
+                            CPP_AT_ERROR("Failed to complete OTA update");
+                        }
+                    } else {
+                        CPP_AT_ERROR("Size parameter required: AT+OTA=COMPLETE,<size_bytes>");
+                    }
                 } else if (args[0].compare("VERIFY") == 0) {
                     // Verify the complementary flash partition.
                     CPP_AT_PRINTF(
@@ -621,6 +951,34 @@ CPP_AT_CALLBACK(CommsManager::ATLogLevelCallback) {
                 }
             }
             CPP_AT_ERROR("Verbosity level %s not recognized.", args[0].data());
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMAVLINKIDCallback) {
+    switch (op) {
+        case '?':
+            CPP_AT_PRINTF("System ID: %d\r\nComponent ID: %d\r\n", settings_manager.settings.mavlink_system_id,
+                          settings_manager.settings.mavlink_component_id);
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+MAVLINK_ID=<system_id>,<component_id>.");
+            }
+            uint16_t system_id, component_id;
+            CPP_AT_TRY_ARG2NUM(0, system_id);
+            CPP_AT_TRY_ARG2NUM(1, component_id);
+            if (system_id < 1 || system_id > 255) {
+                CPP_AT_ERROR("System ID must be between 1 and 255.");
+            }
+            if (component_id < 1 || component_id > 255) {
+                CPP_AT_ERROR("Component ID must be between 1 and 255.");
+            }
+            settings_manager.settings.mavlink_system_id = static_cast<uint8_t>(system_id);
+            settings_manager.settings.mavlink_component_id = static_cast<uint8_t>(component_id);
+            CPP_AT_SUCCESS();
             break;
     }
     CPP_AT_ERROR("Operator '%c' not supported.", op);
@@ -738,24 +1096,41 @@ CPP_AT_CALLBACK(CommsManager::ATRxEnableCallback) {
     switch (op) {
         case '=':
             if (CPP_AT_HAS_ARG(0)) {
-                bool r1090_enabled;
-                CPP_AT_TRY_ARG2NUM(0, r1090_enabled);
-                adsbee.SetReceiver1090Enable(r1090_enabled);
-            }
-            if (CPP_AT_HAS_ARG(1)) {
-                bool subg_radio_enabled;
-                CPP_AT_TRY_ARG2NUM(1, subg_radio_enabled);
-                adsbee.SetSubGRadioEnable(subg_radio_enabled ? SettingsManager::kEnableStateEnabled
-                                                             : SettingsManager::kEnableStateDisabled);
+                // All enabled argument is present. Ignore subsequent args. This is useful so that all radios can be
+                // disabled or enabled with one argument.
+                bool all_enabled;
+                CPP_AT_TRY_ARG2NUM(0, all_enabled);
+                adsbee.SetReceiver1090Enable(all_enabled);
+                settings_manager.settings.subg_rx_enabled = all_enabled;
+            } else {
+                if (CPP_AT_HAS_ARG(1)) {
+                    bool r1090_enabled;
+                    CPP_AT_TRY_ARG2NUM(1, r1090_enabled);
+                    adsbee.SetReceiver1090Enable(r1090_enabled);
+                }
+                if (CPP_AT_HAS_ARG(2)) {
+                    CPP_AT_TRY_ARG2NUM(2, settings_manager.settings.subg_rx_enabled);
+                }
             }
             CPP_AT_SUCCESS();
             break;
         case '?':
-            CPP_AT_CMD_PRINTF("=%d,%d", adsbee.Receiver1090IsEnabled(), adsbee.SubGRadioIsEnabled());
+            CPP_AT_PRINTF("1090 Receiver: %s\r\nSubG Receiver: %s\r\n",
+                          adsbee.Receiver1090IsEnabled() ? "ENABLED" : "DISABLED",
+                          settings_manager.settings.subg_rx_enabled ? "ENABLED" : "DISABLED");
             CPP_AT_SILENT_SUCCESS();
             break;
     }
     CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_HELP_CALLBACK(CommsManager::ATRxEnableHelpCallback) {
+    CPP_AT_PRINTF(
+        "RX_ENABLE=<all_enabled [1,0]>,<1090_enabled [1,0]>,<subg_enabled [1,0]>\r\n\tOK\r\n\tEnables or disables the "
+        "receiver(s) "
+        "from receiving messages. First arg overrides others if present.\r\n\tAT+RX_ENABLE?\r\n\t1090 Receiver: "
+        "<1090_enabled [ENABLED,DISABLED]>\r\n\tSubG Receiver: <subg_en> [ENABLED,DISABLED]>\r\n\tQuery whether the "
+        "recevier(s) are enabled.\r\n");
 }
 
 CPP_AT_CALLBACK(CommsManager::ATSettingsCallback) {
@@ -849,17 +1224,17 @@ CPP_AT_CALLBACK(CommsManager::ATTLReadCallback) {
 }
 
 /**
- * AT+TL_SET Callback
- * AT+TL_SET=<tl_mv>
- *  tl_mv = Trigger Level, in milliVolts.
- * AT+TL_SET?
- * +TL_SET=
+ * AT+TL_OFFSET Callback
+ * AT+TL_OFFSET=<tl_offset_mv>
+ *  tl_offset_mv = Trigger Level Offset, in milliVolts.
+ * AT+TL_OFFSET?
+ * +TL_OFFSET=
  */
 CPP_AT_CALLBACK(CommsManager::ATTLSetCallback) {
     switch (op) {
         case '?': {
             // AT+TL_SET value query.
-            int tl_mv = adsbee.GetTLMilliVolts();
+            int tl_mv = adsbee.GetTLOffsetMilliVolts();
             CPP_AT_CMD_PRINTF("=%dmV (%d dBm)\r\n", tl_mv, adsbee.AD8313MilliVoltsTodBm(tl_mv));
             CPP_AT_SILENT_SUCCESS();
             break;
@@ -872,10 +1247,10 @@ CPP_AT_CALLBACK(CommsManager::ATTLSetCallback) {
                     adsbee.StartTLLearning();
                 } else {
                     // Assigning trigger level manually.
-                    uint16_t new_tl_mv;
-                    CPP_AT_TRY_ARG2NUM(0, new_tl_mv);
-                    if (!adsbee.SetTLMilliVolts(new_tl_mv)) {
-                        CPP_AT_ERROR("Failed to set tl_mv.");
+                    uint16_t new_tl_offset_mv;
+                    CPP_AT_TRY_ARG2NUM(0, new_tl_offset_mv);
+                    if (!adsbee.SetTLOffsetMilliVolts(new_tl_offset_mv)) {
+                        CPP_AT_ERROR("Failed to set tl_offset_mv.");
                     }
                 }
             }
@@ -1064,6 +1439,26 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 5,
      .help_callback = ATFeedHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedCallback, comms_manager)},
+    {.command_buf = "+MQTTFMT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_callback = ATMQTTFormatHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTFormatCallback, comms_manager)},
+    {.command_buf = "+MQTTAUTH",
+     .min_args = 0,
+     .max_args = 3,
+     .help_callback = ATMQTTAuthHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTAuthCallback, comms_manager)},
+    {.command_buf = "+MQTTTLS",
+     .min_args = 0,
+     .max_args = 2,
+     .help_callback = ATMQTTTLSHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTTLSCallback, comms_manager)},
+    {.command_buf = "+MQTTOTA",
+     .min_args = 0,
+     .max_args = 2,
+     .help_callback = ATMQTTOTAHelpCallback,
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTOTACallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,
@@ -1078,6 +1473,12 @@ const CppAT::ATCommandDef_t at_command_list[] = {
          "AT+LOG_LEVEL=<log_level [SILENT ERRORS WARNINGS LOGS]>\r\n\tSet how much stuff gets printed to the "
          "console.\r\n\t",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATLogLevelCallback, comms_manager)},
+    {.command_buf = "+MAVLINK_ID",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+MAVLINK_ID=<system_id>,<component_id>\r\n\tSet the MAVLink system and component IDs.\r\n\t"
+                        "AT+MAVLINK_ID?\r\n\tQuery the MAVLink system and component IDs.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMAVLINKIDCallback, comms_manager)},
     {.command_buf = "+NETWORK_INFO",
      .min_args = 0,
      .max_args = 0,
@@ -1100,11 +1501,8 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATRebootCallback, comms_manager)},
     {.command_buf = "+RX_ENABLE",
      .min_args = 0,
-     .max_args = 2,
-     .help_string_buf = "RX_ENABLE=<1090_enabled [1,0]>,<subg_enabled [1,0]>\r\n\tOK\r\n\tEnables or disables the "
-                        "receiver(s) from receiving messages.\r\n\tAT+RX_ENABLE?\r\n\t+RX_ENABLE=<enabled "
-                        "[1,0]>\r\n\tQuery whether the "
-                        "recevier(s) are enabled.",
+     .max_args = 3,
+     .help_callback = CPP_AT_BIND_MEMBER_HELP_CALLBACK(CommsManager::ATRxEnableHelpCallback, comms_manager),
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATRxEnableCallback, comms_manager)
 
     },
@@ -1141,13 +1539,14 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 0,
      .help_string_buf =
          "Read ADC counts and mV value for the minimum trigger level threshold. Call with no ops nor arguments, "
-         "AT+TL_READ.",
+         "AT+TL_READ. Note this reads the trigger level, not the trigger level offset.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATTLReadCallback, comms_manager)},
-    {.command_buf = "+TL_SET",
+    {.command_buf = "+TL_OFFSET",
      .min_args = 0,
      .max_args = 1,
-     .help_string_buf = "Set minimum trigger level threshold for RF power detector.\r\n\tAT+TLSet=<tl_mv>"
-                        "\tQuery trigger level.\r\n\tAT+TL_SET?\r\n\t+TLSet=<tl_mv>.",
+     .help_string_buf = "Set minimum trigger level offset (trigger level distance above noise floor) for RF power "
+                        "detector.\r\n\tAT+TL_OFFSET=<tl_offset_mv>"
+                        "\tQuery trigger level offset.\r\n\tAT+TL_OFFSET?\r\n\t+TL_OFFSET=<tl_offset_mv>.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATTLSetCallback, comms_manager)},
     {.command_buf = "+UPTIME",
      .min_args = 0,
@@ -1203,7 +1602,7 @@ bool CommsManager::UpdateAT() {
         // Receive incoming network console characters.
         static char esp32_console_rx_buf[kATCommandBufMaxLen + 1];
         static uint16_t esp32_console_rx_buf_len = 0;
-        while (esp32_console_rx_queue.Pop(c)) {
+        while (esp32_console_rx_queue.Dequeue(c)) {
             esp32_console_rx_buf[esp32_console_rx_buf_len] = c;
             esp32_console_rx_buf_len++;
             esp32_console_rx_buf[esp32_console_rx_buf_len] = '\0';

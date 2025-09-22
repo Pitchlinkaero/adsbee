@@ -29,7 +29,8 @@ bool WebSocketServer::Init() {
                               .handler = ws_handler,
                               .user_ctx = this,
                               .is_websocket = true,
-                              .handle_ws_control_frames = false};
+                              .handle_ws_control_frames = false,
+                              .supported_subprotocol = NULL};
     httpd_register_uri_handler(config_.server, &console_ws);
 
     return true;
