@@ -1,6 +1,7 @@
 #include "composite_array.hh"
 
 #include "comms.hh"
+#include <cstring>  // For memcpy
 
 CompositeArray::RawPackets CompositeArray::PackRawPacketsBuffer(uint8_t* buf, uint16_t buf_len_bytes,
                                                                 PFBQueue<RawModeSPacket>* mode_s_queue,
