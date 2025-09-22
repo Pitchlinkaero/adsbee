@@ -959,7 +959,7 @@ bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
     }
 
     for (size_t i = 0; i < cmd_len; i++) {
-        if (!object_dictionary.network_console_rx_queue.Push(cmd[i])) {
+        if (!object_dictionary.network_console_rx_queue.Enqueue(cmd[i])) {
             CONSOLE_ERROR("MQTTOTAHandler::SendCommandToPico",
                           "Failed to push command character to network console queue");
             xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
@@ -985,7 +985,7 @@ bool MQTTOTAHandler::SendDataToPico(const uint8_t* data, size_t len) {
         }
         size_t to_push = (len - pos < available) ? (len - pos) : available;
         for (size_t i = 0; i < to_push; i++) {
-            if (!object_dictionary.network_console_rx_queue.Push(static_cast<char>(data[pos + i]))) {
+            if (!object_dictionary.network_console_rx_queue.Enqueue(static_cast<char>(data[pos + i]))) {
                 // If push fails unexpectedly, release and retry
                 xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
                 vTaskDelay(pdMS_TO_TICKS(1));
