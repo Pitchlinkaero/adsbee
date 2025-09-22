@@ -1031,8 +1031,12 @@ bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_response, uint32_t
                 return false;
             } else {
                 // Log what we received if it's not what we expected (for debugging)
-                if (strlen(response_buffer_) > 0) {
-                    CONSOLE_DEBUG("MQTTOTAHandler::WaitForPicoResponse",
+                // Only log if we have something meaningful to avoid spam
+                if (strlen(response_buffer_) > 0 &&
+                    strstr(response_buffer_, "Progress:") == nullptr &&
+                    strstr(response_buffer_, "chunks") == nullptr) {
+                    // Use CONSOLE_INFO for debug output since CONSOLE_DEBUG doesn't exist
+                    CONSOLE_INFO("MQTTOTAHandler::WaitForPicoResponse",
                                 "Discarding non-matching response: '%s' (looking for '%s')",
                                 response_buffer_, expected_response);
                 }
