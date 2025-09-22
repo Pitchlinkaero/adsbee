@@ -12,7 +12,7 @@ const uint8_t ObjectDictionary::kFirmwareVersionMajor = 0;
 const uint8_t ObjectDictionary::kFirmwareVersionMinor = 8;
 const uint8_t ObjectDictionary::kFirmwareVersionPatch = 3;
 // NOTE: Indicate a final release with RC = 0.
-const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 1;
+const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 2;
 
 const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24) | (kFirmwareVersionMinor << 16) |
                                                     (kFirmwareVersionPatch << 8) | kFirmwareVersionReleaseCandidate;
@@ -247,7 +247,7 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
 #elif defined(ON_TI)
 #endif
         default:
-            CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for reading from address 0x%x.", addr);
+            CONSOLE_ERROR("SPICoprocessor::GetBytes", "No behavior implemented for reading from address 0x%x.", addr);
             return false;
     }
     return true;
