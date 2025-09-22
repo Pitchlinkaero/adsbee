@@ -4,15 +4,18 @@
 #ifdef ON_ESP32
 #include "adsbee_server.hh"
 #include "device_info.hh"
+
+// Forward declaration for MQTT OTA response callback
+extern "C" void MQTTOTAHandler_GlobalPicoResponseCallback(const char* message, size_t len);
 #endif
 
 #include "comms.hh"
 
 const uint8_t ObjectDictionary::kFirmwareVersionMajor = 0;
 const uint8_t ObjectDictionary::kFirmwareVersionMinor = 8;
-const uint8_t ObjectDictionary::kFirmwareVersionPatch = 2;
+const uint8_t ObjectDictionary::kFirmwareVersionPatch = 6;
 // NOTE: Indicate a final release with RC = 0.
-const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 0;
+const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 2;
 
 const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24) | (kFirmwareVersionMinor << 16) |
                                                     (kFirmwareVersionPatch << 8) | kFirmwareVersionReleaseCandidate;
@@ -30,8 +33,21 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             // Warning: printing here will cause a timeout and tests will fail.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,
             // offset);
-            memcpy((uint8_t *)&(settings_manager.settings) + offset, buf, buf_len);
-            if (offset + buf_len == sizeof(SettingsManager::Settings)) {
+            if (offset < sizeof(SettingsManager::Settings)) {
+                uint16_t copy_len = MIN(buf_len, static_cast<uint16_t>(sizeof(SettingsManager::Settings) - offset));
+                memcpy((uint8_t *)&(settings_manager.settings) + offset, buf, copy_len);
+                if (copy_len < buf_len) {
+                    CONSOLE_WARNING("ObjectDictionary::SetBytes",
+                                    "Truncated settings write: offset %d buf_len %d exceeds struct size %d.", offset,
+                                    buf_len, sizeof(SettingsManager::Settings));
+                }
+            } else {
+                // Ignore out-of-bounds write beyond end of struct.
+                CONSOLE_WARNING("ObjectDictionary::SetBytes",
+                                "Ignoring settings write entirely beyond struct: offset %d >= size %d.", offset,
+                                sizeof(SettingsManager::Settings));
+            }
+            if (offset + buf_len >= sizeof(SettingsManager::Settings)) {
                 CONSOLE_INFO("SPICoprocessor::SetBytes", "Wrote last chunk of settings data. Applying new values.");
                 settings_manager.Apply();
             }
@@ -92,6 +108,10 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             // Don't print here to avoid print of print doom loop explosion.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Forwarding message to network console: %s",
             // message);
+
+            // Forward to OTA handler if active (for response parsing)
+            MQTTOTAHandler_GlobalPicoResponseCallback(message, buf_len);
+
             adsbee_server.network_console.BroadcastMessage(message, buf_len);
             break;
         }

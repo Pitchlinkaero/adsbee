@@ -442,11 +442,22 @@ void NetworkConsolePostConnectCallback(WebSocketServer *ws_server, int client_fd
                  settings_manager.settings.core_network_settings.wifi_ap_ssid);
     }
 
-    welcome_message[kNetworkConsoleWelcomeMessageMaxLen] = '\0';  // Null terminate for safety.
+    welcome_message[kNetworkConsoleWelcomeMessageMaxLen - 1] = '\0';  // Null terminate for safety.
     ws_server->SendMessage(client_fd, welcome_message);
 }
 
 void NetworkConsoleMessageReceivedCallback(WebSocketServer *ws_server, int client_fd, httpd_ws_frame_t &ws_pkt) {
+    // Check if OTA is active and block WebSocket console messages
+#if CONFIG_MQTT_OTA_ENABLED
+    extern volatile bool g_mqtt_ota_active;
+    if (g_mqtt_ota_active) {
+        // During OTA, reject WebSocket console input to prevent corruption
+        const char* ota_msg = "\r\nOTA in progress. Console input disabled.\r\n";
+        ws_server->SendMessage(client_fd, ota_msg);
+        return;
+    }
+#endif
+
     // Forward the network console message to the RP2040.
     char *message = (char *)ws_pkt.payload;
     uint16_t message_len = (uint16_t)ws_pkt.len;
@@ -486,7 +497,7 @@ bool ADSBeeServer::TCPServerInit() {
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &css));
 
         // Favicon URI handler
-        httpd_uri_t favicon = {.uri = "/favicon.png", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL};
+        httpd_uri_t favicon = {.uri = "/favicon.png", .method = HTTP_GET, .handler = favicon_handler, .user_ctx = NULL, .supported_subprotocol = NULL};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &favicon));
 
         network_console = WebSocketServer({.label = "Network Console",

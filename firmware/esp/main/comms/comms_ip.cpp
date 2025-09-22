@@ -10,6 +10,10 @@
 #include "lwip/sys.h"
 #include "mdns.h"
 #include "task_priorities.hh"
+#include "driver/temperature_sensor.h"  // For CPU temperature
+#include "esp_app_desc.h"  // For firmware version
+#include "server/adsbee_server.hh"  // For aircraft_dictionary metrics
+#include "object_dictionary.hh"  // For firmware version constants
 
 static const uint32_t kWiFiTCPSocketReconnectIntervalMs = 5000;
 
@@ -154,6 +158,7 @@ void CommsManager::IPEventHandler(void* arg, esp_event_base_t event_base, int32_
     }
 }
 
+
 void CommsManager::IPWANTask(void* pvParameters) {
     Decoded1090Packet decoded_packet;
 
@@ -162,6 +167,47 @@ void CommsManager::IPWANTask(void* pvParameters) {
     uint32_t feed_sock_last_connect_timestamp_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
+
+    // Initialize MQTT clients for feeds configured with MQTT protocol
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT &&
+            settings_manager.settings.feed_is_active[i]) {
+
+            MQTT::MQTTClient::Config mqtt_config;
+
+            // Parse URI to extract protocol and hostname
+            std::string full_uri = settings_manager.settings.feed_uris[i];
+            std::string broker_uri = full_uri;
+            bool use_tls = false;
+
+            // Determine TLS based on protocol prefix and extract hostname
+            if (full_uri.find("mqtt://") == 0) {
+                broker_uri = full_uri.substr(7);  // Remove "mqtt://"
+                use_tls = false;
+            } else if (full_uri.find("mqtts://") == 0) {
+                broker_uri = full_uri.substr(8);  // Remove "mqtts://"
+                use_tls = true;
+            }
+
+            mqtt_config.broker_uri = broker_uri;
+            mqtt_config.port = settings_manager.settings.feed_ports[i];
+            mqtt_config.username = settings_manager.settings.mqtt_usernames[i];
+            mqtt_config.password = settings_manager.settings.mqtt_passwords[i];
+            mqtt_config.client_id = settings_manager.settings.mqtt_client_ids[i];
+            mqtt_config.device_id = settings_manager.settings.mqtt_device_id;
+            mqtt_config.use_tls = use_tls;
+            mqtt_config.ota_enabled = settings_manager.settings.mqtt_ota_enabled[i];
+            mqtt_config.format = settings_manager.settings.mqtt_formats[i];
+            mqtt_config.report_mode = settings_manager.settings.mqtt_report_modes[i];
+            mqtt_config.telemetry_interval_sec = settings_manager.settings.mqtt_telemetry_interval_sec;
+            mqtt_config.gps_interval_sec = settings_manager.settings.mqtt_gps_interval_sec;
+            mqtt_config.status_rate_hz = settings_manager.settings.mqtt_status_rate_hz;
+
+
+            mqtt_clients_[i] = std::make_unique<MQTT::MQTTClient>(mqtt_config, i);
+            CONSOLE_INFO("CommsManager::IPWANTask", "Initialized MQTT client for feed %d", i);
+        }
+    }
 
     while (true) {
         // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
@@ -191,6 +237,117 @@ void CommsManager::IPWANTask(void* pvParameters) {
             CONSOLE_INFO("CommsManager::IPWANTask", "Feed msgs/s: %s", feeds_stats_message);
         }
 
+        // Handle MQTT connections and periodic telemetry
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!mqtt_clients_[i]) {
+                continue;  // No MQTT client for this feed
+            }
+
+            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT ||
+                !settings_manager.settings.feed_is_active[i]) {
+                // Feed is not MQTT or not active, disconnect if connected
+                if (mqtt_clients_[i]->IsConnected()) {
+                    mqtt_clients_[i]->Disconnect();
+                }
+                continue;
+            }
+
+            // Try to connect if not connected
+            if (!mqtt_clients_[i]->IsConnected()) {
+                uint32_t now = get_time_since_boot_ms();
+                if (now - mqtt_last_connect_attempt_[i] > 5000) {  // Try every 5 seconds
+                    CONSOLE_INFO("CommsManager::IPWANTask",
+                                 "Connecting MQTT feed %d to %s:%d",
+                                 i, settings_manager.settings.feed_uris[i],
+                                 settings_manager.settings.feed_ports[i]);
+                    mqtt_clients_[i]->Connect();
+                    mqtt_last_connect_attempt_[i] = now;
+                }
+            }
+
+            // Publish telemetry if connected
+            if (mqtt_clients_[i]->IsConnected()) {
+                MQTT::Telemetry telemetry = {};
+                telemetry.uptime_sec = get_time_since_boot_ms() / 1000;
+
+                // msgs_rx should be total messages received per second across all feeds
+                uint32_t total_rx_mps = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    total_rx_mps += feed_mps[j];
+                }
+                telemetry.msgs_rx = total_rx_mps;
+
+                // msgs_tx is messages sent by this MQTT feed per second
+                telemetry.msgs_tx = feed_mps[i];
+
+                // Get CPU temperature (ESP32-S3 specific)
+                // Use static sensor initialized once to avoid log spam
+                static temperature_sensor_handle_t temp_sensor = NULL;
+                static bool temp_sensor_initialized = false;
+                float temp_celsius = 0.0f;
+
+                if (!temp_sensor_initialized) {
+                    temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+                    if (temperature_sensor_install(&temp_sensor_config, &temp_sensor) == ESP_OK) {
+                        temperature_sensor_enable(temp_sensor);
+                        temp_sensor_initialized = true;
+                    }
+                }
+
+                if (temp_sensor_initialized && temp_sensor != NULL) {
+                    temperature_sensor_get_celsius(temp_sensor, &temp_celsius);
+                }
+                telemetry.cpu_temp_c = (int32_t)temp_celsius;
+
+                telemetry.mem_free_kb = esp_get_free_heap_size() / 1024;
+                telemetry.noise_floor_dbm = -100;  // TODO: Get actual noise floor from decoder
+                telemetry.rx_1090 = true;  // Always true for now
+                telemetry.rx_978 =
+                    (settings_manager.settings.subg_enabled == SettingsManager::EnableState::kEnableStateEnabled);
+                telemetry.wifi = wifi_sta_has_ip_;
+                telemetry.mqtt = true;
+
+                // Get firmware version from ObjectDictionary
+                char version_str[16];
+                snprintf(version_str, sizeof(version_str), "%d.%d.%d",
+                        object_dictionary.kFirmwareVersionMajor,
+                        object_dictionary.kFirmwareVersionMinor,
+                        object_dictionary.kFirmwareVersionPatch);
+                telemetry.fw_version = version_str;
+
+                telemetry.mps_total = 0;
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    telemetry.mps_total += feed_mps[j];
+                }
+
+                // Add per-feed message rates
+                telemetry.mps_feeds.clear();
+                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+                    if (settings_manager.settings.feed_is_active[j]) {
+                        telemetry.mps_feeds.push_back(feed_mps[j]);
+                    }
+                }
+
+                // Add decoder statistics from aircraft dictionary
+                // Note: ESP32 uses combined metrics (ESP32 + RP2040)
+                AircraftDictionary::Metrics combined_metrics = adsbee_server.aircraft_dictionary.metrics;
+
+                // Add RP2040 metrics for demodulations and raw frames
+                combined_metrics.demods_1090 = adsbee_server.rp2040_aircraft_dictionary_metrics.demods_1090;
+                combined_metrics.raw_squitter_frames = adsbee_server.rp2040_aircraft_dictionary_metrics.raw_squitter_frames;
+                combined_metrics.raw_extended_squitter_frames =
+                    adsbee_server.rp2040_aircraft_dictionary_metrics.raw_extended_squitter_frames;
+
+                telemetry.demods_1090 = combined_metrics.demods_1090;
+                telemetry.raw_squitter_frames = combined_metrics.raw_squitter_frames;
+                telemetry.valid_squitter_frames = combined_metrics.valid_squitter_frames;
+                telemetry.raw_extended_squitter = combined_metrics.raw_extended_squitter_frames;
+                telemetry.valid_extended_squitter = combined_metrics.valid_extended_squitter_frames;
+
+                mqtt_clients_[i]->PublishTelemetry(telemetry);
+            }
+        }
+
         // Gather packet(s) to send.
         if (xQueueReceive(ip_wan_decoded_transponder_packet_queue_, &decoded_packet, kWiFiSTATaskUpdateIntervalTicks) !=
             pdTRUE) {
@@ -198,19 +355,30 @@ void CommsManager::IPWANTask(void* pvParameters) {
             continue;
         }
 
+        // Debug: Log that we received a packet for processing
+        CONSOLE_INFO("CommsManager::IPWANTask", "Processing packet for ICAO 0x%06lx, valid=%d",
+                     (unsigned long)decoded_packet.GetICAOAddress(), decoded_packet.IsValid());
+
         // NOTE: Construct packets that are shared between feeds here!
 
         for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
             // Iterate through feeds, open/close and send message as required.
             if (!settings_manager.settings.feed_is_active[i]) {
                 // Socket should not be fed.
-                if (feed_sock_is_connected[i]) {
+                // Only close raw sockets, not MQTT connections (handled by MQTT client)
+                if (feed_sock_is_connected[i] &&
+                    settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
                     // Need to close the socket connection.
                     close(feed_sock[i]);
                     feed_sock_is_connected[i] = false;
                     CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", i);
                 }
                 continue;  // Don't need to do anything else if socket should be closed and is closed.
+            }
+
+            // Skip MQTT feeds - they are handled by MQTT client
+            if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+                continue;  // MQTT feeds don't use raw sockets
             }
 
             // Socket should be open.
@@ -343,6 +511,135 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     }
                     break;
                 }
+                case SettingsManager::ReportingProtocol::kMQTT: {
+                    // Debug: Log that we're in MQTT case
+                    CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d is MQTT, checking connection", i);
+
+                    // Publish via MQTT
+                    if (!mqtt_clients_[i] || !mqtt_clients_[i]->IsConnected()) {
+                        // No client or not connected
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d MQTT client not connected", i);
+                        break;
+                    }
+
+                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT client %d is connected", i);
+
+                    // Determine band (1090 MHz or UAT)
+                    // TODO: Properly detect band from source
+                    uint8_t band = 1;  // Default to 1090 MHz
+
+                    // Check report mode
+                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT report mode for feed %d is %d",
+                                 i, settings_manager.settings.mqtt_report_modes[i]);
+
+                    // Publish based on report mode
+                    if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
+                        settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
+
+                        // For MQTT, we publish aircraft status even if the packet itself is invalid,
+                        // as long as we have aircraft data in the dictionary
+                        uint32_t icao_address = decoded_packet.GetICAOAddress();
+
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Processing ICAO 0x%06lx for MQTT feed %d",
+                                     (unsigned long)icao_address, i);
+
+                        // Only proceed if we have a valid ICAO address
+                        if (icao_address != 0) {
+                            // Get aircraft data from dictionary for complete information
+                            Aircraft1090* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr(icao_address);
+
+                            if (aircraft != nullptr) {
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Found aircraft 0x%06lx in dictionary",
+                                             (unsigned long)icao_address);
+                            } else {
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Aircraft 0x%06lx NOT in dictionary",
+                                             (unsigned long)icao_address);
+                            }
+
+                            // Convert to TransponderPacket for publishing
+                            TransponderPacket packet;
+                            packet.address = icao_address;
+                            packet.timestamp_ms = decoded_packet.GetTimestampMs();
+
+                            if (aircraft != nullptr) {
+                                // We have aircraft data from the dictionary
+                                packet.latitude = aircraft->latitude_deg;
+                                packet.longitude = aircraft->longitude_deg;
+                                packet.altitude = aircraft->baro_altitude_ft;
+                                packet.heading = aircraft->direction_deg;
+                                packet.velocity = aircraft->velocity_kts;
+                                packet.vertical_rate = aircraft->vertical_rate_fpm;
+                                packet.squawk = aircraft->squawk;
+                                packet.airborne = (aircraft->baro_altitude_ft > 100) ? 1 : 0;  // Simple ground detection
+                                packet.category = aircraft->category_raw;
+
+                                // Copy callsign
+                                strncpy(packet.callsign, aircraft->callsign, 8);
+                                packet.callsign[8] = '\0';
+
+                                // Set validity flags based on available data
+                                packet.flags = 0;
+                                if (aircraft->latitude_deg != 0.0 || aircraft->longitude_deg != 0.0) {
+                                    packet.flags |= TransponderPacket::FLAG_POSITION_VALID;
+                                }
+                                if (aircraft->baro_altitude_ft != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_ALTITUDE_VALID;
+                                }
+                                if (aircraft->velocity_kts > 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VELOCITY_VALID;
+                                }
+                                if (aircraft->direction_deg != 0.0) {
+                                    packet.flags |= TransponderPacket::FLAG_HEADING_VALID;
+                                }
+                                if (aircraft->vertical_rate_fpm != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VERTICAL_RATE_VALID;
+                                }
+                                if (strlen(aircraft->callsign) > 1 && strcmp(aircraft->callsign, "?") != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CALLSIGN_VALID;
+                                }
+                                if (aircraft->squawk != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_SQUAWK_VALID;
+                                }
+                                if (aircraft->category_raw != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CATEGORY_VALID;
+                                }
+                            } else {
+                                // No aircraft data in dictionary, use minimal data
+                                packet.altitude = 0;
+                                packet.latitude = 0.0;
+                                packet.longitude = 0.0;
+                                packet.heading = 0.0;
+                                packet.velocity = 0.0;
+                                packet.vertical_rate = 0;
+                                packet.squawk = 0;
+                                packet.airborne = 1;
+                                packet.category = 0;
+                                memset(packet.callsign, 0, 9);
+                                packet.flags = 0;  // Only address is valid
+                            }
+
+                            CONSOLE_INFO("CommsManager::IPWANTask", "Attempting to publish aircraft 0x%06lx to MQTT",
+                                         (unsigned long)icao_address);
+
+                            if (mqtt_clients_[i]->PublishAircraftStatus(packet, band)) {
+                                feed_mps_counter_[i]++;  // Update statistics
+                                CONSOLE_INFO("CommsManager::IPWANTask", "Successfully published aircraft 0x%06lx",
+                                             (unsigned long)icao_address);
+                            } else {
+                                CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to publish aircraft 0x%06lx",
+                                              (unsigned long)icao_address);
+                            }
+                        } else {
+                            CONSOLE_INFO("CommsManager::IPWANTask", "Skipping ICAO 0 (invalid address)");
+                        }
+                    } else {
+                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d report mode %d doesn't include status",
+                                     i, settings_manager.settings.mqtt_report_modes[i]);
+                    }
+
+                    // TODO: Add raw packet publishing if report_mode includes RAW
+                    break;
+                }
                 // TODO: add other protocols here
                 default:
                     // No reporting protocol or unsupported protocol: do nothing.
@@ -351,9 +648,10 @@ void CommsManager::IPWANTask(void* pvParameters) {
         }
     }
 
-    // Close all sockets while exiting.
+    // Close all sockets while exiting (skip MQTT feeds).
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        if (feed_sock_is_connected[i]) {
+        if (feed_sock_is_connected[i] &&
+            settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
             // Need to close the socket connection.
             close(feed_sock[i]);
             feed_sock_is_connected[i] = false;  // Not necessary but leaving this here in case of refactor.

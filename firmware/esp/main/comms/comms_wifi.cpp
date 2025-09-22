@@ -249,6 +249,11 @@ bool CommsManager::IPWANSendDecoded1090Packet(Decoded1090Packet& decoded_packet)
             "Can't push to WAN transponder packet queue if WiFi station is not running and Ethernet is disconnected.");
         return false;  // Task not started yet, queue not created yet. Pushing to queue would cause an abort.
     }
+
+    // Debug: Log packet being queued
+    CONSOLE_INFO("CommsManager::IPWANSendDecoded1090Packet",
+                 "Queueing packet for ICAO 0x%06lx", (unsigned long)decoded_packet.GetICAOAddress());
+
     int err = xQueueSend(ip_wan_decoded_transponder_packet_queue_, &decoded_packet, 0);
     if (err == errQUEUE_FULL) {
         CONSOLE_WARNING("CommsManager::IPWANSendDecoded1090Packet", "Overflowed WAN transponder packet queue.");
