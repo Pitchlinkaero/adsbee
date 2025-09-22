@@ -1009,28 +1009,52 @@ bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_response, uint32_t
     TickType_t start_time = xTaskGetTickCount();
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
 
+    // Track how many responses we've discarded (for debugging)
+    int responses_checked = 0;
+
     while ((xTaskGetTickCount() - start_time) < timeout_ticks) {
         // Check if we have a complete response line
         if (xSemaphoreTake(response_semaphore_, pdMS_TO_TICKS(10)) == pdTRUE) {
+            responses_checked++;
+
             // Response received, check if it matches expected
             if (strstr(response_buffer_, expected_response) != nullptr) {
                 CONSOLE_INFO("MQTTOTAHandler::WaitForPicoResponse",
-                           "Got expected response: %s", expected_response);
+                           "Got expected response: %s (after checking %d responses)",
+                           expected_response, responses_checked);
                 return true;
-            } else if (strstr(response_buffer_, "ERROR") != nullptr) {
+            } else if (strstr(response_buffer_, "ERROR") != nullptr &&
+                       strcmp(expected_response, "ERROR") != 0) {
+                // Only treat ERROR as failure if we weren't expecting it
                 CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
                             "Got ERROR response: %s", response_buffer_);
                 return false;
+            } else {
+                // Log what we received if it's not what we expected (for debugging)
+                if (strlen(response_buffer_) > 0) {
+                    CONSOLE_DEBUG("MQTTOTAHandler::WaitForPicoResponse",
+                                "Discarding non-matching response: '%s' (looking for '%s')",
+                                response_buffer_, expected_response);
+                }
             }
+
             // Not the expected response, clear and continue waiting
             response_buffer_pos_ = 0;
             response_received_ = false;
+            memset(response_buffer_, 0, kResponseBufferSize);
         }
     }
 
     CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
-                  "Timeout waiting for response '%s' after %lu ms",
-                  expected_response, (unsigned long)timeout_ms);
+                  "Timeout waiting for response '%s' after %lu ms (checked %d responses)",
+                  expected_response, (unsigned long)timeout_ms, responses_checked);
+
+    // Log the last thing in the buffer for debugging
+    if (response_buffer_pos_ > 0) {
+        CONSOLE_ERROR("MQTTOTAHandler::WaitForPicoResponse",
+                    "Last buffer content: '%s'", response_buffer_);
+    }
+
     return false;
 }
 
@@ -1038,18 +1062,75 @@ void MQTTOTAHandler::OnPicoResponse(const char* message, size_t len) {
     // Called when Pico sends a response via network console
     // Buffer the message and signal if it's a complete line
 
-    for (size_t i = 0; i < len && response_buffer_pos_ < kResponseBufferSize - 1; i++) {
-        response_buffer_[response_buffer_pos_++] = message[i];
+    // Static buffer to accumulate partial messages
+    static char line_buffer[kResponseBufferSize];
+    static size_t line_buffer_pos = 0;
+
+    for (size_t i = 0; i < len; i++) {
+        // Add character to line buffer
+        if (line_buffer_pos < kResponseBufferSize - 1) {
+            line_buffer[line_buffer_pos++] = message[i];
+        }
 
         // Check for line ending (\r\n or \n)
-        if (message[i] == '\n' ||
-            (message[i] == '\r' && i + 1 < len && message[i + 1] == '\n')) {
-            // Complete line received
-            response_buffer_[response_buffer_pos_] = '\0';
-            response_received_ = true;
+        if (message[i] == '\n' || message[i] == '\r') {
+            // Handle empty lines
+            if (line_buffer_pos == 0 || (line_buffer_pos == 1 && (line_buffer[0] == '\n' || line_buffer[0] == '\r'))) {
+                line_buffer_pos = 0;
+                // Skip \n if we had \r\n
+                if (message[i] == '\r' && i + 1 < len && message[i + 1] == '\n') {
+                    i++;
+                }
+                continue;
+            }
 
-            // Signal the waiting task
-            xSemaphoreGive(response_semaphore_);
+            // Null terminate the line
+            if (line_buffer_pos > 0) {
+                line_buffer[line_buffer_pos - 1] = '\0';  // Remove the newline
+            }
+
+            // Filter out non-OTA debug messages
+            // Skip lines that are clearly debug output
+            if (strstr(line_buffer, "AircraftDictionary::") != nullptr ||
+                strstr(line_buffer, "PacketDecoder::") != nullptr ||
+                strstr(line_buffer, "CoProcessor:") != nullptr ||
+                strstr(line_buffer, "Skipped duplicate packet") != nullptr ||
+                strstr(line_buffer, "Failed to apply ADSB message") != nullptr ||
+                strstr(line_buffer, "Progress:") != nullptr ||  // Skip progress messages from MQTT publisher
+                strstr(line_buffer, "chunks sent") != nullptr ||  // Skip chunk progress
+                strstr(line_buffer, "chunks/s") != nullptr) {  // Skip rate messages
+                // Debug message - ignore it
+                line_buffer_pos = 0;
+
+                // Skip \n if we had \r\n
+                if (message[i] == '\r' && i + 1 < len && message[i + 1] == '\n') {
+                    i++;
+                }
+                continue;
+            }
+
+            // Check if this line contains OTA-related responses
+            if (strstr(line_buffer, "READY") != nullptr ||
+                strstr(line_buffer, "OK") != nullptr ||
+                strstr(line_buffer, "ERROR") != nullptr ||
+                strstr(line_buffer, "Partition:") != nullptr ||
+                strstr(line_buffer, "Verifying") != nullptr ||
+                strstr(line_buffer, "Writing") != nullptr ||
+                strstr(line_buffer, "Erasing") != nullptr) {
+
+                // Copy to response buffer
+                response_buffer_pos_ = 0;
+                strncpy(response_buffer_, line_buffer, kResponseBufferSize - 1);
+                response_buffer_[kResponseBufferSize - 1] = '\0';
+                response_buffer_pos_ = strlen(response_buffer_);
+                response_received_ = true;
+
+                // Signal the waiting task
+                xSemaphoreGive(response_semaphore_);
+            }
+
+            // Reset line buffer for next line
+            line_buffer_pos = 0;
 
             // Skip \n if we had \r\n
             if (message[i] == '\r' && i + 1 < len && message[i + 1] == '\n') {
