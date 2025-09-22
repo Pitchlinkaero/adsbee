@@ -12,7 +12,7 @@ const uint8_t ObjectDictionary::kFirmwareVersionMajor = 0;
 const uint8_t ObjectDictionary::kFirmwareVersionMinor = 8;
 const uint8_t ObjectDictionary::kFirmwareVersionPatch = 3;
 // NOTE: Indicate a final release with RC = 0.
-const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 3;
+const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 4;
 
 const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24) | (kFirmwareVersionMinor << 16) |
                                                     (kFirmwareVersionPatch << 8) | kFirmwareVersionReleaseCandidate;
@@ -239,13 +239,18 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             xSemaphoreGive(object_dictionary.network_console_rx_queue_mutex);
             break;
         }
-        case kAddrGPSNetworkMessage: {
-            // RP2040 reading GPS network message from ESP32
-            memcpy(buf, (uint8_t*)&object_dictionary.gps_network_message_buffer_ + offset, buf_len);
-            break;
-        }
 #elif defined(ON_TI)
 #endif
+        case kAddrGPSNetworkMessage: {
+            // RP2040 reading GPS network message from ESP32
+#ifdef ON_ESP32
+            memcpy(buf, (uint8_t*)&object_dictionary.gps_network_message_buffer_ + offset, buf_len);
+#else
+            // TI or other platforms - return zeros for now
+            memset(buf, 0, buf_len);
+#endif
+            break;
+        }
         default:
             CONSOLE_ERROR("SPICoprocessor::GetBytes", "No behavior implemented for reading from address 0x%x.", addr);
             return false;
