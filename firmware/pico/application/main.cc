@@ -181,12 +181,13 @@ int main() {
         gnss_manager.UpdatePosition();
         
         // Check for GPS network messages from ESP32
-        // This struct matches GPSNetworkServer::GPSNetworkMessage from ESP32
+        // This struct should match GPSNetworkServer::GPSNetworkMessage on ESP32
         struct __attribute__((__packed__)) GPSNetworkMessage {
             uint8_t type;
+            uint8_t source_id;  // Client ID
             uint16_t length;
-            uint8_t source_id;
             uint8_t data[256];
+            uint32_t timestamp_ms;
         } gps_msg;
         
         if (esp32.Read(ObjectDictionary::Address::kAddrGPSNetworkMessage, gps_msg)) {
