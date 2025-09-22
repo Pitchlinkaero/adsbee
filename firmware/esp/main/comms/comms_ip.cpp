@@ -164,9 +164,10 @@ void CommsManager::IPEventHandler(void* arg, esp_event_base_t event_base, int32_
 void CommsManager::IPWANTask(void* pvParameters) {
     alignas(uint32_t) uint8_t raw_packets_buf[CompositeArray::RawPackets::kMaxLenBytes];
 
-    int feed_sock[SettingsManager::Settings::kMaxNumFeeds] = {0};
-    bool feed_sock_is_connected[SettingsManager::Settings::kMaxNumFeeds] = {false};
-    uint32_t feed_sock_last_connect_timestamp_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+    // Initialize member arrays
+    memset(feed_sock_, 0, sizeof(feed_sock_));
+    memset(feed_sock_is_connected_, 0, sizeof(feed_sock_is_connected_));
+    memset(feed_sock_last_connect_timestamp_ms_, 0, sizeof(feed_sock_last_connect_timestamp_ms_));
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
 
@@ -371,11 +372,11 @@ void CommsManager::IPWANTask(void* pvParameters) {
             if (!settings_manager.settings.feed_is_active[i]) {
                 // Socket should not be fed.
                 // Only close raw sockets, not MQTT connections (handled by MQTT client)
-                if (feed_sock_is_connected[i] &&
+                if (feed_sock_is_connected_[i] &&
                     settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
                     // Need to close the socket connection.
-                    close(feed_sock[i]);
-                    feed_sock_is_connected[i] = false;
+                    close(feed_sock_[i]);
+                    feed_sock_is_connected_[i] = false;
                     CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", i);
                 }
                 continue;  // Don't need to do anything else if socket should be closed and is closed.
@@ -387,20 +388,20 @@ void CommsManager::IPWANTask(void* pvParameters) {
             }
 
             // Socket should be open.
-            if (!feed_sock_is_connected[i]) {
+            if (!feed_sock_is_connected_[i]) {
                 // Need to open the socket connection.
 
                 // Meter reconnect attempt interval.
                 uint32_t timestamp_ms = get_time_since_boot_ms();
-                if (timestamp_ms - feed_sock_last_connect_timestamp_ms[i] <= kWiFiTCPSocketReconnectIntervalMs) {
+                if (timestamp_ms - feed_sock_last_connect_timestamp_ms_[i] <= kWiFiTCPSocketReconnectIntervalMs) {
                     continue;
                 }
-                feed_sock_last_connect_timestamp_ms[i] = timestamp_ms;
+                feed_sock_last_connect_timestamp_ms_[i] = timestamp_ms;
 
                 // Create socket.
                 // IPv4, TCP
-                feed_sock[i] = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-                if (feed_sock[i] <= 0) {
+                feed_sock_[i] = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+                if (feed_sock_[i] <= 0) {
                     CONSOLE_ERROR("CommsManager::IPWANTask", "Unable to create socket for feed %d: errno %d", i, errno);
                     continue;
                 }
@@ -408,15 +409,15 @@ void CommsManager::IPWANTask(void* pvParameters) {
                              settings_manager.settings.feed_uris[i], settings_manager.settings.feed_ports[i]);
 
                 // Enable TCP keepalive
-                setsockopt(feed_sock[i], SOL_SOCKET, SO_KEEPALIVE, &kTCPKeepAliveEnable, sizeof(kTCPKeepAliveEnable));
-                setsockopt(feed_sock[i], IPPROTO_TCP, TCP_KEEPIDLE, &kTCPKeepAliveIdleSecondsBeforeStartingProbe,
+                setsockopt(feed_sock_[i], SOL_SOCKET, SO_KEEPALIVE, &kTCPKeepAliveEnable, sizeof(kTCPKeepAliveEnable));
+                setsockopt(feed_sock_[i], IPPROTO_TCP, TCP_KEEPIDLE, &kTCPKeepAliveIdleSecondsBeforeStartingProbe,
                            sizeof(kTCPKeepAliveIdleSecondsBeforeStartingProbe));
-                setsockopt(feed_sock[i], IPPROTO_TCP, TCP_KEEPINTVL, &kTCPKeepAliveIntervalSecondsBetweenProbes,
+                setsockopt(feed_sock_[i], IPPROTO_TCP, TCP_KEEPINTVL, &kTCPKeepAliveIntervalSecondsBetweenProbes,
                            sizeof(kTCPKeepAliveIntervalSecondsBetweenProbes));
-                setsockopt(feed_sock[i], IPPROTO_TCP, TCP_KEEPCNT, &kTCPKeepAliveMaxFailedProbesBeforeDisconnect,
+                setsockopt(feed_sock_[i], IPPROTO_TCP, TCP_KEEPCNT, &kTCPKeepAliveMaxFailedProbesBeforeDisconnect,
                            sizeof(kTCPKeepAliveMaxFailedProbesBeforeDisconnect));
                 // Allow reuse of local addresses.
-                setsockopt(feed_sock[i], SOL_SOCKET, SO_REUSEADDR, &kTCPReuseAddrEnable, sizeof(kTCPReuseAddrEnable));
+                setsockopt(feed_sock_[i], SOL_SOCKET, SO_REUSEADDR, &kTCPReuseAddrEnable, sizeof(kTCPReuseAddrEnable));
 
                 struct sockaddr_in dest_addr;
                 // If the URI contains letters, resolve it to an IP address
@@ -426,8 +427,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     if (!ResolveURIToIP(settings_manager.settings.feed_uris[i], resolved_ip)) {
                         CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to resolve URL %s for feed %d",
                                       settings_manager.settings.feed_uris[i], i);
-                        close(feed_sock[i]);
-                        feed_sock_is_connected[i] = false;
+                        close(feed_sock_[i]);
+                        feed_sock_is_connected_[i] = false;
                         continue;
                     }
                     inet_pton(AF_INET, resolved_ip, &dest_addr.sin_addr);
@@ -439,18 +440,18 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 dest_addr.sin_family = AF_INET;
                 dest_addr.sin_port = htons(settings_manager.settings.feed_ports[i]);
 
-                int err = connect(feed_sock[i], (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+                int err = connect(feed_sock_[i], (struct sockaddr*)&dest_addr, sizeof(dest_addr));
                 if (err != 0) {
                     CONSOLE_ERROR(
                         "CommsManager::IPWANTask", "Socket unable to connect to URI %s:%d for feed %d: errno %d",
                         settings_manager.settings.feed_uris[i], settings_manager.settings.feed_ports[i], i, errno);
-                    close(feed_sock[i]);
-                    feed_sock_is_connected[i] = false;
+                    close(feed_sock_[i]);
+                    feed_sock_is_connected_[i] = false;
                     continue;
                 }
                 CONSOLE_INFO("CommsManager::IPWANTask", "Successfully connected to %s",
                              settings_manager.settings.feed_uris[i]);
-                feed_sock_is_connected[i] = true;
+                feed_sock_is_connected_[i] = true;
 
                 // Perform beginning-of-connection actions here.
                 switch (settings_manager.settings.feed_protocols[i]) {
@@ -459,7 +460,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                                   BeastReporter::kBeastFrameMaxLenBytes];
                         uint16_t beast_message_len_bytes =
                             BeastReporter::BuildFeedStartFrame(beast_message_buf, settings_manager.settings.feed_receiver_ids[i]);
-                        int err = send(feed_sock[i], beast_message_buf, beast_message_len_bytes, 0);
+                        int err = send(feed_sock_[i], beast_message_buf, beast_message_len_bytes, 0);
                         if (err < 0) {
                             CONSOLE_ERROR("CommsManager::IPWANTask",
                                           "Error occurred while sending %d Byte Beast start of feed message to feed %d "
@@ -469,8 +470,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                           beast_message_len_bytes, i, settings_manager.settings.feed_uris[i],
                                           settings_manager.settings.feed_ports[i], errno);
                             // Mark socket as disconnected and try reconnecting in next reporting interval.
-                            close(feed_sock[i]);
-                            feed_sock_is_connected[i] = false;
+                            close(feed_sock_[i]);
+                            feed_sock_is_connected_[i] = false;
                             continue;
                         }
                         break;
@@ -493,7 +494,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         uint16_t beast_message_len_bytes = BeastReporter::BuildRawModeSBeastFrame(
                             raw_packets.mode_s_packets[j], beast_message_buf);
 
-                    int err = send(feed_sock[i], beast_message_buf, beast_message_len_bytes, 0);
+                    int err = send(feed_sock_[i], beast_message_buf, beast_message_len_bytes, 0);
                         if (err < 0) {
                             CONSOLE_ERROR("CommsManager::IPWANTask",
                                           "Error occurred during sending %d Byte beast message to feed %d with URI %s "
@@ -502,8 +503,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                           beast_message_len_bytes, i, settings_manager.settings.feed_uris[i],
                                           settings_manager.settings.feed_ports[i], errno);
                             // Mark socket as disconnected and try reconnecting in next reporting interval.
-                            close(feed_sock[i]);
-                            feed_sock_is_connected[i] = false;
+                            close(feed_sock_[i]);
+                            feed_sock_is_connected_[i] = false;
                             break;  // Exit the loop on error
                         } else {
                             // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
@@ -722,13 +723,161 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
     // Close all sockets while exiting (skip MQTT feeds).
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        if (feed_sock_is_connected[i] &&
+        if (feed_sock_is_connected_[i] &&
             settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
             // Need to close the socket connection.
-            close(feed_sock[i]);
-            feed_sock_is_connected[i] = false;  // Not necessary but leaving this here in case of refactor.
+            close(feed_sock_[i]);
+            feed_sock_is_connected_[i] = false;  // Not necessary but leaving this here in case of refactor.
         }
     }
 
     CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task exiting.");
+}
+
+void CommsManager::CloseFeedSocket(uint16_t feed_index) {
+    if (feed_sock_is_connected_[feed_index]) {
+        // Need to close the socket connection.
+        close(feed_sock_[feed_index]);
+        feed_sock_is_connected_[feed_index] = false;
+        CONSOLE_INFO("CommsManager::IPWANTask", "Closed socket for feed %d.", feed_index);
+    }
+}
+
+bool CommsManager::ConnectFeedSocket(uint16_t feed_index) {
+    // Meter reconnect attempt interval.
+    uint32_t timestamp_ms = get_time_since_boot_ms();
+    if (timestamp_ms - feed_sock_last_connect_timestamp_ms_[feed_index] <= kWiFiTCPSocketReconnectIntervalMs) {
+        return false;
+    }
+    feed_sock_last_connect_timestamp_ms_[feed_index] = timestamp_ms;
+
+    // Create socket.
+    // IPv4, TCP
+    feed_sock_[feed_index] = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (feed_sock_[feed_index] <= 0) {
+        CONSOLE_ERROR("CommsManager::IPWANTask", "Unable to create socket for feed %d: errno %d", feed_index, errno);
+        return false;
+    }
+    CONSOLE_INFO("CommsManager::IPWANTask", "Socket for feed %d created, connecting to %s:%d", feed_index,
+                 settings_manager.settings.feed_uris[feed_index], settings_manager.settings.feed_ports[feed_index]);
+
+    // Enable TCP keepalive
+    setsockopt(feed_sock_[feed_index], SOL_SOCKET, SO_KEEPALIVE, &kTCPKeepAliveEnable, sizeof(kTCPKeepAliveEnable));
+    setsockopt(feed_sock_[feed_index], IPPROTO_TCP, TCP_KEEPIDLE, &kTCPKeepAliveIdleSecondsBeforeStartingProbe,
+               sizeof(kTCPKeepAliveIdleSecondsBeforeStartingProbe));
+    setsockopt(feed_sock_[feed_index], IPPROTO_TCP, TCP_KEEPINTVL, &kTCPKeepAliveIntervalSecondsBetweenProbes,
+               sizeof(kTCPKeepAliveIntervalSecondsBetweenProbes));
+    setsockopt(feed_sock_[feed_index], IPPROTO_TCP, TCP_KEEPCNT, &kTCPKeepAliveMaxFailedProbesBeforeDisconnect,
+               sizeof(kTCPKeepAliveMaxFailedProbesBeforeDisconnect));
+    // Allow reuse of local addresses.
+    setsockopt(feed_sock_[feed_index], SOL_SOCKET, SO_REUSEADDR, &kTCPReuseAddrEnable, sizeof(kTCPReuseAddrEnable));
+
+    struct sockaddr_in dest_addr;
+    // If the URI contains letters, resolve it to an IP address
+    if (IsNotIPAddress(settings_manager.settings.feed_uris[feed_index])) {
+        // Is not an IP address, try DNS resolution.
+        char resolved_ip[16];
+        if (!ResolveURIToIP(settings_manager.settings.feed_uris[feed_index], resolved_ip)) {
+            CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to resolve URL %s for feed %d",
+                          settings_manager.settings.feed_uris[feed_index], feed_index);
+            CloseFeedSocket(feed_index);
+            return false;
+        }
+        inet_pton(AF_INET, resolved_ip, &dest_addr.sin_addr);
+    } else {
+        // Is an IP address, use it directly.
+        inet_pton(AF_INET, settings_manager.settings.feed_uris[feed_index], &dest_addr.sin_addr);
+    }
+
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(settings_manager.settings.feed_ports[feed_index]);
+
+    int err = connect(feed_sock_[feed_index], (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+    if (err != 0) {
+        CONSOLE_ERROR("CommsManager::IPWANTask", "Socket unable to connect to URI %s:%d for feed %d: errno %d",
+                      settings_manager.settings.feed_uris[feed_index], settings_manager.settings.feed_ports[feed_index],
+                      feed_index, errno);
+        CloseFeedSocket(feed_index);
+        return false;
+    }
+    CONSOLE_INFO("CommsManager::IPWANTask", "Successfully connected to %s",
+                 settings_manager.settings.feed_uris[feed_index]);
+    feed_sock_is_connected_[feed_index] = true;
+
+    // Perform beginning-of-connection actions here.
+    switch (settings_manager.settings.feed_protocols[feed_index]) {
+        case SettingsManager::ReportingProtocol::kBeast: {
+            uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
+                                      BeastReporter::kModeSBeastFrameMaxLenBytes];
+            uint16_t beast_message_len_bytes = BeastReporter::BuildFeedStartFrame(
+                beast_message_buf, settings_manager.settings.feed_receiver_ids[feed_index]);
+            int err = send(feed_sock_[feed_index], beast_message_buf, beast_message_len_bytes, 0);
+            if (err < 0) {
+                CONSOLE_ERROR("CommsManager::IPWANTask",
+                              "Error occurred while sending %d Byte Beast start of feed message to feed %d "
+                              "with URI %s "
+                              "on port %d: "
+                              "errno %d.",
+                              beast_message_len_bytes, feed_index, settings_manager.settings.feed_uris[feed_index],
+                              settings_manager.settings.feed_ports[feed_index], errno);
+                // Mark socket as disconnected and try reconnecting in next reporting interval.
+                CloseFeedSocket(feed_index);
+                return false;
+            }
+            break;
+        }
+        default:
+            // No start of connections actions required for other protocols.
+            break;
+    }
+    return true;
+}
+
+bool CommsManager::SendBuf(uint16_t iface, const char* buf, uint16_t buf_len) {
+    if (iface >= SettingsManager::Settings::kMaxNumFeeds) {
+        CONSOLE_ERROR("CommsManager::IPWANTask", "Invalid feed index %d for SendBuf.", iface);
+        return false;
+    }
+    if (!feed_sock_is_connected_[iface]) {
+        return false;
+    }
+    int err = send(feed_sock_[iface], buf, buf_len, 0);
+    if (err < 0) {
+        CONSOLE_ERROR("CommsManager::IPWANTask",
+                      "Error occurred during sending %d byte message to feed %d with URI %s "
+                      "on port %d: "
+                      "errno %d (%s).",
+                      buf_len, iface, settings_manager.settings.feed_uris[iface],
+                      settings_manager.settings.feed_ports[iface], errno, ErrNoToString(errno));
+        CloseFeedSocket(iface);
+        return false;
+    } else {
+        // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
+        feed_mps_counter_[iface]++;  // Log that a message was sent in statistics.
+    }
+    return true;
+}
+
+void CommsManager::UpdateFeedMetrics() {
+    // Update feed statistics once per second and print them. Put this before the queue receive so that it runs even
+    // if no packets are received.
+    static const uint16_t kStatsMessageMaxLen = 500;
+    uint32_t timestamp_ms = get_time_since_boot_ms();
+    if (timestamp_ms - feed_mps_last_update_timestamp_ms_ > kMsPerSec) {
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            feed_mps[i] = feed_mps_counter_[i];
+            feed_mps_counter_[i] = 0;
+        }
+        feed_mps_last_update_timestamp_ms_ = timestamp_ms;
+
+        char feeds_metrics_message[kStatsMessageMaxLen] = {'\0'};
+
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            char single_feed_metrics_message[kStatsMessageMaxLen / SettingsManager::Settings::kMaxNumFeeds] = {'\0'};
+            snprintf(single_feed_metrics_message, kStatsMessageMaxLen / SettingsManager::Settings::kMaxNumFeeds,
+                     "%d:[%d] ", i, feed_mps[i]);
+            strcat(feeds_metrics_message, single_feed_metrics_message);
+        }
+        CONSOLE_INFO("CommsManager::IPWANTask", "Feed msgs/s: %s", feeds_metrics_message);
+    }
 }

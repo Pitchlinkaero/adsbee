@@ -1,5 +1,7 @@
 #include "composite_array.hh"
 
+#include <cstring>  // For memcpy.
+
 #include "comms.hh"
 #include <cstring>  // For memcpy
 
