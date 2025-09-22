@@ -1,4 +1,6 @@
 #include "beast/beast_utils.hh"  // For beast reporting.
+#include "mode_s_packet_decoder.hh"  // For decoding Mode S packets
+#include "uat_packet.hh"  // For UAT packet types
 #include "comms.hh"
 #include "esp_event.h"
 #include "esp_mac.h"
@@ -160,7 +162,7 @@ void CommsManager::IPEventHandler(void* arg, esp_event_base_t event_base, int32_
 
 
 void CommsManager::IPWANTask(void* pvParameters) {
-    Decoded1090Packet decoded_packet;
+    alignas(uint32_t) uint8_t raw_packets_buf[CompositeArray::RawPackets::kMaxLenBytes];
 
     int feed_sock[SettingsManager::Settings::kMaxNumFeeds] = {0};
     bool feed_sock_is_connected[SettingsManager::Settings::kMaxNumFeeds] = {false};
@@ -349,15 +351,18 @@ void CommsManager::IPWANTask(void* pvParameters) {
         }
 
         // Gather packet(s) to send.
-        if (xQueueReceive(ip_wan_decoded_transponder_packet_queue_, &decoded_packet, kWiFiSTATaskUpdateIntervalTicks) !=
+        if (xQueueReceive(ip_wan_reporting_composite_array_queue_, raw_packets_buf, kWiFiSTATaskUpdateIntervalTicks) !=
             pdTRUE) {
             // No packets available to send, wait and try again.
             continue;
         }
 
-        // Debug: Log that we received a packet for processing
-        CONSOLE_INFO("CommsManager::IPWANTask", "Processing packet for ICAO 0x%06lx, valid=%d",
-                     (unsigned long)decoded_packet.GetICAOAddress(), decoded_packet.IsValid());
+        // Unpack the composite array buffer.
+        CompositeArray::RawPackets raw_packets;
+        if (!CompositeArray::UnpackRawPacketsBuffer(raw_packets, raw_packets_buf, CompositeArray::RawPackets::kMaxLenBytes)) {
+            CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to unpack composite array buffer.");
+            continue;
+        }
 
         // NOTE: Construct packets that are shared between feeds here!
 
@@ -449,13 +454,11 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
                 // Perform beginning-of-connection actions here.
                 switch (settings_manager.settings.feed_protocols[i]) {
-                    case SettingsManager::ReportingProtocol::kBeast:
-                        [[fallthrough]];
-                    case SettingsManager::ReportingProtocol::kBeastRaw: {
+                    case SettingsManager::ReportingProtocol::kBeast: {
                         uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
-                                                  kBeastFrameMaxLenBytes];
+                                                  BeastReporter::kBeastFrameMaxLenBytes];
                         uint16_t beast_message_len_bytes =
-                            BuildFeedStartFrame(beast_message_buf, settings_manager.settings.feed_receiver_ids[i]);
+                            BeastReporter::BuildFeedStartFrame(beast_message_buf, settings_manager.settings.feed_receiver_ids[i]);
                         int err = send(feed_sock[i], beast_message_buf, beast_message_len_bytes, 0);
                         if (err < 0) {
                             CONSOLE_ERROR("CommsManager::IPWANTask",
@@ -479,87 +482,75 @@ void CommsManager::IPWANTask(void* pvParameters) {
             }
 
             // Send packet!
-            // NOTE: Construct packets that are specific to a feed in case statements here!
+            // NOTE: Process composite array packets for each feed protocol
             switch (settings_manager.settings.feed_protocols[i]) {
-                case SettingsManager::ReportingProtocol::kBeast:
-                    if (!decoded_packet.IsValid()) {
-                        // Packet is invalid, don't send.
-                        break;
-                    }
-                    [[fallthrough]];  // Intentional cascade into BEAST_RAW, since reporting code is shared.
-                case SettingsManager::ReportingProtocol::kBeastRaw: {
-                    // Send Beast packet.
-                    // Double the length as a hack to make room for the escaped UUID.
-                    uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
-                                              kBeastFrameMaxLenBytes];
-                    uint16_t beast_message_len_bytes = Build1090BeastFrame(decoded_packet, beast_message_buf);
+                case SettingsManager::ReportingProtocol::kBeast: {
+                    // Send Beast packets from composite array
+                    // Process each Mode S packet in the composite array
+                    for (uint16_t j = 0; j < raw_packets.header->num_mode_s_packets; j++) {
+                        uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
+                                                  BeastReporter::kBeastFrameMaxLenBytes];
+                        uint16_t beast_message_len_bytes = BeastReporter::BuildRawModeSBeastFrame(
+                            raw_packets.mode_s_packets[j], beast_message_buf);
 
                     int err = send(feed_sock[i], beast_message_buf, beast_message_len_bytes, 0);
-                    if (err < 0) {
-                        CONSOLE_ERROR("CommsManager::IPWANTask",
-                                      "Error occurred during sending %d Byte beast message to feed %d with URI %s "
-                                      "on port %d: "
-                                      "errno %d.",
-                                      beast_message_len_bytes, i, settings_manager.settings.feed_uris[i],
-                                      settings_manager.settings.feed_ports[i], errno);
-                        // Mark socket as disconnected and try reconnecting in next reporting interval.
-                        close(feed_sock[i]);
-                        feed_sock_is_connected[i] = false;
-                    } else {
-                        // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
-                        feed_mps_counter_[i]++;  // Log that a message was sent in statistics.
+                        if (err < 0) {
+                            CONSOLE_ERROR("CommsManager::IPWANTask",
+                                          "Error occurred during sending %d Byte beast message to feed %d with URI %s "
+                                          "on port %d: "
+                                          "errno %d.",
+                                          beast_message_len_bytes, i, settings_manager.settings.feed_uris[i],
+                                          settings_manager.settings.feed_ports[i], errno);
+                            // Mark socket as disconnected and try reconnecting in next reporting interval.
+                            close(feed_sock[i]);
+                            feed_sock_is_connected[i] = false;
+                            break;  // Exit the loop on error
+                        } else {
+                            // CONSOLE_INFO("CommsManager::IPWANTask", "Message sent to feed %d.", i);
+                            feed_mps_counter_[i]++;  // Log that a message was sent in statistics.
+                        }
                     }
                     break;
                 }
                 case SettingsManager::ReportingProtocol::kMQTT: {
-                    // Debug: Log that we're in MQTT case
-                    CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d is MQTT, checking connection", i);
-
                     // Publish via MQTT
                     if (!mqtt_clients_[i] || !mqtt_clients_[i]->IsConnected()) {
                         // No client or not connected
-                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d MQTT client not connected", i);
                         break;
                     }
 
-                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT client %d is connected", i);
+                    // Process Mode S packets for MQTT
+                    for (uint16_t j = 0; j < raw_packets.header->num_mode_s_packets; j++) {
+                        const RawModeSPacket& mode_s_packet = raw_packets.mode_s_packets[j];
 
-                    // Determine band (1090 MHz or UAT)
-                    // TODO: Properly detect band from source
-                    uint8_t band = 1;  // Default to 1090 MHz
+                        // Decode the packet to get ICAO address
+                        DecodedModeSPacket decoded_packet;
+                        if (!ModeSPacketDecoder::DecodeModeSPacket(mode_s_packet, decoded_packet)) {
+                            continue;  // Skip invalid packets
+                        }
 
-                    // Check report mode
-                    CONSOLE_INFO("CommsManager::IPWANTask", "MQTT report mode for feed %d is %d",
-                                 i, settings_manager.settings.mqtt_report_modes[i]);
-
-                    // Publish based on report mode
-                    if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
-                        settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
-
-                        // For MQTT, we publish aircraft status even if the packet itself is invalid,
-                        // as long as we have aircraft data in the dictionary
                         uint32_t icao_address = decoded_packet.GetICAOAddress();
+                        if (icao_address == 0) {
+                            continue;
+                        }
 
-                        CONSOLE_INFO("CommsManager::IPWANTask", "Processing ICAO 0x%06lx for MQTT feed %d",
-                                     (unsigned long)icao_address, i);
+                        // Publish based on report mode
+                        if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
+                            settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
 
-                        // Only proceed if we have a valid ICAO address
-                        if (icao_address != 0) {
                             // Get aircraft data from dictionary for complete information
-                            Aircraft1090* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr(icao_address);
+                            Aircraft* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr<Aircraft>(icao_address);
 
                             if (aircraft != nullptr) {
-                                CONSOLE_INFO("CommsManager::IPWANTask", "Found aircraft 0x%06lx in dictionary",
-                                             (unsigned long)icao_address);
-                            } else {
-                                CONSOLE_INFO("CommsManager::IPWANTask", "Aircraft 0x%06lx NOT in dictionary",
-                                             (unsigned long)icao_address);
+                                // Aircraft found in dictionary, publish status
+                                feed_mps_counter_[i]++;
                             }
 
                             // Convert to TransponderPacket for publishing
-                            TransponderPacket packet;
-                            packet.address = icao_address;
-                            packet.timestamp_ms = decoded_packet.GetTimestampMs();
+                            MQTT::MQTTClient::TransponderPacket packet;
+                            packet.icao = icao_address;
+                            packet.band = 1;  // 1=1090MHz
+                            packet.timestamp_ms = mode_s_packet.timestamp_ms;
 
                             if (aircraft != nullptr) {
                                 // We have aircraft data from the dictionary
@@ -618,25 +609,106 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 packet.flags = 0;  // Only address is valid
                             }
 
-                            CONSOLE_INFO("CommsManager::IPWANTask", "Attempting to publish aircraft 0x%06lx to MQTT",
-                                         (unsigned long)icao_address);
-
-                            if (mqtt_clients_[i]->PublishAircraftStatus(packet, band)) {
+                            // Publish using the new packet structure
+                            if (mqtt_clients_[i]->PublishTransponderPacket(packet)) {
                                 feed_mps_counter_[i]++;  // Update statistics
-                                CONSOLE_INFO("CommsManager::IPWANTask", "Successfully published aircraft 0x%06lx",
-                                             (unsigned long)icao_address);
-                            } else {
-                                CONSOLE_ERROR("CommsManager::IPWANTask", "Failed to publish aircraft 0x%06lx",
-                                              (unsigned long)icao_address);
                             }
-                        } else {
-                            CONSOLE_INFO("CommsManager::IPWANTask", "Skipping ICAO 0 (invalid address)");
                         }
-                    } else {
-                        CONSOLE_INFO("CommsManager::IPWANTask", "Feed %d report mode %d doesn't include status",
-                                     i, settings_manager.settings.mqtt_report_modes[i]);
                     }
 
+                    // Process UAT ADS-B packets for MQTT (978 MHz)
+                    for (uint16_t j = 0; j < raw_packets.header->num_uat_adsb_packets; j++) {
+                        const RawUATADSBPacket& uat_packet = raw_packets.uat_adsb_packets[j];
+
+                        // Decode the UAT packet
+                        DecodedUATADSBPacket decoded_uat_packet(uat_packet);
+                        if (!decoded_uat_packet.IsValid()) {
+                            continue;  // Skip invalid packets
+                        }
+
+                        uint32_t icao_address = decoded_uat_packet.GetICAOAddress();
+                        if (icao_address == 0) {
+                            continue;
+                        }
+
+                        // Publish based on report mode
+                        if (settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeStatus ||
+                            settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
+
+                            // Get UAT aircraft data from dictionary
+                            UATAircraft* uat_aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr<UATAircraft>(icao_address);
+
+                            // Convert to TransponderPacket for publishing
+                            MQTT::MQTTClient::TransponderPacket packet;
+                            packet.icao = icao_address;
+                            packet.band = 2;  // 2=978MHz UAT
+                            packet.timestamp_ms = uat_packet.GetTimestampMS();
+
+                            if (uat_aircraft != nullptr) {
+                                // We have UAT aircraft data from the dictionary
+                                packet.latitude = uat_aircraft->latitude_deg;
+                                packet.longitude = uat_aircraft->longitude_deg;
+                                packet.altitude = uat_aircraft->baro_altitude_ft;
+                                packet.heading = uat_aircraft->direction_deg;
+                                packet.velocity = uat_aircraft->velocity_kts;
+                                packet.vertical_rate = uat_aircraft->vertical_rate_fpm;
+                                packet.squawk = uat_aircraft->squawk;
+                                packet.airborne = (uat_aircraft->baro_altitude_ft > 100) ? 1 : 0;
+                                packet.category = uat_aircraft->category_raw;
+
+                                // Copy callsign
+                                strncpy(packet.callsign, uat_aircraft->callsign, 8);
+                                packet.callsign[8] = '\0';
+
+                                // Set validity flags based on available UAT data
+                                packet.flags = 0;
+                                if (uat_aircraft->latitude_deg != 0.0 || uat_aircraft->longitude_deg != 0.0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_POSITION_VALID;
+                                }
+                                if (uat_aircraft->baro_altitude_ft != 0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_ALTITUDE_VALID;
+                                }
+                                if (uat_aircraft->velocity_kts > 0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_VELOCITY_VALID;
+                                }
+                                if (uat_aircraft->direction_deg != 0.0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_HEADING_VALID;
+                                }
+                                if (uat_aircraft->vertical_rate_fpm != 0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_VERTICAL_RATE_VALID;
+                                }
+                                if (strlen(uat_aircraft->callsign) > 1 && strcmp(uat_aircraft->callsign, "?") != 0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_CALLSIGN_VALID;
+                                }
+                                if (uat_aircraft->squawk != 0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_SQUAWK_VALID;
+                                }
+                                if (uat_aircraft->category_raw != 0) {
+                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_CATEGORY_VALID;
+                                }
+                            } else {
+                                // No UAT aircraft in dictionary, use minimal packet data
+                                packet.altitude = 0;
+                                packet.latitude = 0.0;
+                                packet.longitude = 0.0;
+                                packet.heading = 0.0;
+                                packet.velocity = 0.0;
+                                packet.vertical_rate = 0;
+                                packet.squawk = 0;
+                                packet.airborne = 1;
+                                packet.category = 0;
+                                memset(packet.callsign, 0, 9);
+                                packet.flags = 0;  // Only address is valid
+                            }
+
+                            // Publish UAT aircraft using the same MQTT client
+                            if (mqtt_clients_[i]->PublishTransponderPacket(packet)) {
+                                feed_mps_counter_[i]++;  // Update statistics
+                            }
+                        }
+                    }
+
+                    // TODO: Process UAT Uplink packets if needed
                     // TODO: Add raw packet publishing if report_mode includes RAW
                     break;
                 }
