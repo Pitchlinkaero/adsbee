@@ -41,6 +41,7 @@ endfunction()
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Test")
     # Flag indicating that build is for the embedded target. Used to toggle target_source calls.
     set(ON_EMBEDDED_DEVICE 1)
+    set(ON_PICO 1)  # Set CMake variable for use in CMakeLists conditionals
 endif()
 
 if (ON_EMBEDDED_DEVICE)
