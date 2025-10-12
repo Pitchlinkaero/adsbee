@@ -15,8 +15,6 @@ CommsManager::CommsManager(CommsManagerConfig config_in)
     : config_(config_in), at_parser_(CppAT(at_command_list, at_command_list_num_commands, true)) {}
 
 bool CommsManager::Init() {
-    InitReporting();
-
     // Initialize UART1 for general communications (not shared)
     gpio_set_function(config_.comms_uart_tx_pin, GPIO_FUNC_UART);
     gpio_set_function(config_.comms_uart_rx_pin, GPIO_FUNC_UART);
