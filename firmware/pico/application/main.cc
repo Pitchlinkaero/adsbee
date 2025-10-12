@@ -116,13 +116,28 @@ int main() {
         adsbee.DisableWatchdog();  // Disable watchdog while setting up ESP32, in case kESP32BootupTimeoutMs >=
                                    // watchdog timeout, and to avoid watchdog reboot during ESP32 programming.
 
+        // Initialize ESP32 SPI interface so we can communicate with it
+        comms_manager.console_printf("Initializing ESP32 SPI interface...\r\n");
+        if (!esp32.Init()) {
+            CONSOLE_ERROR("main", "Failed to initialize ESP32 SPI interface");
+        } else {
+            comms_manager.console_printf("ESP32 SPI interface initialized successfully\r\n");
+        }
+
+        // Give ESP32 time to boot up
+        comms_manager.console_printf("Waiting for ESP32 to boot (bootup delay = %d ms)...\r\n", ESP32::kBootupDelayMs);
+        sleep_ms(ESP32::kBootupDelayMs);
+
         // Try reading firmware version from ESP32 via SPI
         uint32_t esp32_firmware_version = 0x0;
         bool flash_esp32 = false;
+        bool version_read_successful = false;
         uint32_t esp32_comms_start_timestamp_ms = get_time_since_boot_ms();
         uint32_t esp32_comms_last_try_timestamp_ms = 0;
+        uint32_t read_attempts = 0;
 
-        comms_manager.console_printf("Checking ESP32 firmware version via SPI...\r\n");
+        comms_manager.console_printf("Checking ESP32 firmware version via SPI (timeout = %d ms)...\r\n",
+                                    kESP32BootupTimeoutMs);
 
         while (get_time_since_boot_ms() - esp32_comms_start_timestamp_ms < kESP32BootupTimeoutMs) {
             // Wait until the next retry interval to avoid spamming the ESP32 continuously.
@@ -130,38 +145,49 @@ int main() {
                 continue;
             }
             esp32_comms_last_try_timestamp_ms = get_time_since_boot_ms();
+            read_attempts++;
 
             // Try reading the firmware version from the ESP32 via SPI
+            comms_manager.console_printf("Attempt %d: Reading ESP32 firmware version...\r\n", read_attempts);
             if (!esp32.Read(ObjectDictionary::Address::kAddrFirmwareVersion, esp32_firmware_version)) {
                 // Couldn't read firmware version from ESP32. Try again later.
-                CONSOLE_ERROR("main", "Unable to read firmware version from ESP32 via SPI.");
-            } else if (esp32_firmware_version != object_dictionary.kFirmwareVersion) {
-                // ESP32 firmware version doesn't match ours. Need to flash the ESP32.
-                CONSOLE_ERROR("main",
-                              "Firmware version mismatch detected. Pico is running %d.%d.%d but ESP32 is "
-                              "running %d.%d.%d",
-                              object_dictionary.kFirmwareVersionMajor, object_dictionary.kFirmwareVersionMinor,
-                              object_dictionary.kFirmwareVersionPatch, esp32_firmware_version >> 16,
-                              (esp32_firmware_version >> 8) & 0xFF, esp32_firmware_version & 0xFF);
-                flash_esp32 = true;
-                break;
+                CONSOLE_ERROR("main", "Attempt %d: Unable to read firmware version from ESP32 via SPI.", read_attempts);
             } else {
-                // Firmware version matches! No need to flash.
-                comms_manager.console_printf("ESP32 firmware version matches (v%d.%d.%d), no update needed\r\n",
-                                            object_dictionary.kFirmwareVersionMajor,
-                                            object_dictionary.kFirmwareVersionMinor,
-                                            object_dictionary.kFirmwareVersionPatch);
-                flash_esp32 = false;
-                break;
+                version_read_successful = true;
+                comms_manager.console_printf("Successfully read ESP32 firmware version: 0x%08X\r\n", esp32_firmware_version);
+
+                if (esp32_firmware_version != object_dictionary.kFirmwareVersion) {
+                    // ESP32 firmware version doesn't match ours. Need to flash the ESP32.
+                    CONSOLE_ERROR("main",
+                                  "Firmware version MISMATCH! Pico: v%d.%d.%d (0x%08X), ESP32: v%d.%d.%d (0x%08X)",
+                                  object_dictionary.kFirmwareVersionMajor, object_dictionary.kFirmwareVersionMinor,
+                                  object_dictionary.kFirmwareVersionPatch, object_dictionary.kFirmwareVersion,
+                                  esp32_firmware_version >> 16,
+                                  (esp32_firmware_version >> 8) & 0xFF,
+                                  esp32_firmware_version & 0xFF,
+                                  esp32_firmware_version);
+                    flash_esp32 = true;
+                    break;
+                } else {
+                    // Firmware version matches! No need to flash.
+                    comms_manager.console_printf("ESP32 firmware version MATCHES (v%d.%d.%d), no update needed\r\n",
+                                                object_dictionary.kFirmwareVersionMajor,
+                                                object_dictionary.kFirmwareVersionMinor,
+                                                object_dictionary.kFirmwareVersionPatch);
+                    flash_esp32 = false;
+                    break;
+                }
             }
         }
 
-        // If we couldn't read firmware version after timeout, assume flash is needed
-        if (get_time_since_boot_ms() - esp32_comms_start_timestamp_ms >= kESP32BootupTimeoutMs &&
-            esp32_firmware_version == 0x0) {
-            CONSOLE_ERROR("main", "Failed to read ESP32 firmware version after timeout, assuming flash needed");
+        // If we couldn't read firmware version after timeout, force flash
+        if (!version_read_successful) {
+            CONSOLE_ERROR("main", "Failed to read ESP32 firmware version after %d attempts over %d ms, FORCING FLASH",
+                         read_attempts, kESP32BootupTimeoutMs);
             flash_esp32 = true;
         }
+
+        comms_manager.console_printf("Firmware check complete: flash_esp32=%d\r\n", flash_esp32);
 
         adsbee.EnableWatchdog();  // Restore watchdog.
 
@@ -170,6 +196,11 @@ int main() {
         if (flash_esp32) {
             comms_manager.console_printf("ESP32 firmware update required, switching UART0 to ESP32 mode...\r\n");
             adsbee.DisableWatchdog();  // Disable watchdog while flashing.
+
+            // Deinitialize ESP32 SPI before flashing
+            if (!esp32.DeInit()) {
+                CONSOLE_ERROR("main", "Error while de-initializing ESP32 SPI before flashing.");
+            }
 
             // Switch UART0 from GNSS to ESP32 mode for flashing
             UARTSwitch::Deinit();
@@ -180,8 +211,9 @@ int main() {
                 esp32.SetEnable(false);  // Disable ESP32 if flashing failed.
             } else {
                 comms_manager.console_printf("ESP32 firmware updated successfully\r\n");
+                // Re-initialize ESP32 SPI after flashing
                 if (!esp32.Init()) {
-                    CONSOLE_ERROR("main", "Error while re-initializing ESP32 after flashing.");
+                    CONSOLE_ERROR("main", "Error while re-initializing ESP32 SPI after flashing.");
                 }
             }
 
