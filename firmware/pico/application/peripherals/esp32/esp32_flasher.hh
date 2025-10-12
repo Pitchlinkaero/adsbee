@@ -54,11 +54,14 @@ class ESP32SerialFlasher {
         // Initialize the enable and boot pins.
         gpio_init(config_.esp32_enable_pin);
         gpio_set_dir(config_.esp32_enable_pin, GPIO_OUT);
-        gpio_put(config_.esp32_enable_pin, 0);  // Start with ESP32 powered off
+        gpio_put(config_.esp32_enable_pin, 1);  // Power on ESP32 first - EnterBootloader() will reset it properly
 
         gpio_init(config_.esp32_gpio0_boot_pin);
         gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_OUT);
         gpio_put(config_.esp32_gpio0_boot_pin, 1);  // GPIO0 high by default (not in boot mode yet)
+
+        // Give ESP32 time to stabilize after power-on before bootloader entry
+        busy_wait_ms(100);
 
         receiver_was_enabled_before_update_ = adsbee.Receiver1090IsEnabled();
         adsbee.SetReceiver1090Enable(false);  // Disable receiver to avoid interrupts during update.
