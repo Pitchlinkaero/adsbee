@@ -32,7 +32,7 @@ class ESP32SerialFlasher {
     ESP32SerialFlasher(ESP32SerialFlasherConfig config_in) : config_(config_in) {};
 
     bool DeInit() {
-        CONSOLE_INFO("ESP32SerialFlasher::DeInit", "De-Initializing ESP32 firmware upgrade peripherals.");
+        CONSOLE_PRINTF("ESP32SerialFlasher: De-initializing ESP32 firmware upgrade peripherals.\r\n");
 
         // Deinitialize UART0 directly
         uart_deinit(config_.esp32_uart_handle);
@@ -43,7 +43,7 @@ class ESP32SerialFlasher {
     }
 
     bool Init() {
-        CONSOLE_INFO("ESP32SerialFlasher::Init", "Initializing ESP32 firmware upgrade peripherals.");
+        CONSOLE_PRINTF("ESP32SerialFlasher: Initializing ESP32 firmware upgrade peripherals.\r\n");
 
         // Initialize UART0 - exactly like RC7
         gpio_set_function(config_.esp32_uart_tx_pin, GPIO_FUNC_UART);
@@ -53,11 +53,17 @@ class ESP32SerialFlasher {
         uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
         uart_tx_wait_blocking(config_.esp32_uart_handle);  // Wait for UART tx buffer to drain
 
+        CONSOLE_PRINTF("ESP32SerialFlasher: UART0 initialized at %d baud (TX: GPIO%d, RX: GPIO%d)\r\n",
+                      config_.esp32_baudrate, config_.esp32_uart_tx_pin, config_.esp32_uart_rx_pin);
+
         // Initialize the enable and boot pins - exactly like RC7
         gpio_init(config_.esp32_enable_pin);
         gpio_set_dir(config_.esp32_enable_pin, GPIO_OUT);
         gpio_init(config_.esp32_gpio0_boot_pin);
         gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_OUT);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher: Control pins initialized (Enable: GPIO%d, GPIO0/Boot: GPIO%d)\r\n",
+                      config_.esp32_enable_pin, config_.esp32_gpio0_boot_pin);
 
         receiver_was_enabled_before_update_ = adsbee.Receiver1090IsEnabled();
         adsbee.SetReceiver1090Enable(false);  // Disable receiver to avoid interrupts during update.
