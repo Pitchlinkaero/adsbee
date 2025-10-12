@@ -48,9 +48,12 @@ class ESP32SerialFlasher {
         // Initialize UART0 - exactly like RC7
         gpio_set_function(config_.esp32_uart_tx_pin, GPIO_FUNC_UART);
         gpio_set_function(config_.esp32_uart_rx_pin, GPIO_FUNC_UART);
+        uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
+
+        // Explicitly set UART format: 8 data bits, 1 stop bit, no parity (ESP32 bootloader standard)
+        uart_set_format(config_.esp32_uart_handle, 8, 1, UART_PARITY_NONE);
         uart_set_translate_crlf(config_.esp32_uart_handle, false);
         uart_set_fifo_enabled(config_.esp32_uart_handle, true);
-        uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
         uart_tx_wait_blocking(config_.esp32_uart_handle);  // Wait for UART tx buffer to drain
 
         CONSOLE_PRINTF("ESP32SerialFlasher: UART0 initialized at %d baud (TX: GPIO%d, RX: GPIO%d)\r\n",
@@ -138,11 +141,17 @@ class ESP32SerialFlasher {
 
         CONSOLE_PRINTF("ESP32SerialFlasher:   Step 6 - Flush UART RX buffer\r\n");
         int flushed = 0;
+        uint8_t first_byte = 0;
         while (uart_is_readable_within_us(config_.esp32_uart_handle, 100)) {
-            uart_getc(config_.esp32_uart_handle);
+            uint8_t byte = uart_getc(config_.esp32_uart_handle);
+            if (flushed == 0) first_byte = byte;
             flushed++;
         }
-        CONSOLE_PRINTF("ESP32SerialFlasher: Bootloader entry complete (flushed %d bytes)\r\n", flushed);
+        if (flushed > 0) {
+            CONSOLE_PRINTF("ESP32SerialFlasher: Bootloader entry complete (flushed %d bytes, first byte: 0x%02X)\r\n", flushed, first_byte);
+        } else {
+            CONSOLE_PRINTF("ESP32SerialFlasher: Bootloader entry complete (no bytes received - ESP32 may not be responding)\r\n");
+        }
     }
 
     void SetBaudRate(uint32_t baudrate) {
