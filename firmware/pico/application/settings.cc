@@ -112,15 +112,21 @@ bool SettingsManager::Save() {
     settings.r1090_bias_tee_enabled = adsbee.BiasTeeIsEnabled();
     settings.watchdog_timeout_sec = adsbee.GetWatchdogTimeoutSec();
 
-    // Save reporting protocols.
-    comms_manager.GetReportingProtocol(SerialInterface::kCommsUART,
-                                       settings.reporting_protocols[SerialInterface::kCommsUART]);
-    comms_manager.GetReportingProtocol(SerialInterface::kConsole,
-                                       settings.reporting_protocols[SerialInterface::kConsole]);
+    // Save reporting protocols (use temp variables due to packed struct alignment).
+    SettingsManager::ReportingProtocol comms_uart_proto;
+    SettingsManager::ReportingProtocol console_proto;
+    comms_manager.GetReportingProtocol(SerialInterface::kCommsUART, comms_uart_proto);
+    comms_manager.GetReportingProtocol(SerialInterface::kConsole, console_proto);
+    settings.reporting_protocols[SerialInterface::kCommsUART] = comms_uart_proto;
+    settings.reporting_protocols[SerialInterface::kConsole] = console_proto;
 
-    // Save baud rates.
-    comms_manager.GetBaudRate(SerialInterface::kCommsUART, settings.comms_uart_baud_rate);
-    comms_manager.GetBaudRate(SerialInterface::kGNSSUART, settings.gnss_uart_baud_rate);
+    // Save baud rates (use temp variables due to packed struct alignment).
+    uint32_t comms_uart_baud;
+    uint32_t gnss_uart_baud;
+    comms_manager.GetBaudRate(SerialInterface::kCommsUART, comms_uart_baud);
+    comms_manager.GetBaudRate(SerialInterface::kGNSSUART, gnss_uart_baud);
+    settings.comms_uart_baud_rate = comms_uart_baud;
+    settings.gnss_uart_baud_rate = gnss_uart_baud;
 
     settings.core_network_settings.esp32_enabled = esp32.IsEnabled();
 

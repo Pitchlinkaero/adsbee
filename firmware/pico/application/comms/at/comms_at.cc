@@ -371,9 +371,11 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
                         SettingsManager::Settings::kFeedURIMaxNumChars);
                 settings_manager.settings.feed_uris[index][SettingsManager::Settings::kFeedURIMaxNumChars] = '\0';
             }
-            // Set FEED_PORT
+            // Set FEED_PORT (use temp variable due to packed struct alignment)
             if (CPP_AT_HAS_ARG(2)) {
-                CPP_AT_TRY_ARG2NUM(2, settings_manager.settings.feed_ports[index]);
+                uint16_t port_temp;
+                CPP_AT_TRY_ARG2NUM(2, port_temp);
+                settings_manager.settings.feed_ports[index] = port_temp;
             }
             // Set ACTIVE
             if (CPP_AT_HAS_ARG(3)) {
@@ -1240,46 +1242,52 @@ CPP_AT_CALLBACK(CommsManager::ATRxPositionCallback) {
             }
         }
             if (CPP_AT_HAS_ARG(1)) {
-                // Set latitude.
-                CPP_AT_TRY_ARG2NUM(1, settings_manager.settings.rx_position.latitude_deg);
-                if (settings_manager.settings.rx_position.latitude_deg < -90.0 ||
-                    settings_manager.settings.rx_position.latitude_deg > 90.0) {
-                    CPP_AT_ERROR("Latitude %.6f out of range (-90.0 to 90.0).",
-                                 settings_manager.settings.rx_position.latitude_deg);
+                // Set latitude (use temp variable due to packed struct alignment).
+                float latitude_temp;
+                CPP_AT_TRY_ARG2NUM(1, latitude_temp);
+                if (latitude_temp < -90.0 || latitude_temp > 90.0) {
+                    CPP_AT_ERROR("Latitude %.6f out of range (-90.0 to 90.0).", latitude_temp);
                 }
+                settings_manager.settings.rx_position.latitude_deg = latitude_temp;
             }
             if (CPP_AT_HAS_ARG(2)) {
-                // Set longitude.
-                CPP_AT_TRY_ARG2NUM(2, settings_manager.settings.rx_position.longitude_deg);
-                if (settings_manager.settings.rx_position.longitude_deg < -180.0 ||
-                    settings_manager.settings.rx_position.longitude_deg > 180.0) {
-                    CPP_AT_ERROR("Longitude %.6f out of range (-180.0 to 180.0).",
-                                 settings_manager.settings.rx_position.longitude_deg);
+                // Set longitude (use temp variable due to packed struct alignment).
+                float longitude_temp;
+                CPP_AT_TRY_ARG2NUM(2, longitude_temp);
+                if (longitude_temp < -180.0 || longitude_temp > 180.0) {
+                    CPP_AT_ERROR("Longitude %.6f out of range (-180.0 to 180.0).", longitude_temp);
                 }
+                settings_manager.settings.rx_position.longitude_deg = longitude_temp;
             }
             if (CPP_AT_HAS_ARG(3)) {
-                // Set GNSS altitude.
-                CPP_AT_TRY_ARG2NUM(3, settings_manager.settings.rx_position.gnss_altitude_m);
+                // Set GNSS altitude (use temp variable due to packed struct alignment).
+                float gnss_alt_temp;
+                CPP_AT_TRY_ARG2NUM(3, gnss_alt_temp);
+                settings_manager.settings.rx_position.gnss_altitude_m = gnss_alt_temp;
             }
             if (CPP_AT_HAS_ARG(4)) {
-                // Set barometric altitude.
-                CPP_AT_TRY_ARG2NUM(4, settings_manager.settings.rx_position.baro_altitude_m);
+                // Set barometric altitude (use temp variable due to packed struct alignment).
+                float baro_alt_temp;
+                CPP_AT_TRY_ARG2NUM(4, baro_alt_temp);
+                settings_manager.settings.rx_position.baro_altitude_m = baro_alt_temp;
             }
             if (CPP_AT_HAS_ARG(5)) {
-                // Set heading.
-                CPP_AT_TRY_ARG2NUM(5, settings_manager.settings.rx_position.heading_deg);
-                if (settings_manager.settings.rx_position.heading_deg < 0.0 ||
-                    settings_manager.settings.rx_position.heading_deg >= 360.0) {
-                    CPP_AT_ERROR("Heading %.1f out of range [0.0 to 360.0).",
-                                 settings_manager.settings.rx_position.heading_deg);
+                // Set heading (use temp variable due to packed struct alignment).
+                float heading_temp;
+                CPP_AT_TRY_ARG2NUM(5, heading_temp);
+                if (heading_temp < 0.0 || heading_temp >= 360.0) {
+                    CPP_AT_ERROR("Heading %.1f out of range [0.0 to 360.0).", heading_temp);
                 }
+                settings_manager.settings.rx_position.heading_deg = heading_temp;
             }
             if (CPP_AT_HAS_ARG(6)) {
-                // Set speed.
-                CPP_AT_TRY_ARG2NUM(6, settings_manager.settings.rx_position.speed_kts);
-                if (settings_manager.settings.rx_position.speed_kts < 0.0) {
-                    CPP_AT_ERROR("Speed %.1f out of range (>= 0.0).", settings_manager.settings.rx_position.speed_kts);
+                // Set speed (use temp variable due to packed struct alignment).
+                float speed_temp;
+                CPP_AT_TRY_ARG2NUM(6, speed_temp);
+                if (speed_temp < 0.0) {
+                    CPP_AT_ERROR("Speed %.1f out of range (>= 0.0).", speed_temp);
                 }
+                settings_manager.settings.rx_position.speed_kts = speed_temp;
             }
             settings_manager.SyncToCoprocessors();
             CPP_AT_SUCCESS();
