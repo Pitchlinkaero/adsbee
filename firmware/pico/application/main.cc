@@ -198,7 +198,15 @@ int main() {
             }
 
             // Give ESP32 time to fully power down before starting flash procedure
-            sleep_ms(200);
+            sleep_ms(500);  // Increased from 200ms to give more time for power to fully drain
+
+            // Ensure GPIO 0 and 1 are in a clean state before flashing
+            // Reset them to default GPIO input mode to clear any previous UART/SPI configuration
+            gpio_init(0);
+            gpio_set_dir(0, GPIO_IN);
+            gpio_init(1);
+            gpio_set_dir(1, GPIO_IN);
+            sleep_ms(50);  // Brief delay to ensure pins stabilize
 
             // FlashESP32() handles its own Init/DeInit cycle for UART0
             comms_manager.console_printf("Starting ESP32 firmware flash...\r\n");
