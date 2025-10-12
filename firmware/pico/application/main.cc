@@ -200,12 +200,20 @@ int main() {
             // Give ESP32 time to fully power down before starting flash procedure
             sleep_ms(500);  // Increased from 200ms to give more time for power to fully drain
 
-            // Ensure GPIO 0 and 1 are in a clean state before flashing
-            // Reset them to default GPIO input mode to clear any previous UART/SPI configuration
+            // Ensure GPIO 0, 1, and 13 are in a clean state before flashing
+            // GPIO 13 is the ESP32 GPIO0/boot pin and may have pull-ups enabled from SPI handshake config
             gpio_init(0);
             gpio_set_dir(0, GPIO_IN);
+            gpio_disable_pulls(0);  // Disable any pull-ups/pull-downs
+
             gpio_init(1);
             gpio_set_dir(1, GPIO_IN);
+            gpio_disable_pulls(1);
+
+            gpio_init(13);  // ESP32 GPIO0/boot pin
+            gpio_set_dir(13, GPIO_OUT);  // Will be controlled by flasher
+            gpio_disable_pulls(13);  // Critical: Remove pull-up from SPI handshake config!
+
             sleep_ms(50);  // Brief delay to ensure pins stabilize
 
             // FlashESP32() handles its own Init/DeInit cycle for UART0
