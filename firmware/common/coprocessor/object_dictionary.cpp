@@ -135,6 +135,11 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             memcpy(&composite_device_status, buf, sizeof(CompositeDeviceStatus));
             break;
         }
+        case kAddrGPSNetworkMessage: {
+            // ESP32 stores GPS network message for RP2040 to read
+            memcpy((uint8_t*)&object_dictionary.gps_network_message_buffer_ + offset, buf, buf_len);
+            break;
+        }
 #elif defined(ON_TI)
 #endif
         default:
@@ -251,8 +256,18 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             break;
         }
 #endif
+        case kAddrGPSNetworkMessage: {
+            // RP2040 reading GPS network message from ESP32
+#ifdef ON_ESP32
+            memcpy(buf, (uint8_t*)&object_dictionary.gps_network_message_buffer_ + offset, buf_len);
+#else
+            // TI or other platforms - return zeros for now
+            memset(buf, 0, buf_len);
+#endif
+            break;
+        }
         default:
-            CONSOLE_ERROR("SPICoprocessor::SetBytes", "No behavior implemented for reading from address 0x%x.", addr);
+            CONSOLE_ERROR("SPICoprocessor::GetBytes", "No behavior implemented for reading from address 0x%x.", addr);
             return false;
     }
     return true;

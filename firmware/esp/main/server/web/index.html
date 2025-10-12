@@ -30,6 +30,39 @@
                 <div id="feed-count" class="metrics-header">Feeds: 0</div>
                 <!-- Cards will be dynamically inserted here -->
             </div>
+            <div id="gps-metrics-container">
+                <div class="metrics-header">GPS Status</div>
+                <div id="gps-status-card" class="metrics-card">
+                    <div class="metrics-item">
+                        <span class="metrics-label">Fix:</span>
+                        <span id="gps-fix-type" class="metrics-value">No Fix</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Position:</span>
+                        <span id="gps-position" class="metrics-value">---.----°, ---.----°</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Altitude:</span>
+                        <span id="gps-altitude" class="metrics-value">--- m</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Accuracy:</span>
+                        <span id="gps-accuracy" class="metrics-value">--- m</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Satellites:</span>
+                        <span id="gps-satellites" class="metrics-value">0</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">PPP:</span>
+                        <span id="gps-ppp-status" class="metrics-value">None</span>
+                    </div>
+                    <div class="metrics-item" id="gps-ppp-convergence" style="display:none;">
+                        <span class="metrics-label">Convergence:</span>
+                        <span id="gps-ppp-percent" class="metrics-value">0%</span>
+                    </div>
+                </div>
+            </div>
             <div id="device-status-container" class="device-status">
                 <div class="metrics-header">Device Status</div>
                 <div id="device-status-cards-container" class="device-status-cards">
@@ -473,6 +506,65 @@
                 this.container = document.getElementById('metrics-container');
             }
 
+            updateGPSStatus(gpsData) {
+                // Update fix type
+                const fixTypes = ['No Fix', 'Dead', '2D', '3D', 'DGPS', 'PPP Conv', 'PPP', 'RTK Float', 'RTK Fixed'];
+                const fixElement = document.getElementById('gps-fix-type');
+                if (fixElement) {
+                    fixElement.textContent = fixTypes[gpsData.fix_type] || 'No Fix';
+                    // Add color coding for fix quality
+                    fixElement.style.color = gpsData.fix_type >= 3 ? '#4CAF50' : 
+                                            gpsData.fix_type >= 2 ? '#FFA500' : '#FF5252';
+                }
+                
+                // Update position
+                const posElement = document.getElementById('gps-position');
+                if (posElement) {
+                    if (gpsData.valid) {
+                        posElement.textContent = `${gpsData.latitude_deg.toFixed(6)}°, ${gpsData.longitude_deg.toFixed(6)}°`;
+                    } else {
+                        posElement.textContent = '---.----°, ---.----°';
+                    }
+                }
+                
+                // Update altitude
+                const altElement = document.getElementById('gps-altitude');
+                if (altElement) {
+                    altElement.textContent = gpsData.valid ? `${gpsData.altitude_m.toFixed(1)} m` : '--- m';
+                }
+                
+                // Update accuracy
+                const accElement = document.getElementById('gps-accuracy');
+                if (accElement) {
+                    accElement.textContent = gpsData.valid ? `${gpsData.accuracy_horizontal_m.toFixed(2)} m` : '--- m';
+                }
+                
+                // Update satellites
+                const satElement = document.getElementById('gps-satellites');
+                if (satElement) {
+                    satElement.textContent = gpsData.satellites_used || '0';
+                }
+                
+                // Update PPP status
+                const pppServices = ['None', 'SBAS', 'Galileo HAS', 'IGS-RTS', 'PointPerfect', 'RTX', 'TerraStar', 'BeiDou'];
+                const pppElement = document.getElementById('gps-ppp-status');
+                if (pppElement) {
+                    pppElement.textContent = pppServices[gpsData.ppp_service] || 'None';
+                }
+                
+                // Update PPP convergence if active
+                const convergenceDiv = document.getElementById('gps-ppp-convergence');
+                const convergenceElement = document.getElementById('gps-ppp-percent');
+                if (convergenceDiv && convergenceElement) {
+                    if (gpsData.ppp_service > 0 && gpsData.ppp_convergence_percent > 0) {
+                        convergenceDiv.style.display = 'flex';
+                        convergenceElement.textContent = `${gpsData.ppp_convergence_percent.toFixed(1)}%`;
+                    } else {
+                        convergenceDiv.style.display = 'none';
+                    }
+                }
+            }
+
             updateMetricsCards(parentLabel, data) {
                 // Remove charts that are no longer in the data
                 Object.keys(this.cards[parentLabel]).forEach(label => {
@@ -591,6 +683,9 @@
                             const deviceStatus = data['device_status'];
                             // console.log('Device Status:', deviceStatus);
                             this.updateDeviceStatus(deviceStatus);
+                        }
+                        if (data.hasOwnProperty('gps_status')) {
+                            this.updateGPSStatus(data['gps_status']);
                         }
                     } catch (error) {
                         console.error('Error parsing WebSocket message:', error);

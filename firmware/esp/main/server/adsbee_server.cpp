@@ -2,6 +2,7 @@
 
 #include "comms.hh"
 #include "gdl90/gdl90_utils.hh"
+#include "gps/gps_network_server.hh"
 #include "json_utils.hh"
 #include "pico.hh"
 #include "settings.hh"

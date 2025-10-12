@@ -17,6 +17,7 @@
 #include "adsbee_server.hh"
 #include "esp_mac.h"   // For retrieving Base MAC address.
 #include "esp_wifi.h"  // For retrieving WiFi Station MAC address.
+#include "gps/gps_network_server.hh"  // For GPSNetworkMessage struct
 #endif
 #ifdef ON_TI
 #endif
@@ -64,6 +65,9 @@ class ObjectDictionary {
         kAddrRollQueue = 0x0E,     // Used to roll various queues on coprocessor slaves to confirm they have been read.
         kAddrSCCommandRequests = 0x0F,         // Used by slave to request commands from master.
         kAddrCompositeArrayRawPackets = 0x10,  // Single endpoint for reading / writing raw ADSB and UAT packets.
+        kAddrGPSNetworkMessage = 0x11,  // GPS data from network sources (ESP32 to RP2040).
+        kAddrGPSNetworkMessageArray = 0x12,  // Array of GPS messages for bulk transfer.
+        kAddrGPSStatus = 0x13,      // GPS status information for web interface.
         kNumAddrs
     };
 
@@ -383,6 +387,11 @@ class ObjectDictionary {
     };
     SubGHzRadioMetrics metrics = {0};
     SubGHzDeviceStatus device_status = {};
+#endif
+
+#ifdef ON_ESP32
+    // Buffer to store GPS network message for RP2040 to read (public for access in GetBytes/SetBytes)
+    GPSNetworkServer::GPSNetworkMessage gps_network_message_buffer_ = {};
 #endif
 
    private:

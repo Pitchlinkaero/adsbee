@@ -3,6 +3,7 @@ if (TARGET application)
     # Primary RP2040 application.
     add_subdirectory(adsb/nasa_cpr)
     add_subdirectory(utils/fec)
+    add_subdirectory(gnss)
     target_sources(application PRIVATE
         # NOTE: Annoyingly, all source files need to end with .c or .cpp to be seen by the ESP IDF.
         settings/settings_strs.cpp
@@ -96,6 +97,7 @@ elseif (TARGET host_test)
     # Off-target unit testing.
     add_subdirectory(adsb/nasa_cpr)
     add_subdirectory(utils/fec)
+    add_subdirectory(gnss)
     target_sources(host_test PRIVATE
         adsb/mode_s_packet.cpp
         adsb/uat_packet.cpp

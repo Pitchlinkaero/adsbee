@@ -1419,7 +1419,40 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 5,
      .help_callback = ATFeedHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedCallback, comms_manager)},
-    {.command_buf = "HOSTNAME",
+    {.command_buf = "+GPS_CONFIG",
+     .min_args = 0,
+     .max_args = 3,
+     .help_string_buf = "AT+GPS_CONFIG=<source>,<rate>,<ppp>\r\n\tConfigure GPS source and settings.\r\n\t"
+                        "source: NONE|UART|NETWORK|MAVLINK\r\n\t"
+                        "rate: 1-5 Hz\r\n\t"
+                        "ppp: NONE|AUTO|GALILEO_HAS|POINTPERFECT\r\n\t"
+                        "AT+GPS_CONFIG?\r\n\tQuery GPS configuration.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSConfigCallback, comms_manager)},
+    {.command_buf = "+GPS_POSITION",
+     .min_args = 0,
+     .max_args = 0,
+     .help_string_buf = "AT+GPS_POSITION?\r\n\tQuery current GPS position and status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSPositionCallback, comms_manager)},
+    {.command_buf = "+GPS_PPP",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+GPS_PPP=<service>,<key>\r\n\tEnable PPP service.\r\n\t"
+                        "service: NONE|AUTO|GALILEO_HAS|POINTPERFECT|RTX\r\n\t"
+                        "key: Service key (optional, for paid services)\r\n\t"
+                        "AT+GPS_PPP?\r\n\tQuery PPP status and convergence.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSPPPCallback, comms_manager)},
+    {.command_buf = "+GPS_STATUS",
+     .min_args = 0,
+     .max_args = 0,
+     .help_string_buf = "AT+GPS_STATUS?\r\n\tQuery GPS receiver status and diagnostics.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSStatusCallback, comms_manager)},
+    {.command_buf = "+GPS_FAILOVER",
+     .min_args = 0,
+     .max_args = 1,
+     .help_string_buf = "AT+GPS_FAILOVER=<timeout_seconds>\r\n\tSet GPS failover timeout (5-30 seconds).\r\n\t"
+                        "AT+GPS_FAILOVER?\r\n\tQuery current failover settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSFailoverCallback, comms_manager)},
+    {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,
      .help_string_buf = "AT+HOSTNAME=<hostname>\r\n\tSet the hostname for all network "
