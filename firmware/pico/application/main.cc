@@ -200,11 +200,8 @@ int main() {
             // Give ESP32 time to fully power down before starting flash procedure
             sleep_ms(200);
 
-            // Switch UART0 from GNSS to ESP32 mode for flashing
-            comms_manager.console_printf("Switching UART0 to ESP32 programming mode...\r\n");
-            UARTSwitch::Deinit();
-
             // FlashESP32() handles its own Init/DeInit cycle for UART0
+            comms_manager.console_printf("Starting ESP32 firmware flash...\r\n");
             if (!esp32_flasher.FlashESP32()) {
                 CONSOLE_ERROR("main", "Error while flashing ESP32. Disabling.");
                 esp32.SetEnable(false);  // Disable ESP32 if flashing failed.

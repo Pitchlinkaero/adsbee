@@ -33,9 +33,9 @@ class ESP32SerialFlasher {
 
     bool DeInit() {
         CONSOLE_INFO("ESP32SerialFlasher::DeInit", "De-Initializing ESP32 firmware upgrade peripherals.");
-        
-        // Release UART0 so it can be used for GNSS later
-        UARTSwitch::Deinit();
+
+        // Deinitialize UART0 directly
+        uart_deinit(config_.esp32_uart_handle);
 
         // Re-enable receiver after update if it was previously enabled.
         adsbee.SetReceiver1090Enable(receiver_was_enabled_before_update_);
@@ -45,11 +45,14 @@ class ESP32SerialFlasher {
     bool Init() {
         CONSOLE_INFO("ESP32SerialFlasher::Init", "Initializing ESP32 firmware upgrade peripherals.");
 
-        // Switch UART0 to ESP32 mode for programming
-        if (!UARTSwitch::InitForESP32(config_.esp32_baudrate)) {
-            CONSOLE_ERROR("ESP32SerialFlasher::Init", "Failed to initialize UART0 for ESP32 programming.");
-            return false;
-        }
+        // Initialize UART0 directly for ESP32 programming (don't use UARTSwitch)
+        gpio_set_function(config_.esp32_uart_tx_pin, GPIO_FUNC_UART);
+        gpio_set_function(config_.esp32_uart_rx_pin, GPIO_FUNC_UART);
+        uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
+        uart_set_translate_crlf(config_.esp32_uart_handle, false);
+        uart_set_fifo_enabled(config_.esp32_uart_handle, true);
+
+        CONSOLE_INFO("ESP32SerialFlasher::Init", "UART0 initialized at %d baud for ESP32 programming", config_.esp32_baudrate);
 
         // Initialize the enable and boot pins.
         gpio_init(config_.esp32_enable_pin);
