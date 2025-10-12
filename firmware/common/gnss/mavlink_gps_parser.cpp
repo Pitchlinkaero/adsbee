@@ -400,13 +400,13 @@ size_t MAVLinkGPSParser::GetDiagnostics(char* buffer, size_t max_len) const {
         "  Autopilot: %s (ID %d:%d)\n"
         "  Messages: %lu (GPS: %lu)\n"
         "  Errors: %lu\n"
-        "  Last heartbeat: %llu ms ago\n"
+        "  Last heartbeat: %lu ms ago\n"
         "  Using: %s\n",
         autopilot_detected_ ? ap_name : "Not detected",
         autopilot_sysid_, autopilot_compid_,
         messages_received_, gps_messages_received_,
         parse_errors_,
-        last_heartbeat_ms_ ? (GET_TIME_MS() - last_heartbeat_ms_) : 0,
+        (unsigned long)(last_heartbeat_ms_ ? (GET_TIME_MS() - last_heartbeat_ms_) : 0),
         use_fused_position_ ? "Fused position" : "Raw GPS"
     );
     
