@@ -96,12 +96,6 @@ int main() {
 
     settings_manager.Load();
 
-    // Initialize UART0 for GNSS by default - only switch to ESP32 if firmware update is needed
-    comms_manager.console_printf("Initializing UART0 for GNSS...\r\n");
-    if (!comms_manager.InitGNSSUART()) {
-        comms_manager.console_printf("Warning: Failed to initialize GNSS UART\r\n");
-    }
-
     uint16_t num_status_led_blinks = FirmwareUpdateManager::AmWithinFlashPartition(0) ? 1 : 2;
     // Blink the LED a few times to indicate a successful startup.
     for (uint16_t i = 0; i < num_status_led_blinks; i++) {
@@ -222,17 +216,17 @@ int main() {
                 }
             }
 
-            // Switch UART0 back to GNSS mode
-            comms_manager.console_printf("Restoring UART0 to GNSS mode...\r\n");
-            if (!comms_manager.InitGNSSUART()) {
-                comms_manager.console_printf("Warning: Failed to restore GNSS UART after ESP32 flash\r\n");
-            }
-
             adsbee.EnableWatchdog();  // Restore watchdog after flashing.
         }
 #endif
     }
-    
+
+    // Initialize UART0 for GNSS now that all ESP32 operations are complete
+    comms_manager.console_printf("Initializing UART0 for GNSS...\r\n");
+    if (!comms_manager.InitGNSSUART()) {
+        comms_manager.console_printf("Warning: Failed to initialize GNSS UART\r\n");
+    }
+
     // Initialize GPS manager with current settings
     if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
         comms_manager.console_printf("GPS initialized: %s source\r\n", 
