@@ -8,7 +8,7 @@
  * GPS/GNSS settings structure to be integrated into main Settings struct.
  * Following the PPP-first approach from our specification.
  */
-struct GPSSettings {
+struct __attribute__((packed)) GPSSettings {
     // Constants
     static constexpr uint16_t kPPPKeyMaxLen = 64;      // For PointPerfect/RTX keys
     static constexpr uint16_t kNTRIPHostMaxLen = 32;   // NTRIP hostname

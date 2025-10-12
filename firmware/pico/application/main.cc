@@ -95,11 +95,11 @@ int main() {
                                  object_dictionary.kFirmwareVersionPatch);
 
     settings_manager.Load();
-    
-    // Initialize UART0 for ESP32 programming first (before GNSS)
-    comms_manager.console_printf("Initializing UART0 for ESP32 firmware check...\r\n");
-    if (!UARTSwitch::InitForESP32()) {
-        comms_manager.console_printf("Warning: Failed to initialize UART0 for ESP32\r\n");
+
+    // Initialize UART0 for GNSS by default - only switch to ESP32 if firmware update is needed
+    comms_manager.console_printf("Initializing UART0 for GNSS...\r\n");
+    if (!comms_manager.InitGNSSUART()) {
+        comms_manager.console_printf("Warning: Failed to initialize GNSS UART\r\n");
     }
 
     uint16_t num_status_led_blinks = FirmwareUpdateManager::AmWithinFlashPartition(0) ? 1 : 2;
@@ -111,64 +111,89 @@ int main() {
         sleep_ms(kStatusLEDBootupBlinkPeriodMs / 2);
     }
 
-    // If WiFi is enabled, try establishing communication with the ESP32 and maybe update its firmware.
+    // If WiFi is enabled, check ESP32 firmware version via SPI and update if needed
     if (esp32.IsEnabled()) {
         adsbee.DisableWatchdog();  // Disable watchdog while setting up ESP32, in case kESP32BootupTimeoutMs >=
                                    // watchdog timeout, and to avoid watchdog reboot during ESP32 programming.
 
-        // Try reading from the ESP32 till it finishes turning on.
+        // Try reading firmware version from ESP32 via SPI
         uint32_t esp32_firmware_version = 0x0;
-        bool flash_esp32 = true;
+        bool flash_esp32 = false;
         uint32_t esp32_comms_start_timestamp_ms = get_time_since_boot_ms();
         uint32_t esp32_comms_last_try_timestamp_ms = 0;
+
+        comms_manager.console_printf("Checking ESP32 firmware version via SPI...\r\n");
+
         while (get_time_since_boot_ms() - esp32_comms_start_timestamp_ms < kESP32BootupTimeoutMs) {
             // Wait until the next retry interval to avoid spamming the ESP32 continuously.
             if (get_time_since_boot_ms() - esp32_comms_last_try_timestamp_ms < kESP32BootupCommsRetryMs) {
                 continue;
             }
             esp32_comms_last_try_timestamp_ms = get_time_since_boot_ms();
-            // Try reading the firmware version from the ESP32. If the read succeeds, confirm that the firmware
-            // version matches ours.
+
+            // Try reading the firmware version from the ESP32 via SPI
             if (!esp32.Read(ObjectDictionary::Address::kAddrFirmwareVersion, esp32_firmware_version)) {
                 // Couldn't read firmware version from ESP32. Try again later.
-                CONSOLE_ERROR("main", "Unable to read firmware version from ESP32.");
+                CONSOLE_ERROR("main", "Unable to read firmware version from ESP32 via SPI.");
             } else if (esp32_firmware_version != object_dictionary.kFirmwareVersion) {
-                // ESP32 firmware version doesn't match ours. Flash the ESP32.
+                // ESP32 firmware version doesn't match ours. Need to flash the ESP32.
                 CONSOLE_ERROR("main",
-                              "Incorrect firmware version detected on ESP32. Pico is running %d.%d.%d but ESP32 is "
+                              "Firmware version mismatch detected. Pico is running %d.%d.%d but ESP32 is "
                               "running %d.%d.%d",
                               object_dictionary.kFirmwareVersionMajor, object_dictionary.kFirmwareVersionMinor,
                               object_dictionary.kFirmwareVersionPatch, esp32_firmware_version >> 16,
                               (esp32_firmware_version >> 8) & 0xFF, esp32_firmware_version & 0xFF);
+                flash_esp32 = true;
                 break;
             } else {
-                // Firmware checks out, all good! Don't flash the ESP32.
+                // Firmware version matches! No need to flash.
+                comms_manager.console_printf("ESP32 firmware version matches (v%d.%d.%d), no update needed\r\n",
+                                            object_dictionary.kFirmwareVersionMajor,
+                                            object_dictionary.kFirmwareVersionMinor,
+                                            object_dictionary.kFirmwareVersionPatch);
                 flash_esp32 = false;
                 break;
             }
         }
+
+        // If we couldn't read firmware version after timeout, assume flash is needed
+        if (get_time_since_boot_ms() - esp32_comms_start_timestamp_ms >= kESP32BootupTimeoutMs &&
+            esp32_firmware_version == 0x0) {
+            CONSOLE_ERROR("main", "Failed to read ESP32 firmware version after timeout, assuming flash needed");
+            flash_esp32 = true;
+        }
+
         adsbee.EnableWatchdog();  // Restore watchdog.
+
 #ifndef DEBUG_DISABLE_ESP32_FLASH
-        // If we never read from the ESP32, or read a different firmware version, try writing to it.
+        // Only flash if firmware version check indicated it's needed
         if (flash_esp32) {
+            comms_manager.console_printf("ESP32 firmware update required, switching UART0 to ESP32 mode...\r\n");
             adsbee.DisableWatchdog();  // Disable watchdog while flashing.
-            if (!esp32.DeInit()) {
-                CONSOLE_ERROR("main", "Error while de-initializing ESP32 before flashing.");
-            } else if (!esp32_flasher.FlashESP32()) {
+
+            // Switch UART0 from GNSS to ESP32 mode for flashing
+            UARTSwitch::Deinit();
+
+            // FlashESP32() handles its own Init/DeInit cycle for UART0
+            if (!esp32_flasher.FlashESP32()) {
                 CONSOLE_ERROR("main", "Error while flashing ESP32. Disabling.");
                 esp32.SetEnable(false);  // Disable ESP32 if flashing failed.
-            } else if (!esp32.Init()) {
-                CONSOLE_ERROR("main", "Error while re-initializing ESP32 after flashing.");
+            } else {
+                comms_manager.console_printf("ESP32 firmware updated successfully\r\n");
+                if (!esp32.Init()) {
+                    CONSOLE_ERROR("main", "Error while re-initializing ESP32 after flashing.");
+                }
             }
+
+            // Switch UART0 back to GNSS mode
+            comms_manager.console_printf("Restoring UART0 to GNSS mode...\r\n");
+            if (!comms_manager.InitGNSSUART()) {
+                comms_manager.console_printf("Warning: Failed to restore GNSS UART after ESP32 flash\r\n");
+            }
+
             adsbee.EnableWatchdog();  // Restore watchdog after flashing.
         }
 #endif
-    }
-
-    // Now that ESP32 firmware check is complete, initialize GNSS UART
-    comms_manager.console_printf("ESP32 firmware check complete, initializing GNSS UART...\r\n");
-    if (!comms_manager.InitGNSSUART()) {
-        comms_manager.console_printf("Warning: Failed to initialize GNSS UART\r\n");
     }
     
     // Initialize GPS manager with current settings

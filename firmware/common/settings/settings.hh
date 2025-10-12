@@ -62,7 +62,7 @@ class SettingsManager {
     static const char kSubGHzModeStrs[kNumSubGHzRadioModes][kSubGHzModeStrMaxLen];
 
     // Receiver position settings.
-    struct RxPosition {
+    struct __attribute__((packed)) RxPosition {
         enum PositionSource : uint8_t {
             kPositionSourceNone = 0,
             kPositionSourceFixed = 1,

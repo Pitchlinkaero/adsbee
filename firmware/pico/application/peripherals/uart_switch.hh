@@ -30,13 +30,15 @@ public:
     /**
      * Initialize UART0 for ESP32 programming mode
      * This should be called early in boot to allow ESP32 firmware checks
-     * 
+     *
      * @param baudrate Baudrate for ESP32 programming (typically 115200)
      * @return true if initialization successful
      */
     static bool InitForESP32(uint32_t baudrate = 115200) {
         if (current_mode_ == kModeESP32) {
-            return true; // Already in ESP32 mode
+            // Already in ESP32 mode, just update baudrate if needed
+            uart_set_baudrate(uart0, baudrate);
+            return true;
         }
 
         // Deinitialize if currently in another mode
@@ -47,12 +49,12 @@ public:
         // Configure pins for UART0
         gpio_set_function(0, GPIO_FUNC_UART);  // TX
         gpio_set_function(1, GPIO_FUNC_UART);  // RX
-        
+
         // Initialize UART0 for ESP32 communication
         uart_init(uart0, baudrate);
         uart_set_translate_crlf(uart0, false);
         uart_set_fifo_enabled(uart0, true);
-        
+
         current_mode_ = kModeESP32;
         return true;
     }
@@ -60,13 +62,15 @@ public:
     /**
      * Initialize UART0 for GNSS mode
      * This should be called after ESP32 firmware checks are complete
-     * 
+     *
      * @param baudrate Baudrate for GNSS (typically 115200 or configured value)
      * @return true if initialization successful
      */
     static bool InitForGNSS(uint32_t baudrate = 115200) {
         if (current_mode_ == kModeGNSS) {
-            return true; // Already in GNSS mode
+            // Already in GNSS mode, just update baudrate if needed
+            uart_set_baudrate(uart0, baudrate);
+            return true;
         }
 
         // Deinitialize if currently in another mode
@@ -77,12 +81,12 @@ public:
         // Configure pins for UART0
         gpio_set_function(0, GPIO_FUNC_UART);  // TX
         gpio_set_function(1, GPIO_FUNC_UART);  // RX
-        
+
         // Initialize UART0 for GNSS communication
         uart_init(uart0, baudrate);
         uart_set_translate_crlf(uart0, false);
         uart_set_fifo_enabled(uart0, true);
-        
+
         current_mode_ = kModeGNSS;
         return true;
     }
