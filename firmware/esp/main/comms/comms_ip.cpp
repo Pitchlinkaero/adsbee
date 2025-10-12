@@ -1,6 +1,7 @@
 #include "beast/beast_utils.hh"  // For beast reporting.
 #include "mode_s_packet_decoder.hh"  // For decoding Mode S packets
 #include "uat_packet.hh"  // For UAT packet types
+#include "errno_strs.hh"  // For ErrNoToString
 #include "comms.hh"
 #include "esp_event.h"
 #include "esp_mac.h"
@@ -457,7 +458,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 switch (settings_manager.settings.feed_protocols[i]) {
                     case SettingsManager::ReportingProtocol::kBeast: {
                         uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
-                                                  BeastReporter::kBeastFrameMaxLenBytes];
+                                                  BeastReporter::kModeSBeastFrameMaxLenBytes];
                         uint16_t beast_message_len_bytes =
                             BeastReporter::BuildFeedStartFrame(beast_message_buf, settings_manager.settings.feed_receiver_ids[i]);
                         int err = send(feed_sock_[i], beast_message_buf, beast_message_len_bytes, 0);
@@ -490,9 +491,11 @@ void CommsManager::IPWANTask(void* pvParameters) {
                     // Process each Mode S packet in the composite array
                     for (uint16_t j = 0; j < raw_packets.header->num_mode_s_packets; j++) {
                         uint8_t beast_message_buf[2 * SettingsManager::Settings::kFeedReceiverIDNumBytes +
-                                                  BeastReporter::kBeastFrameMaxLenBytes];
-                        uint16_t beast_message_len_bytes = BeastReporter::BuildRawModeSBeastFrame(
-                            raw_packets.mode_s_packets[j], beast_message_buf);
+                                                  BeastReporter::kModeSBeastFrameMaxLenBytes];
+                        // First decode the packet to get a DecodedModeSPacket
+                        DecodedModeSPacket decoded_packet(raw_packets.mode_s_packets[j]);
+                        uint16_t beast_message_len_bytes = BeastReporter::BuildModeSBeastFrame(
+                            beast_message_buf, decoded_packet);
 
                     int err = send(feed_sock_[i], beast_message_buf, beast_message_len_bytes, 0);
                         if (err < 0) {
@@ -525,8 +528,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                         const RawModeSPacket& mode_s_packet = raw_packets.mode_s_packets[j];
 
                         // Decode the packet to get ICAO address
-                        DecodedModeSPacket decoded_packet;
-                        if (!ModeSPacketDecoder::DecodeModeSPacket(mode_s_packet, decoded_packet)) {
+                        DecodedModeSPacket decoded_packet(mode_s_packet);
+                        if (!decoded_packet.IsValid()) {
                             continue;  // Skip invalid packets
                         }
 
@@ -540,7 +543,9 @@ void CommsManager::IPWANTask(void* pvParameters) {
                             settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
 
                             // Get aircraft data from dictionary for complete information
-                            Aircraft* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr<Aircraft>(icao_address);
+                            // Use GetAircraftPtr with correct UID including aircraft type
+                            uint32_t uid = Aircraft::ICAOToUID(icao_address, Aircraft::kAircraftTypeModeS);
+                            ModeSAircraft* aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr<ModeSAircraft>(uid, false);
 
                             if (aircraft != nullptr) {
                                 // Aircraft found in dictionary, publish status
@@ -548,9 +553,9 @@ void CommsManager::IPWANTask(void* pvParameters) {
                             }
 
                             // Convert to TransponderPacket for publishing
-                            MQTT::MQTTClient::TransponderPacket packet;
-                            packet.icao = icao_address;
-                            packet.band = 1;  // 1=1090MHz
+                            TransponderPacket packet;
+                            packet.address = icao_address;
+                            // Note: band is not part of TransponderPacket structure
                             packet.timestamp_ms = mode_s_packet.timestamp_ms;
 
                             if (aircraft != nullptr) {
@@ -559,11 +564,11 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 packet.longitude = aircraft->longitude_deg;
                                 packet.altitude = aircraft->baro_altitude_ft;
                                 packet.heading = aircraft->direction_deg;
-                                packet.velocity = aircraft->velocity_kts;
+                                packet.velocity = aircraft->speed_kts;
                                 packet.vertical_rate = aircraft->vertical_rate_fpm;
                                 packet.squawk = aircraft->squawk;
-                                packet.airborne = (aircraft->baro_altitude_ft > 100) ? 1 : 0;  // Simple ground detection
-                                packet.category = aircraft->category_raw;
+                                packet.airborne = aircraft->HasBitFlag(ModeSAircraft::kBitFlagIsAirborne) ? 1 : 0;
+                                packet.category = aircraft->emitter_category_raw;
 
                                 // Copy callsign
                                 strncpy(packet.callsign, aircraft->callsign, 8);
@@ -571,19 +576,19 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
                                 // Set validity flags based on available data
                                 packet.flags = 0;
-                                if (aircraft->latitude_deg != 0.0 || aircraft->longitude_deg != 0.0) {
+                                if (aircraft->HasBitFlag(ModeSAircraft::kBitFlagPositionValid)) {
                                     packet.flags |= TransponderPacket::FLAG_POSITION_VALID;
                                 }
-                                if (aircraft->baro_altitude_ft != 0) {
+                                if (aircraft->HasBitFlag(ModeSAircraft::kBitFlagBaroAltitudeValid)) {
                                     packet.flags |= TransponderPacket::FLAG_ALTITUDE_VALID;
                                 }
-                                if (aircraft->velocity_kts > 0) {
+                                if (aircraft->speed_kts > 0) {
                                     packet.flags |= TransponderPacket::FLAG_VELOCITY_VALID;
                                 }
-                                if (aircraft->direction_deg != 0.0) {
+                                if (aircraft->HasBitFlag(ModeSAircraft::kBitFlagDirectionValid)) {
                                     packet.flags |= TransponderPacket::FLAG_HEADING_VALID;
                                 }
-                                if (aircraft->vertical_rate_fpm != 0) {
+                                if (aircraft->HasBitFlag(ModeSAircraft::kBitFlagBaroVerticalRateValid)) {
                                     packet.flags |= TransponderPacket::FLAG_VERTICAL_RATE_VALID;
                                 }
                                 if (strlen(aircraft->callsign) > 1 && strcmp(aircraft->callsign, "?") != 0) {
@@ -592,7 +597,7 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 if (aircraft->squawk != 0) {
                                     packet.flags |= TransponderPacket::FLAG_SQUAWK_VALID;
                                 }
-                                if (aircraft->category_raw != 0) {
+                                if (aircraft->emitter_category_raw != 0) {
                                     packet.flags |= TransponderPacket::FLAG_CATEGORY_VALID;
                                 }
                             } else {
@@ -610,8 +615,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 packet.flags = 0;  // Only address is valid
                             }
 
-                            // Publish using the new packet structure
-                            if (mqtt_clients_[i]->PublishTransponderPacket(packet)) {
+                            // Publish using the new packet structure with band indicator
+                            if (mqtt_clients_[i]->PublishAircraftStatus(packet, 1)) {  // 1=1090MHz
                                 feed_mps_counter_[i]++;  // Update statistics
                             }
                         }
@@ -637,13 +642,15 @@ void CommsManager::IPWANTask(void* pvParameters) {
                             settings_manager.settings.mqtt_report_modes[i] == SettingsManager::MQTTReportMode::kMQTTReportModeBoth) {
 
                             // Get UAT aircraft data from dictionary
-                            UATAircraft* uat_aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr<UATAircraft>(icao_address);
+                            // Use GetAircraftPtr with correct UID including aircraft type
+                            uint32_t uat_uid = Aircraft::ICAOToUID(icao_address, Aircraft::kAircraftTypeUAT);
+                            UATAircraft* uat_aircraft = adsbee_server.aircraft_dictionary.GetAircraftPtr<UATAircraft>(uat_uid, false);
 
                             // Convert to TransponderPacket for publishing
-                            MQTT::MQTTClient::TransponderPacket packet;
-                            packet.icao = icao_address;
-                            packet.band = 2;  // 2=978MHz UAT
-                            packet.timestamp_ms = uat_packet.GetTimestampMS();
+                            TransponderPacket packet;
+                            packet.address = icao_address;
+                            // Note: band is not part of TransponderPacket structure
+                            packet.timestamp_ms = uat_packet.timestamp_ms;
 
                             if (uat_aircraft != nullptr) {
                                 // We have UAT aircraft data from the dictionary
@@ -651,11 +658,11 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 packet.longitude = uat_aircraft->longitude_deg;
                                 packet.altitude = uat_aircraft->baro_altitude_ft;
                                 packet.heading = uat_aircraft->direction_deg;
-                                packet.velocity = uat_aircraft->velocity_kts;
+                                packet.velocity = uat_aircraft->speed_kts;
                                 packet.vertical_rate = uat_aircraft->vertical_rate_fpm;
                                 packet.squawk = uat_aircraft->squawk;
-                                packet.airborne = (uat_aircraft->baro_altitude_ft > 100) ? 1 : 0;
-                                packet.category = uat_aircraft->category_raw;
+                                packet.airborne = uat_aircraft->HasBitFlag(UATAircraft::kBitFlagIsAirborne) ? 1 : 0;
+                                packet.category = uat_aircraft->emitter_category_raw;
 
                                 // Copy callsign
                                 strncpy(packet.callsign, uat_aircraft->callsign, 8);
@@ -663,29 +670,29 @@ void CommsManager::IPWANTask(void* pvParameters) {
 
                                 // Set validity flags based on available UAT data
                                 packet.flags = 0;
-                                if (uat_aircraft->latitude_deg != 0.0 || uat_aircraft->longitude_deg != 0.0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_POSITION_VALID;
+                                if (uat_aircraft->HasBitFlag(UATAircraft::kBitFlagPositionValid)) {
+                                    packet.flags |= TransponderPacket::FLAG_POSITION_VALID;
                                 }
-                                if (uat_aircraft->baro_altitude_ft != 0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_ALTITUDE_VALID;
+                                if (uat_aircraft->HasBitFlag(UATAircraft::kBitFlagBaroAltitudeValid)) {
+                                    packet.flags |= TransponderPacket::FLAG_ALTITUDE_VALID;
                                 }
-                                if (uat_aircraft->velocity_kts > 0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_VELOCITY_VALID;
+                                if (uat_aircraft->speed_kts > 0) {
+                                    packet.flags |= TransponderPacket::FLAG_VELOCITY_VALID;
                                 }
-                                if (uat_aircraft->direction_deg != 0.0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_HEADING_VALID;
+                                if (uat_aircraft->HasBitFlag(UATAircraft::kBitFlagDirectionValid)) {
+                                    packet.flags |= TransponderPacket::FLAG_HEADING_VALID;
                                 }
-                                if (uat_aircraft->vertical_rate_fpm != 0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_VERTICAL_RATE_VALID;
+                                if (uat_aircraft->HasBitFlag(UATAircraft::kBitFlagBaroVerticalRateValid)) {
+                                    packet.flags |= TransponderPacket::FLAG_VERTICAL_RATE_VALID;
                                 }
                                 if (strlen(uat_aircraft->callsign) > 1 && strcmp(uat_aircraft->callsign, "?") != 0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_CALLSIGN_VALID;
+                                    packet.flags |= TransponderPacket::FLAG_CALLSIGN_VALID;
                                 }
                                 if (uat_aircraft->squawk != 0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_SQUAWK_VALID;
+                                    packet.flags |= TransponderPacket::FLAG_SQUAWK_VALID;
                                 }
-                                if (uat_aircraft->category_raw != 0) {
-                                    packet.flags |= MQTT::MQTTClient::TransponderPacket::FLAG_CATEGORY_VALID;
+                                if (uat_aircraft->emitter_category_raw != 0) {
+                                    packet.flags |= TransponderPacket::FLAG_CATEGORY_VALID;
                                 }
                             } else {
                                 // No UAT aircraft in dictionary, use minimal packet data
@@ -702,8 +709,8 @@ void CommsManager::IPWANTask(void* pvParameters) {
                                 packet.flags = 0;  // Only address is valid
                             }
 
-                            // Publish UAT aircraft using the same MQTT client
-                            if (mqtt_clients_[i]->PublishTransponderPacket(packet)) {
+                            // Publish UAT aircraft using the same MQTT client with band indicator
+                            if (mqtt_clients_[i]->PublishAircraftStatus(packet, 2)) {  // 2=978MHz UAT
                                 feed_mps_counter_[i]++;  // Update statistics
                             }
                         }
