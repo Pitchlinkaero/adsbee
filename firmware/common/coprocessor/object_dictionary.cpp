@@ -15,7 +15,7 @@ const uint8_t ObjectDictionary::kFirmwareVersionMajor = 0;
 const uint8_t ObjectDictionary::kFirmwareVersionMinor = 9;
 const uint8_t ObjectDictionary::kFirmwareVersionPatch = 0;
 // NOTE: Indicate a final release with RC = 0.
-const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 3;
+const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 4;
 
 const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24) | (kFirmwareVersionMinor << 16) |
                                                     (kFirmwareVersionPatch << 8) | kFirmwareVersionReleaseCandidate;
@@ -264,6 +264,18 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
             // TI or other platforms - return zeros for now
             memset(buf, 0, buf_len);
 #endif
+            break;
+        }
+        case kAddrGPSNetworkMessageArray: {
+            // RP2040 reading GPS network message array from ESP32
+            // TODO: Implement array support if needed
+            memset(buf, 0, buf_len);
+            break;
+        }
+        case kAddrGPSStatus: {
+            // RP2040 reading GPS status from ESP32 for web interface
+            // TODO: Implement GPS status reporting
+            memset(buf, 0, buf_len);
             break;
         }
         default:
