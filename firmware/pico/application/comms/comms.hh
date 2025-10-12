@@ -76,6 +76,10 @@ class CommsManager {
     CPP_AT_CALLBACK(ATGPSPPPCallback);
     CPP_AT_CALLBACK(ATGPSStatusCallback);
     CPP_AT_CALLBACK(ATGPSFailoverCallback);
+    CPP_AT_CALLBACK(ATGPSNetworkCallback);
+    CPP_AT_CALLBACK(ATGPSRTKCallback);
+    CPP_AT_CALLBACK(ATGPSStaticCallback);
+    CPP_AT_CALLBACK(ATGPSSBASCallback);
     CPP_AT_CALLBACK(ATHostnameCallback);
     CPP_AT_CALLBACK(ATOTACallback);
     CPP_AT_HELP_CALLBACK(ATOTAHelpCallback);

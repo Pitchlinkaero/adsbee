@@ -584,21 +584,21 @@ GNSSInterface::PPPService GNSSManager::GetPPPStatus(float& convergence_percent, 
 }
 
 bool GNSSManager::SetUpdateRate(uint8_t hz) {
-    if (hz < 1 || hz > 5) {
-        LOG_ERROR("Invalid update rate %d Hz (must be 1-5)\n", hz);
+    if (hz < 1 || hz > 10) {
+        LOG_ERROR("Invalid update rate %d Hz (must be 1-10)\n", hz);
         return false;
     }
-    
+
     update_rate_hz_ = hz;
     update_interval_ms_ = 1000 / hz;
-    
+
     // Update parser configuration if it exists
     if (parser_) {
         GNSSInterface::Config config;
         config.update_rate_hz = hz;
         parser_->Configure(config);
     }
-    
+
     LOG_INFO("GPS update rate set to %d Hz\n", hz);
     return true;
 }

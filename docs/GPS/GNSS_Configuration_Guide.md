@@ -316,7 +316,7 @@ AT+GPS_FAILOVER=15
 ## Supported Hardware
 
 ### Tested GPS Receivers
-- **u-blox F9P/F9H/F9T**: Full UBX support, RTK, PPP
+- **u-blox F9P/F9H/F9T/M10**: Full UBX support, RTK, PPP
 - **Septentrio mosaic-X5**: Full SBF support, multi-band PPP
 - **Generic NMEA**: Basic positioning, limited accuracy
 

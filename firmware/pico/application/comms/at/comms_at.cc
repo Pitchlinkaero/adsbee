@@ -401,10 +401,10 @@ CPP_AT_CALLBACK(CommsManager::ATGPSConfigCallback) {
     switch (op) {
         case '?':
             // Query current GPS configuration
-            CPP_AT_CMD_PRINTF("=%s,%d,%s",
+            CPP_AT_CMD_PRINTF("=%s,%s,%d",
                 GPSSettings::kGPSSourceStrs[settings_manager.settings.gps_settings.gps_source],
-                settings_manager.settings.gps_settings.gps_update_rate_hz,
-                GNSSInterface::kPPPServiceStrs[settings_manager.settings.gps_settings.ppp_service]);
+                GPSSettings::kUARTProtoStrs[settings_manager.settings.gps_settings.gps_uart_protocol],
+                settings_manager.settings.gps_settings.gps_update_rate_hz);
             CPP_AT_SILENT_SUCCESS();
             break;
         case '=':
@@ -420,31 +420,31 @@ CPP_AT_CALLBACK(CommsManager::ATGPSConfigCallback) {
                     }
                 }
                 if (!found) {
-                    CPP_AT_ERROR("Invalid GPS source. Must be one of [NONE, UART, NETWORK, MAVLINK].");
+                    CPP_AT_ERROR("Invalid GPS source. Must be one of [NONE, UART, NETWORK, MAVLINK, AUTO].");
                 }
             }
             if (CPP_AT_HAS_ARG(1)) {
-                // Set update rate
-                uint8_t rate;
-                CPP_AT_TRY_ARG2NUM(1, rate);
-                if (rate < 1 || rate > 5) {
-                    CPP_AT_ERROR("GPS update rate must be between 1-5 Hz.");
-                }
-                settings_manager.settings.gps_settings.gps_update_rate_hz = rate;
-            }
-            if (CPP_AT_HAS_ARG(2)) {
-                // Set PPP service
+                // Set protocol
                 bool found = false;
-                for (int i = 0; i < GNSSInterface::kPPPServiceCount; i++) {
-                    if (args[2].compare(GNSSInterface::kPPPServiceStrs[i]) == 0) {
-                        settings_manager.settings.gps_settings.ppp_service = static_cast<GNSSInterface::PPPService>(i);
+                for (int i = 0; i < GPSSettings::kUARTProtoCount; i++) {
+                    if (args[1].compare(GPSSettings::kUARTProtoStrs[i]) == 0) {
+                        settings_manager.settings.gps_settings.gps_uart_protocol = static_cast<GPSSettings::UARTProtocol>(i);
                         found = true;
                         break;
                     }
                 }
                 if (!found) {
-                    CPP_AT_ERROR("Invalid PPP service.");
+                    CPP_AT_ERROR("Invalid protocol. Must be one of [AUTO, NMEA, UBX, SBF, RTCM].");
                 }
+            }
+            if (CPP_AT_HAS_ARG(2)) {
+                // Set update rate
+                uint8_t rate;
+                CPP_AT_TRY_ARG2NUM(2, rate);
+                if (rate < 1 || rate > 10) {
+                    CPP_AT_ERROR("GPS update rate must be between 1-10 Hz.");
+                }
+                settings_manager.settings.gps_settings.gps_update_rate_hz = rate;
             }
             // Reinitialize GPS with new settings
             if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
@@ -575,20 +575,20 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
             {
                 char diag_buf[256];
                 gnss_manager.GetDiagnostics(diag_buf, sizeof(diag_buf));
-                
+
                 // Basic status
                 CPP_AT_CMD_PRINTF("=%s,%s,%s",
                     gnss_manager.GetReceiverType(),
                     gnss_manager.IsPositionValid() ? "VALID" : "INVALID",
                     gnss_manager.SupportsHighPrecision() ? "HIGH_PRECISION" : "STANDARD");
-                
+
                 // Current source and protocol
                 const char* source_str = "UNKNOWN";
                 if (gnss_manager.GetCurrentSource() < GPSSettings::kGPSSourceCount) {
                     source_str = GPSSettings::kGPSSourceStrs[gnss_manager.GetCurrentSource()];
                 }
                 CPP_AT_CMD_PRINTF("\r\nSource: %s", source_str);
-                
+
                 // Detailed statistics
                 GNSSManager::Statistics stats = gnss_manager.GetStatistics();
                 CPP_AT_CMD_PRINTF("\r\n--- GPS Statistics ---");
@@ -599,17 +599,192 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
                 CPP_AT_CMD_PRINTF("\r\nFailover Count: %u", stats.failover_count);
                 CPP_AT_CMD_PRINTF("\r\nBest Accuracy: %.1fm", stats.best_accuracy_m);
                 CPP_AT_CMD_PRINTF("\r\nUptime: %us", stats.uptime_s);
-                
+
                 // PPP status if enabled
                 if (stats.ppp_convergence_time_s > 0) {
                     CPP_AT_CMD_PRINTF("\r\nPPP Convergence Time: %us", stats.ppp_convergence_time_s);
                 }
-                
+
                 // Additional diagnostics
                 CPP_AT_CMD_PRINTF("\r\n--- Diagnostics ---");
                 CPP_AT_CMD_PRINTF("\r\n%s", diag_buf);
-                
+
                 CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSNetworkCallback) {
+    switch (op) {
+        case '?':
+            {
+                // Query current network GPS settings
+                CPP_AT_CMD_PRINTF("=%s,%u,%s,%s",
+                    settings_manager.settings.gps_settings.ntrip_host,
+                    settings_manager.settings.gps_settings.ntrip_port,
+                    settings_manager.settings.gps_settings.ntrip_mountpoint,
+                    settings_manager.settings.gps_settings.ntrip_username);
+                // Don't print password for security
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        case '=':
+            {
+                // Set network GPS settings: AT+GPS_NETWORK=<host>,<port>,<mountpoint>,<user>,<pass>
+                if (CPP_AT_HAS_ARG(0)) {
+                    strncpy(settings_manager.settings.gps_settings.ntrip_host,
+                            args[0].data(),
+                            GPSSettings::kNTRIPHostMaxLen);
+                    settings_manager.settings.gps_settings.ntrip_host[GPSSettings::kNTRIPHostMaxLen] = '\0';
+                }
+                if (CPP_AT_HAS_ARG(1)) {
+                    uint16_t port;
+                    CPP_AT_TRY_ARG2NUM(1, port);
+                    settings_manager.settings.gps_settings.ntrip_port = port;
+                }
+                if (CPP_AT_HAS_ARG(2)) {
+                    strncpy(settings_manager.settings.gps_settings.ntrip_mountpoint,
+                            args[2].data(),
+                            GPSSettings::kNTRIPMountMaxLen);
+                    settings_manager.settings.gps_settings.ntrip_mountpoint[GPSSettings::kNTRIPMountMaxLen] = '\0';
+                }
+                if (CPP_AT_HAS_ARG(3)) {
+                    strncpy(settings_manager.settings.gps_settings.ntrip_username,
+                            args[3].data(),
+                            GPSSettings::kNTRIPUserMaxLen);
+                    settings_manager.settings.gps_settings.ntrip_username[GPSSettings::kNTRIPUserMaxLen] = '\0';
+                }
+                if (CPP_AT_HAS_ARG(4)) {
+                    strncpy(settings_manager.settings.gps_settings.ntrip_password,
+                            args[4].data(),
+                            GPSSettings::kNTRIPPassMaxLen);
+                    settings_manager.settings.gps_settings.ntrip_password[GPSSettings::kNTRIPPassMaxLen] = '\0';
+                }
+
+                CPP_AT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSRTKCallback) {
+    switch (op) {
+        case '?':
+            {
+                // Query RTK status
+                CPP_AT_CMD_PRINTF("=%s",
+                    settings_manager.settings.gps_settings.rtk_enabled ? "ENABLE" : "DISABLE");
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        case '=':
+            {
+                // Enable/disable RTK: AT+GPS_RTK=ENABLE or AT+GPS_RTK=DISABLE
+                if (!CPP_AT_HAS_ARG(0)) {
+                    CPP_AT_ERROR("Argument required. Usage: AT+GPS_RTK=ENABLE or AT+GPS_RTK=DISABLE");
+                }
+
+                if (args[0].compare("ENABLE") == 0) {
+                    settings_manager.settings.gps_settings.rtk_enabled = true;
+                    CPP_AT_PRINTF("RTK enabled\r\n");
+                } else if (args[0].compare("DISABLE") == 0) {
+                    settings_manager.settings.gps_settings.rtk_enabled = false;
+                    CPP_AT_PRINTF("RTK disabled\r\n");
+                } else {
+                    CPP_AT_ERROR("Invalid argument. Must be ENABLE or DISABLE.");
+                }
+
+                // Reinitialize GPS with new settings
+                gnss_manager.Initialize(settings_manager.settings.gps_settings);
+                CPP_AT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSStaticCallback) {
+    switch (op) {
+        case '?':
+            {
+                // Query static mode settings
+                CPP_AT_CMD_PRINTF("=%s,%.1f",
+                    settings_manager.settings.gps_settings.static_mode ? "ENABLE" : "DISABLE",
+                    settings_manager.settings.gps_settings.static_threshold_m);
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        case '=':
+            {
+                // Set static mode: AT+GPS_STATIC=ENABLE/DISABLE,<threshold_m>
+                if (!CPP_AT_HAS_ARG(0)) {
+                    CPP_AT_ERROR("Argument required. Usage: AT+GPS_STATIC=ENABLE/DISABLE,<threshold_m>");
+                }
+
+                if (args[0].compare("ENABLE") == 0) {
+                    settings_manager.settings.gps_settings.static_mode = true;
+                } else if (args[0].compare("DISABLE") == 0) {
+                    settings_manager.settings.gps_settings.static_mode = false;
+                } else {
+                    CPP_AT_ERROR("Invalid argument. Must be ENABLE or DISABLE.");
+                }
+
+                if (CPP_AT_HAS_ARG(1)) {
+                    // Parse threshold as float
+                    std::string threshold_str(args[1].data(), args[1].size());
+                    float threshold = atof(threshold_str.c_str());
+                    if (threshold < 0.1 || threshold > 10.0) {
+                        CPP_AT_ERROR("Threshold must be between 0.1 and 10.0 meters.");
+                    }
+                    settings_manager.settings.gps_settings.static_threshold_m = threshold;
+                }
+
+                // Reinitialize GPS with new settings
+                gnss_manager.Initialize(settings_manager.settings.gps_settings);
+                CPP_AT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
+CPP_AT_CALLBACK(CommsManager::ATGPSSBASCallback) {
+    switch (op) {
+        case '?':
+            {
+                // Query SBAS status
+                CPP_AT_CMD_PRINTF("=%s",
+                    settings_manager.settings.gps_settings.enable_sbas ? "ENABLE" : "DISABLE");
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        case '=':
+            {
+                // Enable/disable SBAS: AT+GPS_SBAS=ENABLE or AT+GPS_SBAS=DISABLE
+                if (!CPP_AT_HAS_ARG(0)) {
+                    CPP_AT_ERROR("Argument required. Usage: AT+GPS_SBAS=ENABLE or AT+GPS_SBAS=DISABLE");
+                }
+
+                if (args[0].compare("ENABLE") == 0) {
+                    settings_manager.settings.gps_settings.enable_sbas = true;
+                    CPP_AT_PRINTF("SBAS enabled\r\n");
+                } else if (args[0].compare("DISABLE") == 0) {
+                    settings_manager.settings.gps_settings.enable_sbas = false;
+                    CPP_AT_PRINTF("SBAS disabled\r\n");
+                } else {
+                    CPP_AT_ERROR("Invalid argument. Must be ENABLE or DISABLE.");
+                }
+
+                // Reinitialize GPS with new settings
+                gnss_manager.Initialize(settings_manager.settings.gps_settings);
+                CPP_AT_SUCCESS();
             }
             break;
         default:
@@ -1422,10 +1597,10 @@ const CppAT::ATCommandDef_t at_command_list[] = {
     {.command_buf = "+GPS_CONFIG",
      .min_args = 0,
      .max_args = 3,
-     .help_string_buf = "AT+GPS_CONFIG=<source>,<rate>,<ppp>\r\n\tConfigure GPS source and settings.\r\n\t"
-                        "source: NONE|UART|NETWORK|MAVLINK\r\n\t"
-                        "rate: 1-5 Hz\r\n\t"
-                        "ppp: NONE|AUTO|GALILEO_HAS|POINTPERFECT\r\n\t"
+     .help_string_buf = "AT+GPS_CONFIG=<source>,<protocol>,<rate>\r\n\tConfigure GPS source and settings.\r\n\t"
+                        "source: NONE|UART|NETWORK|MAVLINK|AUTO\r\n\t"
+                        "protocol: AUTO|NMEA|UBX|SBF|RTCM\r\n\t"
+                        "rate: 1-10 Hz\r\n\t"
                         "AT+GPS_CONFIG?\r\n\tQuery GPS configuration.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSConfigCallback, comms_manager)},
     {.command_buf = "+GPS_POSITION",
@@ -1452,6 +1627,32 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .help_string_buf = "AT+GPS_FAILOVER=<timeout_seconds>\r\n\tSet GPS failover timeout (5-30 seconds).\r\n\t"
                         "AT+GPS_FAILOVER?\r\n\tQuery current failover settings.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSFailoverCallback, comms_manager)},
+    {.command_buf = "+GPS_NETWORK",
+     .min_args = 0,
+     .max_args = 5,
+     .help_string_buf = "AT+GPS_NETWORK=<host>,<port>,<mountpoint>,<user>,<pass>\r\n\t"
+                        "Configure network GPS (NTRIP) settings.\r\n\t"
+                        "AT+GPS_NETWORK?\r\n\tQuery network GPS settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSNetworkCallback, comms_manager)},
+    {.command_buf = "+GPS_RTK",
+     .min_args = 0,
+     .max_args = 1,
+     .help_string_buf = "AT+GPS_RTK=ENABLE|DISABLE\r\n\tEnable or disable RTK mode.\r\n\t"
+                        "AT+GPS_RTK?\r\n\tQuery RTK status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSRTKCallback, comms_manager)},
+    {.command_buf = "+GPS_STATIC",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+GPS_STATIC=ENABLE|DISABLE,<threshold_m>\r\n\t"
+                        "Configure static mode and movement threshold (0.1-10.0m).\r\n\t"
+                        "AT+GPS_STATIC?\r\n\tQuery static mode settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSStaticCallback, comms_manager)},
+    {.command_buf = "+GPS_SBAS",
+     .min_args = 0,
+     .max_args = 1,
+     .help_string_buf = "AT+GPS_SBAS=ENABLE|DISABLE\r\n\tEnable or disable SBAS (WAAS/EGNOS/MSAS).\r\n\t"
+                        "AT+GPS_SBAS?\r\n\tQuery SBAS status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSSBASCallback, comms_manager)},
     {.command_buf = "+HOSTNAME",
      .min_args = 0,
      .max_args = 1,

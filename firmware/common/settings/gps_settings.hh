@@ -42,6 +42,16 @@ struct GPSSettings {
         kUARTProtoSBF = 3,         // Septentrio binary
         kUARTProtoRTCM = 4         // RTCM corrections (input)
     };
+
+    static constexpr const char* kUARTProtoStrs[] = {
+        "AUTO",
+        "NMEA",
+        "UBX",
+        "SBF",
+        "RTCM"
+    };
+
+    static constexpr int kUARTProtoCount = 5;
     
     // Main GPS settings
     GPSSource gps_source = kGPSSourceUART;           // Default to physical GPS
