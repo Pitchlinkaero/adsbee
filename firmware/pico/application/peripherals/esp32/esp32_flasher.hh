@@ -120,15 +120,29 @@ class ESP32SerialFlasher {
     }
 
     void EnterBootloader() {
+        CONSOLE_PRINTF("ESP32SerialFlasher: Entering bootloader mode...\r\n");
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 1 - Pull GPIO0 (pin %d) LOW\r\n", config_.esp32_gpio0_boot_pin);
         gpio_put(config_.esp32_gpio0_boot_pin, 0);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 2 - Reset ESP32 (power cycle via pin %d)\r\n", config_.esp32_enable_pin);
         ResetTarget();
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 3 - Hold GPIO0 LOW for %d ms\r\n", kSerialFlasherBootHoldTimeMs);
         busy_wait_ms(kSerialFlasherBootHoldTimeMs);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 4 - Release GPIO0 (set HIGH)\r\n");
         gpio_put(config_.esp32_gpio0_boot_pin, 1);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 5 - Wait 100ms for bootloader\r\n");
         busy_wait_ms(100);
-        // Flush the rx uart.
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 6 - Flush UART RX buffer\r\n");
+        int flushed = 0;
         while (uart_is_readable_within_us(config_.esp32_uart_handle, 100)) {
             uart_getc(config_.esp32_uart_handle);
+            flushed++;
         }
+        CONSOLE_PRINTF("ESP32SerialFlasher: Bootloader entry complete (flushed %d bytes)\r\n", flushed);
     }
 
     void SetBaudRate(uint32_t baudrate) {
