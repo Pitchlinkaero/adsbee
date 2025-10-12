@@ -10,6 +10,7 @@
 #include "hardware/uart.h"
 #include "bsp.hh"  // For UART definitions
 #include "hardware/gpio.h"  // For gpio_set_function
+#include "uart_switch.hh"  // For UART0 switching between ESP32 and GNSS
 extern BSP bsp;  // External BSP instance
 #define GET_TIME_MS() to_ms_since_boot(get_absolute_time())
 #else
@@ -95,23 +96,14 @@ bool GNSSManager::Initialize(const GPSSettings& settings) {
 
 bool GNSSManager::InitializeUART() {
 #ifdef ON_EMBEDDED_DEVICE
-    // Initialize GNSS UART
-    uart_inst_t* uart = uart1;  // Assuming UART1 is GNSS UART
-    
-    uart_init(uart, settings_.gps_uart_baud);
-    
-    // Configure UART pins (these should be defined in BSP)
-    gpio_set_function(bsp.gnss_uart_tx_pin, GPIO_FUNC_UART);
-    gpio_set_function(bsp.gnss_uart_rx_pin, GPIO_FUNC_UART);
-    
-    // 8N1 configuration
-    uart_set_format(uart, 8, 1, UART_PARITY_NONE);
-    
-    // Enable UART
-    uart_set_hw_flow(uart, false, false);
-    uart_set_fifo_enabled(uart, true);
-    
-    LOG_INFO("GNSS UART initialized at %u baud\n", settings_.gps_uart_baud);
+    // Initialize UART0 for GNSS using the UART switch
+    // UART0 is shared between ESP32 programming and GNSS, so we must use the switch
+    if (!UARTSwitch::InitForGNSS(settings_.gps_uart_baud)) {
+        LOG_ERROR("Failed to initialize UART0 for GNSS\n");
+        return false;
+    }
+
+    LOG_INFO("GNSS UART0 initialized at %u baud\n", settings_.gps_uart_baud);
 #else
     LOG_INFO("UART initialization (simulated)\n");
 #endif
@@ -278,14 +270,14 @@ bool GNSSManager::UpdatePosition() {
 
 bool GNSSManager::ProcessUARTData() {
 #ifdef ON_EMBEDDED_DEVICE
-    uart_inst_t* uart = uart1;
-    
+    uart_inst_t* uart = uart0;  // GNSS uses UART0 (shared with ESP32)
+
     // Read available data from UART
     size_t available = 0;
     while (uart_is_readable(uart) && available < sizeof(uart_buffer_)) {
         uart_buffer_[available++] = uart_getc(uart);
     }
-    
+
     if (available > 0) {
         return ProcessData(uart_buffer_, available);
     }
@@ -372,17 +364,17 @@ bool GNSSManager::ProcessMAVLinkData() {
 #ifdef ON_EMBEDDED_DEVICE
     // MAVLink data comes from serial port configured for MAVLink
     // This could be either the GNSS UART or CommsUART depending on configuration
-    
+
     // For MAVLink over GNSS UART (when autopilot is connected there)
     if (settings_.gps_source == GPSSettings::kGPSSourceMAVLink) {
-        uart_inst_t* uart = uart1;  // GNSS UART
-        
+        uart_inst_t* uart = uart0;  // GNSS uses UART0 (shared with ESP32)
+
         // Read available data from UART
         size_t available = 0;
         while (uart_is_readable(uart) && available < sizeof(uart_buffer_)) {
             uart_buffer_[available++] = uart_getc(uart);
         }
-        
+
         if (available > 0 && parser_) {
             return parser_->ParseData(uart_buffer_, available);
         }
