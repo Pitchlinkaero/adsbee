@@ -194,15 +194,20 @@ int main() {
 #ifndef DEBUG_DISABLE_ESP32_FLASH
         // Only flash if firmware version check indicated it's needed
         if (flash_esp32) {
-            comms_manager.console_printf("ESP32 firmware update required, switching UART0 to ESP32 mode...\r\n");
+            comms_manager.console_printf("ESP32 firmware update required, preparing for flash...\r\n");
             adsbee.DisableWatchdog();  // Disable watchdog while flashing.
 
-            // Deinitialize ESP32 SPI before flashing
+            // Deinitialize ESP32 SPI before flashing (powers down ESP32)
+            comms_manager.console_printf("Powering down ESP32...\r\n");
             if (!esp32.DeInit()) {
                 CONSOLE_ERROR("main", "Error while de-initializing ESP32 SPI before flashing.");
             }
 
+            // Give ESP32 time to fully power down before starting flash procedure
+            sleep_ms(200);
+
             // Switch UART0 from GNSS to ESP32 mode for flashing
+            comms_manager.console_printf("Switching UART0 to ESP32 programming mode...\r\n");
             UARTSwitch::Deinit();
 
             // FlashESP32() handles its own Init/DeInit cycle for UART0

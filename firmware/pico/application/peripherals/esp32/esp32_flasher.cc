@@ -70,18 +70,34 @@ esp_binaries_t bin = {
     .app = {.data = adsbee_esp_bin, .size = adsbee_esp_bin_size, .addr = APPLICATION_ADDRESS}};
 
 bool ESP32SerialFlasher::FlashESP32() {
-    CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Beginning serial initialization.");
-    Init();
-    if (connect_to_target(config_.esp32_higher_baudrate) == ESP_LOADER_SUCCESS) {
-        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Connected to target.");
+    CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Beginning ESP32 flash sequence.");
 
+    if (!Init()) {
+        CONSOLE_ERROR("ESP32SerialFlasher::FlashESP32", "Failed to initialize flasher.");
+        return false;
+    }
+
+    CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Connecting to ESP32 bootloader (will enter bootloader mode automatically)...");
+    if (connect_to_target(config_.esp32_higher_baudrate) == ESP_LOADER_SUCCESS) {
+        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Connected to bootloader successfully!");
+
+        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Flashing bootloader...");
         flash_binary(bin.boot.data, bin.boot.size, bin.boot.addr);
+
+        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Flashing partition table...");
         flash_binary(bin.part.data, bin.part.size, bin.part.addr);
+
+        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Flashing application...");
         flash_binary(bin.app.data, bin.app.size, bin.app.addr);
+
         CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Firmware upload complete.");
     } else {
-        CONSOLE_ERROR("ESP32SerialFlasher::FlashESP32", "Serial initialization failed.");
+        CONSOLE_ERROR("ESP32SerialFlasher::FlashESP32", "Failed to connect to bootloader.");
+        DeInit();
+        return false;
     }
+
+    CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Resetting ESP32 to run new firmware...");
     ResetTarget();
     DeInit();
 
