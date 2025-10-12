@@ -44,7 +44,7 @@ class ESP32SerialFlasher {
 
     bool Init() {
         CONSOLE_INFO("ESP32SerialFlasher::Init", "Initializing ESP32 firmware upgrade peripherals.");
-        
+
         // Switch UART0 to ESP32 mode for programming
         if (!UARTSwitch::InitForESP32(config_.esp32_baudrate)) {
             CONSOLE_ERROR("ESP32SerialFlasher::Init", "Failed to initialize UART0 for ESP32 programming.");
@@ -54,14 +54,20 @@ class ESP32SerialFlasher {
         // Initialize the enable and boot pins.
         gpio_init(config_.esp32_enable_pin);
         gpio_set_dir(config_.esp32_enable_pin, GPIO_OUT);
+        gpio_put(config_.esp32_enable_pin, 0);  // Start with ESP32 powered off
+
         gpio_init(config_.esp32_gpio0_boot_pin);
         gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_OUT);
+        gpio_put(config_.esp32_gpio0_boot_pin, 1);  // GPIO0 high by default (not in boot mode yet)
 
         receiver_was_enabled_before_update_ = adsbee.Receiver1090IsEnabled();
         adsbee.SetReceiver1090Enable(false);  // Disable receiver to avoid interrupts during update.
 
         // Set up LED flasher with unique pattern to indicate ESP32 firmware is updating.
         led_flasher_.SetFlashPattern(0b101000000000, 12, 50);  // Flash pattern 10100000, 8 bits long, 100ms per bit.
+
+        CONSOLE_INFO("ESP32SerialFlasher::Init", "ESP32 enable pin: %d, GPIO0/boot pin: %d",
+                    config_.esp32_enable_pin, config_.esp32_gpio0_boot_pin);
 
         return true;
     }
@@ -112,15 +118,30 @@ class ESP32SerialFlasher {
     }
 
     void EnterBootloader() {
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Entering ESP32 bootloader mode...");
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Step 1: Pull GPIO0 LOW");
         gpio_put(config_.esp32_gpio0_boot_pin, 0);
+
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Step 2: Reset ESP32 (power cycle)");
         ResetTarget();
+
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Step 3: Wait %d ms with GPIO0 held LOW", kSerialFlasherBootHoldTimeMs);
         busy_wait_ms(kSerialFlasherBootHoldTimeMs);
+
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Step 4: Release GPIO0 (set HIGH)");
         gpio_put(config_.esp32_gpio0_boot_pin, 1);
+
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Step 5: Wait 100ms for bootloader to start");
         busy_wait_ms(100);
+
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Step 6: Flush UART RX buffer");
         // Flush the rx uart.
+        int flushed_bytes = 0;
         while (uart_is_readable_within_us(config_.esp32_uart_handle, 100)) {
             uart_getc(config_.esp32_uart_handle);
+            flushed_bytes++;
         }
+        CONSOLE_INFO("ESP32SerialFlasher::EnterBootloader", "Bootloader entry complete, flushed %d bytes from UART", flushed_bytes);
     }
 
     void SetBaudRate(uint32_t baudrate) {
