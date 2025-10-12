@@ -392,6 +392,8 @@ class ObjectDictionary {
 #ifdef ON_ESP32
     // Buffer to store GPS network message for RP2040 to read (public for access in GetBytes/SetBytes)
     GPSNetworkServer::GPSNetworkMessage gps_network_message_buffer_ = {};
+    // Buffer to store GPS status for RP2040 to read (for web interface)
+    GPSStatus gps_status_buffer_ = {};
 #endif
 
    private:

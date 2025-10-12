@@ -405,8 +405,8 @@ bool SBFParser::ConfigureOutput(uint8_t rate_hz) {
     // setSBFOutput, Stream1, PVTGeodetic+ReceiverStatus+QualityInd, <interval>
     char cmd[128];
     uint32_t interval_ms = 1000 / rate_hz;
-    snprintf(cmd, sizeof(cmd), "setSBFOutput, Stream1, PVTGeodetic+ReceiverStatus+QualityInd, %ums\n", 
-             interval_ms);
+    snprintf(cmd, sizeof(cmd), "setSBFOutput, Stream1, PVTGeodetic+ReceiverStatus+QualityInd, %lums\n",
+             (unsigned long)interval_ms);
     return SendCommand(cmd);
 }
 
@@ -486,9 +486,9 @@ size_t SBFParser::GetDiagnostics(char* buffer, size_t max_len) const {
     return snprintf(buffer, max_len,
                    "SBF Parser Diagnostics:\n"
                    "Receiver: %s\n"
-                   "Blocks parsed: %u\n"
-                   "Parse errors: %u\n"
-                   "CRC errors: %u\n"
+                   "Blocks parsed: %lu\n"
+                   "Parse errors: %lu\n"
+                   "CRC errors: %lu\n"
                    "Solution: %s\n"
                    "Satellites: %u\n"
                    "PDOP: %.1f\n"
@@ -496,9 +496,9 @@ size_t SBFParser::GetDiagnostics(char* buffer, size_t max_len) const {
                    "RTK: %s\n"
                    "Baseline: %.1fm\n",
                    receiver_type_string_,
-                   blocks_parsed_,
-                   parse_errors_,
-                   crc_errors_,
+                   (unsigned long)blocks_parsed_,
+                   (unsigned long)parse_errors_,
+                   (unsigned long)crc_errors_,
                    last_position_.valid ? "Valid" : "Invalid",
                    nr_sv_,
                    pdop_,

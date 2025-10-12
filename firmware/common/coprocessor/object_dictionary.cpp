@@ -274,8 +274,12 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t *buf, uint16_t buf_len, ui
         }
         case kAddrGPSStatus: {
             // RP2040 reading GPS status from ESP32 for web interface
-            // TODO: Implement GPS status reporting
+#ifdef ON_ESP32
+            memcpy(buf, (uint8_t*)&object_dictionary.gps_status_buffer_ + offset, buf_len);
+#else
+            // TI or other platforms - return zeros for now
             memset(buf, 0, buf_len);
+#endif
             break;
         }
         default:
