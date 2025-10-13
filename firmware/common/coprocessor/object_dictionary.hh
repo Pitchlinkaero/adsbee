@@ -191,7 +191,15 @@ class ObjectDictionary {
         // Timing
         uint32_t timestamp_ms = 0;
         uint32_t time_since_fix_ms = 0;
-        
+
+        // UTC Date/Time from GPS
+        uint16_t utc_year = 0;       // Full year (e.g., 2025)
+        uint8_t utc_month = 0;       // 1-12
+        uint8_t utc_day = 0;         // 1-31
+        uint8_t utc_hour = 0;        // 0-23
+        uint8_t utc_minute = 0;      // 0-59
+        uint8_t utc_second = 0;      // 0-59
+
         // Statistics
         uint32_t messages_processed = 0;
         uint32_t parse_errors = 0;

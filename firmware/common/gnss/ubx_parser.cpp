@@ -172,13 +172,13 @@ bool UBXParser::HandleNavPvt(const uint8_t* payload, size_t length) {
         return false;
     }
     
-    // Extract time (for future use)
-    [[maybe_unused]] uint16_t year = *(uint16_t*)(payload + 4);
-    [[maybe_unused]] uint8_t month = payload[6];
-    [[maybe_unused]] uint8_t day = payload[7];
-    [[maybe_unused]] uint8_t hour = payload[8];
-    [[maybe_unused]] uint8_t min = payload[9];
-    [[maybe_unused]] uint8_t sec = payload[10];
+    // Extract UTC date/time
+    uint16_t year = *(uint16_t*)(payload + 4);
+    uint8_t month = payload[6];
+    uint8_t day = payload[7];
+    uint8_t hour = payload[8];
+    uint8_t min = payload[9];
+    uint8_t sec = payload[10];
     uint8_t valid_flags = payload[11];
     
     // Extract fix information
@@ -276,12 +276,20 @@ bool UBXParser::HandleNavPvt(const uint8_t* payload, size_t length) {
         }
     }
     
+    // Update UTC date/time from GPS
+    last_position_.utc_year = year;
+    last_position_.utc_month = month;
+    last_position_.utc_day = day;
+    last_position_.utc_hour = hour;
+    last_position_.utc_minute = min;
+    last_position_.utc_second = sec;
+
     // Update validity
     last_position_.valid = (valid_flags & 0x07) == 0x07;  // Date, time, and fix valid
-    
+
     // Update timestamp
     last_position_.timestamp_ms = GetTimeMs();
-    
+
     return true;
 }
 

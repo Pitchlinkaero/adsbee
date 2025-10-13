@@ -14,7 +14,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 16;  // Change this when settings format changes! (Packed Settings struct)
+static constexpr uint32_t kSettingsVersion = 17;  // Change this when settings format changes! (Packed Settings struct)
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {

@@ -94,7 +94,15 @@ public:
         uint32_t timestamp_ms = 0;     // System timestamp
         uint32_t gps_time_week = 0;    // GPS week number
         uint32_t gps_time_ms = 0;      // GPS time of week in ms
-        
+
+        // UTC Date/Time from GPS
+        uint16_t utc_year = 0;         // Full year (e.g., 2025)
+        uint8_t utc_month = 0;         // 1-12
+        uint8_t utc_day = 0;           // 1-31
+        uint8_t utc_hour = 0;          // 0-23
+        uint8_t utc_minute = 0;        // 0-59
+        uint8_t utc_second = 0;        // 0-59
+
         // Validity flag
         bool valid = false;
         

@@ -130,11 +130,18 @@ bool NMEAParser::ParseGGA(const char* sentence) {
     
     int field = 0;
     uint8_t quality = 0;
-    
+    uint8_t utc_hour = 0, utc_minute = 0;
+    float utc_second = 0;
+
     while (token != nullptr) {
         switch (field) {
             case 1: // Time (HHMMSS.sss)
-                // Parse time if needed
+                if (strlen(token) >= 6) {
+                    ParseTime(token, utc_hour, utc_minute, utc_second);
+                    last_position_.utc_hour = utc_hour;
+                    last_position_.utc_minute = utc_minute;
+                    last_position_.utc_second = static_cast<uint8_t>(utc_second);
+                }
                 break;
                 
             case 2: // Latitude (DDMM.mmmm)
@@ -214,9 +221,20 @@ bool NMEAParser::ParseRMC(const char* sentence) {
     
     int field = 0;
     bool valid = false;
-    
+    uint8_t utc_hour = 0, utc_minute = 0;
+    float utc_second = 0;
+
     while (token != nullptr) {
         switch (field) {
+            case 1: // Time (HHMMSS.sss)
+                if (strlen(token) >= 6) {
+                    ParseTime(token, utc_hour, utc_minute, utc_second);
+                    last_position_.utc_hour = utc_hour;
+                    last_position_.utc_minute = utc_minute;
+                    last_position_.utc_second = static_cast<uint8_t>(utc_second);
+                }
+                break;
+
             case 2: // Status (A=active, V=void)
                 valid = (token[0] == 'A');
                 if (!valid) {
@@ -259,7 +277,20 @@ bool NMEAParser::ParseRMC(const char* sentence) {
                 break;
                 
             case 9: // Date (DDMMYY)
-                // Parse date if needed
+                if (strlen(token) >= 6) {
+                    // DDMMYY format
+                    char temp_date[3] = {0};
+                    temp_date[0] = token[0]; temp_date[1] = token[1];
+                    last_position_.utc_day = static_cast<uint8_t>(atoi(temp_date));
+
+                    temp_date[0] = token[2]; temp_date[1] = token[3];
+                    last_position_.utc_month = static_cast<uint8_t>(atoi(temp_date));
+
+                    temp_date[0] = token[4]; temp_date[1] = token[5];
+                    uint8_t year_short = static_cast<uint8_t>(atoi(temp_date));
+                    // Convert 2-digit year to 4-digit (assume 20xx)
+                    last_position_.utc_year = 2000 + year_short;
+                }
                 break;
         }
         
@@ -406,8 +437,53 @@ bool NMEAParser::ParseGLL(const char* sentence) {
 }
 
 bool NMEAParser::ParseZDA(const char* sentence) {
+    // $xxZDA,HHMMSS.sss,DD,MM,YYYY,tzh,tzm*cs
     // Time and date - useful for GPS time sync
-    return true; // Simplified for now
+
+    char temp[kNMEAMaxSentenceLen];
+    strncpy(temp, sentence, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+
+    char* checksum_pos = strchr(temp, '*');
+    if (checksum_pos) *checksum_pos = '\0';
+
+    char* saveptr;
+    char* token = strtok_r(temp, ",", &saveptr);
+    if (!token) return false;
+
+    int field = 0;
+    uint8_t utc_hour = 0, utc_minute = 0;
+    float utc_second = 0;
+
+    while (token != nullptr) {
+        switch (field) {
+            case 1: // Time (HHMMSS.sss)
+                if (strlen(token) >= 6) {
+                    ParseTime(token, utc_hour, utc_minute, utc_second);
+                    last_position_.utc_hour = utc_hour;
+                    last_position_.utc_minute = utc_minute;
+                    last_position_.utc_second = static_cast<uint8_t>(utc_second);
+                }
+                break;
+
+            case 2: // Day (DD)
+                last_position_.utc_day = ParseInt(token, 0);
+                break;
+
+            case 3: // Month (MM)
+                last_position_.utc_month = ParseInt(token, 0);
+                break;
+
+            case 4: // Year (YYYY)
+                last_position_.utc_year = ParseInt(token, 0);
+                break;
+        }
+
+        token = strtok_r(nullptr, ",", &saveptr);
+        field++;
+    }
+
+    return (last_position_.utc_year > 2000);  // Valid if we got a reasonable year
 }
 
 bool NMEAParser::ValidateChecksum(const char* sentence) const {
