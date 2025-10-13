@@ -399,7 +399,7 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSConfigCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSConfigCallback) {
     switch (op) {
         case '?':
             // Query current GPS configuration
@@ -459,7 +459,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSConfigCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSPositionCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSPositionCallback) {
     switch (op) {
         case '?':
             {
@@ -484,7 +484,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSPositionCallback) {
     }
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSPPPCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSPPPCallback) {
     switch (op) {
         case '?':
             {
@@ -530,7 +530,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSPPPCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSFailoverCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSFailoverCallback) {
     switch (op) {
         case '?':
             {
@@ -571,7 +571,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSFailoverCallback) {
     }
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSStatusCallback) {
     switch (op) {
         case '?':
             {
@@ -614,7 +614,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
     }
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSNetworkCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSNetworkCallback) {
     switch (op) {
         case '?':
             {
@@ -669,7 +669,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSNetworkCallback) {
     }
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSRTKCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSRTKCallback) {
     switch (op) {
         case '?':
             {
@@ -706,7 +706,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSRTKCallback) {
     }
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSStaticCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSStaticCallback) {
     switch (op) {
         case '?':
             {
@@ -752,7 +752,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStaticCallback) {
     }
 }
 
-CPP_AT_CALLBACK(CommsManager::ATGPSSBASCallback) {
+CPP_AT_CALLBACK(CommsManager::ATGNSSSBASCallback) {
     switch (op) {
         case '?':
             {
@@ -1597,65 +1597,65 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 5,
      .help_callback = ATFeedHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedCallback, comms_manager)},
-    {.command_buf = "GPS_CONFIG",
+    {.command_buf = "GNSS_CONFIG",
      .min_args = 0,
      .max_args = 3,
-     .help_string_buf = "AT+GPS_CONFIG=<source>,<protocol>,<rate>\r\n\tConfigure GPS source and settings.\r\n\t"
+     .help_string_buf = "AT+GNSS_CONFIG=<source>,<protocol>,<rate>\r\n\tConfigure GNSS source and settings.\r\n\t"
                         "source: NONE|UART|NETWORK|MAVLINK|AUTO\r\n\t"
                         "protocol: AUTO|NMEA|UBX|SBF|RTCM\r\n\t"
                         "rate: 1-10 Hz\r\n\t"
-                        "AT+GPS_CONFIG?\r\n\tQuery GPS configuration.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSConfigCallback, comms_manager)},
-    {.command_buf = "GPS_POSITION",
+                        "AT+GNSS_CONFIG?\r\n\tQuery GNSS configuration.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSConfigCallback, comms_manager)},
+    {.command_buf = "GNSS_POSITION",
      .min_args = 0,
      .max_args = 0,
-     .help_string_buf = "AT+GPS_POSITION?\r\n\tQuery current GPS position and status.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSPositionCallback, comms_manager)},
-    {.command_buf = "GPS_PPP",
+     .help_string_buf = "AT+GNSS_POSITION?\r\n\tQuery current GNSS position and status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSPositionCallback, comms_manager)},
+    {.command_buf = "GNSS_PPP",
      .min_args = 0,
      .max_args = 2,
-     .help_string_buf = "AT+GPS_PPP=<service>,<key>\r\n\tEnable PPP service.\r\n\t"
+     .help_string_buf = "AT+GNSS_PPP=<service>,<key>\r\n\tEnable PPP service.\r\n\t"
                         "service: NONE|SBAS|GALILEO_HAS|IGS_RTS|POINTPERFECT|RTX|TERRASTAR|BEIDOU_B2B|AUTO\r\n\t"
                         "key: Service key (optional, for paid services)\r\n\t"
-                        "AT+GPS_PPP?\r\n\tQuery PPP status and convergence.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSPPPCallback, comms_manager)},
-    {.command_buf = "GPS_STATUS",
+                        "AT+GNSS_PPP?\r\n\tQuery PPP status and convergence.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSPPPCallback, comms_manager)},
+    {.command_buf = "GNSS_STATUS",
      .min_args = 0,
      .max_args = 0,
-     .help_string_buf = "AT+GPS_STATUS?\r\n\tQuery GPS receiver status and diagnostics.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSStatusCallback, comms_manager)},
-    {.command_buf = "GPS_FAILOVER",
+     .help_string_buf = "AT+GNSS_STATUS?\r\n\tQuery GNSS receiver status and diagnostics.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSStatusCallback, comms_manager)},
+    {.command_buf = "GNSS_FAILOVER",
      .min_args = 0,
      .max_args = 1,
-     .help_string_buf = "AT+GPS_FAILOVER=<timeout_seconds>\r\n\tSet GPS failover timeout (5-30 seconds).\r\n\t"
-                        "AT+GPS_FAILOVER?\r\n\tQuery current failover settings.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSFailoverCallback, comms_manager)},
-    {.command_buf = "GPS_NETWORK",
+     .help_string_buf = "AT+GNSS_FAILOVER=<timeout_seconds>\r\n\tSet GNSS failover timeout (5-30 seconds).\r\n\t"
+                        "AT+GNSS_FAILOVER?\r\n\tQuery current failover settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSFailoverCallback, comms_manager)},
+    {.command_buf = "GNSS_NETWORK",
      .min_args = 0,
      .max_args = 5,
-     .help_string_buf = "AT+GPS_NETWORK=<host>,<port>,<mountpoint>,<user>,<pass>\r\n\t"
-                        "Configure network GPS (NTRIP) settings.\r\n\t"
-                        "AT+GPS_NETWORK?\r\n\tQuery network GPS settings.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSNetworkCallback, comms_manager)},
-    {.command_buf = "GPS_RTK",
+     .help_string_buf = "AT+GNSS_NETWORK=<host>,<port>,<mountpoint>,<user>,<pass>\r\n\t"
+                        "Configure network GNSS (NTRIP) settings.\r\n\t"
+                        "AT+GNSS_NETWORK?\r\n\tQuery network GNSS settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSNetworkCallback, comms_manager)},
+    {.command_buf = "GNSS_RTK",
      .min_args = 0,
      .max_args = 1,
-     .help_string_buf = "AT+GPS_RTK=ENABLE|DISABLE\r\n\tEnable or disable RTK mode.\r\n\t"
-                        "AT+GPS_RTK?\r\n\tQuery RTK status.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSRTKCallback, comms_manager)},
-    {.command_buf = "GPS_STATIC",
+     .help_string_buf = "AT+GNSS_RTK=ENABLE|DISABLE\r\n\tEnable or disable RTK mode.\r\n\t"
+                        "AT+GNSS_RTK?\r\n\tQuery RTK status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSRTKCallback, comms_manager)},
+    {.command_buf = "GNSS_STATIC",
      .min_args = 0,
      .max_args = 2,
-     .help_string_buf = "AT+GPS_STATIC=ENABLE|DISABLE,<threshold_m>\r\n\t"
+     .help_string_buf = "AT+GNSS_STATIC=ENABLE|DISABLE,<threshold_m>\r\n\t"
                         "Configure static mode and movement threshold (0.1-10.0m).\r\n\t"
-                        "AT+GPS_STATIC?\r\n\tQuery static mode settings.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSStaticCallback, comms_manager)},
-    {.command_buf = "GPS_SBAS",
+                        "AT+GNSS_STATIC?\r\n\tQuery static mode settings.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSStaticCallback, comms_manager)},
+    {.command_buf = "GNSS_SBAS",
      .min_args = 0,
      .max_args = 1,
-     .help_string_buf = "AT+GPS_SBAS=ENABLE|DISABLE\r\n\tEnable or disable SBAS (WAAS/EGNOS/MSAS).\r\n\t"
-                        "AT+GPS_SBAS?\r\n\tQuery SBAS status.",
-     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSSBASCallback, comms_manager)},
+     .help_string_buf = "AT+GNSS_SBAS=ENABLE|DISABLE\r\n\tEnable or disable SBAS (WAAS/EGNOS/MSAS).\r\n\t"
+                        "AT+GNSS_SBAS?\r\n\tQuery SBAS status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSSBASCallback, comms_manager)},
     {.command_buf = "HOSTNAME",
      .min_args = 0,
      .max_args = 1,
