@@ -17,9 +17,9 @@ class ESP32SerialFlasher {
     static constexpr uint32_t kSerialFlasherBootHoldTimeMs = 50;
 
     struct ESP32SerialFlasherConfig {
-        uart_inst_t *esp32_uart_handle = uart0;  // UART0 is shared with GNSS
-        uint16_t esp32_uart_tx_pin = 0;  // GPIO 0 - shared with GNSS
-        uint16_t esp32_uart_rx_pin = 1;  // GPIO 1 - shared with GNSS
+        uart_inst_t *esp32_uart_handle = bsp.esp32_uart_handle;  // UART0 on dedicated ESP32 pins
+        uint16_t esp32_uart_tx_pin = bsp.esp32_uart_tx_pin;      // GPIO 16
+        uint16_t esp32_uart_rx_pin = bsp.esp32_uart_rx_pin;      // GPIO 17
         uint16_t esp32_enable_pin = bsp.esp32_enable_pin;
         uint16_t esp32_gpio0_boot_pin = bsp.esp32_spi_handshake_pin;
         uint32_t esp32_baudrate = 115200;         // Previously 115200
