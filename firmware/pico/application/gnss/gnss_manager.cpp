@@ -298,19 +298,50 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
     if (!parser_ || !buffer || length == 0) {
         return false;
     }
-    
+
+    // Print raw hex data if debug mode is enabled
+    if (settings_.gps_raw_output && length > 0) {
+        LOG_INFO("GNSS RAW [%zu bytes]: ", length);
+        for (size_t i = 0; i < length; i++) {
+            LOG_INFO("%02X ", buffer[i]);
+            // Print newline every 16 bytes for readability
+            if ((i + 1) % 16 == 0 && i < length - 1) {
+                LOG_INFO("\n                       ");
+            }
+        }
+        LOG_INFO("\n");
+
+        // Also print ASCII interpretation for NMEA sentences
+        if (buffer[0] == '$' || buffer[0] == '!') {
+            LOG_INFO("GNSS ASCII: ");
+            for (size_t i = 0; i < length; i++) {
+                char c = buffer[i];
+                if (c >= 32 && c <= 126) {
+                    LOG_INFO("%c", c);
+                } else if (c == '\r') {
+                    LOG_INFO("<CR>");
+                } else if (c == '\n') {
+                    LOG_INFO("<LF>");
+                } else {
+                    LOG_INFO(".");
+                }
+            }
+            LOG_INFO("\n");
+        }
+    }
+
     bool success = parser_->ParseData(buffer, length);
-    
+
     if (success) {
         stats_.messages_processed++;
-        
+
         // Check if we have a new valid position
         GNSSInterface::Position pos = parser_->GetLastPosition();
         if (pos.valid && pos.timestamp_ms != current_position_.timestamp_ms) {
             current_position_ = pos;
             stats_.position_updates++;
             last_valid_position_ms_ = GetTimeMs();
-            
+
             // Track best accuracy
             float accuracy = pos.GetAccuracyM();
             if (accuracy < stats_.best_accuracy_m) {
@@ -320,12 +351,12 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
     } else {
         stats_.parse_errors++;
     }
-    
+
     // Auto-detect protocol if needed
     if (auto_detect_active_) {
         DetectUARTProtocol();
     }
-    
+
     return success;
 }
 
@@ -571,7 +602,7 @@ bool GNSSManager::DetectUARTProtocol() {
 
     // **PRIORITY 3: Check NMEA quality - high error rate means wrong parser**
     // If we've processed enough data and error rate is very high, keep looking for binary
-    if (stats_.messages_processed + stats_.parse_errors > 50) {
+    if (stats_.messages_processed + stats_.parse_errors > 10) {
         float error_rate = static_cast<float>(stats_.parse_errors) /
                           (stats_.messages_processed + stats_.parse_errors);
 

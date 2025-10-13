@@ -103,8 +103,9 @@ bool NMEAParser::ProcessNMEASentence(const char* sentence) {
     }
     else {
         // Unknown or proprietary sentence (e.g., $PUBX, $PSRF, $PMTK)
-        // Don't count as error - just ignore silently
-        return true;
+        // Return false so it counts as a parse error for auto-detection
+        // This helps the system detect when it should switch to binary protocols
+        return false;
     }
 
     // Update timestamp if we got valid data

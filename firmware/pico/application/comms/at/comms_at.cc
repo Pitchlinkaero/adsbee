@@ -789,6 +789,54 @@ CPP_AT_CALLBACK(CommsManager::ATGNSSSBASCallback) {
     }
 }
 
+CPP_AT_CALLBACK(CommsManager::ATGNSSDebugCallback) {
+    switch (op) {
+        case '?':
+            {
+                // Query debug status
+                CPP_AT_CMD_PRINTF("=%s,%s",
+                    settings_manager.settings.gps_settings.gps_debug_output ? "ENABLE" : "DISABLE",
+                    settings_manager.settings.gps_settings.gps_raw_output ? "ENABLE" : "DISABLE");
+                CPP_AT_SILENT_SUCCESS();
+            }
+            break;
+        case '=':
+            {
+                // Enable/disable GNSS debug modes
+                // AT+GNSS_DEBUG=<debug_messages>,<raw_hex>
+                // Both arguments optional, each can be ENABLE or DISABLE
+
+                if (CPP_AT_HAS_ARG(0)) {
+                    if (args[0].compare("ENABLE") == 0) {
+                        settings_manager.settings.gps_settings.gps_debug_output = true;
+                    } else if (args[0].compare("DISABLE") == 0) {
+                        settings_manager.settings.gps_settings.gps_debug_output = false;
+                    } else {
+                        CPP_AT_ERROR("Invalid argument. Must be ENABLE or DISABLE.");
+                    }
+                }
+
+                if (CPP_AT_HAS_ARG(1)) {
+                    if (args[1].compare("ENABLE") == 0) {
+                        settings_manager.settings.gps_settings.gps_raw_output = true;
+                        CPP_AT_PRINTF("GNSS raw hex output enabled\r\n");
+                    } else if (args[1].compare("DISABLE") == 0) {
+                        settings_manager.settings.gps_settings.gps_raw_output = false;
+                        CPP_AT_PRINTF("GNSS raw hex output disabled\r\n");
+                    } else {
+                        CPP_AT_ERROR("Invalid argument for raw output. Must be ENABLE or DISABLE.");
+                    }
+                }
+
+                // Settings take effect immediately (no need to reinitialize)
+                CPP_AT_SUCCESS();
+            }
+            break;
+        default:
+            CPP_AT_ERROR("Operator '%c' not supported.", op);
+    }
+}
+
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {
     SettingsManager::Settings::CoreNetworkSettings &cns = settings_manager.settings.core_network_settings;
     switch (op) {
@@ -1656,6 +1704,14 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .help_string_buf = "AT+GNSS_SBAS=ENABLE|DISABLE\r\n\tEnable or disable SBAS (WAAS/EGNOS/MSAS).\r\n\t"
                         "AT+GNSS_SBAS?\r\n\tQuery SBAS status.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSSBASCallback, comms_manager)},
+    {.command_buf = "GNSS_DEBUG",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string_buf = "AT+GNSS_DEBUG=<debug_msgs>,<raw_hex>\r\n\tEnable/disable GNSS debug output.\r\n\t"
+                        "debug_msgs: ENABLE|DISABLE - Extra debug messages\r\n\t"
+                        "raw_hex: ENABLE|DISABLE - Raw NMEA/UBX hex output\r\n\t"
+                        "AT+GNSS_DEBUG?\r\n\tQuery debug status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSDebugCallback, comms_manager)},
     {.command_buf = "HOSTNAME",
      .min_args = 0,
      .max_args = 1,

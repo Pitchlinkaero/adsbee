@@ -80,6 +80,7 @@ class CommsManager {
     CPP_AT_CALLBACK(ATGNSSRTKCallback);
     CPP_AT_CALLBACK(ATGNSSStaticCallback);
     CPP_AT_CALLBACK(ATGNSSSBASCallback);
+    CPP_AT_CALLBACK(ATGNSSDebugCallback);
     CPP_AT_CALLBACK(ATHostnameCallback);
     CPP_AT_CALLBACK(ATOTACallback);
     CPP_AT_HELP_CALLBACK(ATOTAHelpCallback);
