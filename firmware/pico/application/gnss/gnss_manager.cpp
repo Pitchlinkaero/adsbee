@@ -386,11 +386,12 @@ bool GNSSManager::ProcessMAVLinkData() {
 
 bool GNSSManager::DetectUARTProtocol() {
     // Simple auto-detection based on received data patterns
-    
+    // Priority: Check binary protocols first (UBX, SBF) before defaulting to NMEA
+
     if (!auto_detect_active_) {
         return false;
     }
-    
+
     // Check for timeout
     uint32_t now = GetTimeMs();
     if (now - auto_detect_start_ms_ > kAutoDetectTimeoutMs) {
@@ -399,66 +400,118 @@ bool GNSSManager::DetectUARTProtocol() {
         detected_protocol_ = GPSSettings::kUARTProtoNMEA;
         return true;
     }
-    
-    // Check if we're getting valid NMEA data
-    if (parser_ && parser_->GetLastPosition().valid) {
-        LOG_INFO("Detected NMEA protocol\n");
-        detected_protocol_ = GPSSettings::kUARTProtoNMEA;
-        auto_detect_active_ = false;
-        return true;
-    }
-    
-    // Check for UBX protocol (u-blox binary)
-    // Look for UBX sync bytes: 0xB5 0x62
+
+    // **PRIORITY 1: Check for UBX protocol FIRST (u-blox binary)**
+    // UBX sync bytes: 0xB5 0x62
+    // This is the most reliable detection since these bytes are unlikely in NMEA
     for (size_t i = 0; i < uart_buffer_pos_ - 1; i++) {
         if (uart_buffer_[i] == 0xB5 && uart_buffer_[i + 1] == 0x62) {
-            LOG_INFO("Detected UBX protocol (u-blox binary)\n");
-            
+            LOG_INFO("Detected UBX protocol (u-blox binary) at byte %zu\n", i);
+
             // Switch to UBX parser
             parser_ = std::make_unique<UBXParser>();
-            
+
             // Configure parser
             GNSSInterface::Config config;
             config.update_rate_hz = settings_.gps_update_rate_hz;
             config.enable_sbas = settings_.enable_sbas;
             config.ppp_service = settings_.ppp_service;
+            config.enable_rtk = settings_.rtk_enabled;
+            config.min_satellites = settings_.min_satellites;
+            config.static_hold_threshold_m = settings_.static_threshold_m;
             parser_->Configure(config);
-            
+
             detected_protocol_ = GPSSettings::kUARTProtoUBX;
             auto_detect_active_ = false;
-            
+
+            // Reset stats since we're switching parsers
+            stats_.parse_errors = 0;
+            stats_.messages_processed = 0;
+
             // Process the buffered data with new parser
             parser_->ParseData(uart_buffer_, uart_buffer_pos_);
             return true;
         }
     }
     
-    // Check for SBF protocol (Septentrio binary)
-    // SBF sync bytes: '$@' (0x24 0x40) or 'SBF' in some messages
+    // **PRIORITY 2: Check for SBF protocol (Septentrio binary)**
+    // SBF sync bytes: '$@' (0x24 0x40)
     for (size_t i = 0; i < uart_buffer_pos_ - 1; i++) {
         if (uart_buffer_[i] == 0x24 && uart_buffer_[i + 1] == 0x40) {
-            LOG_INFO("Detected SBF protocol (Septentrio binary)\n");
-            
-            // For now, fall back to NMEA since SBF parser not implemented
-            LOG_INFO("SBF parser not yet implemented, using NMEA\n");
-            detected_protocol_ = GPSSettings::kUARTProtoNMEA;
+            LOG_INFO("Detected SBF protocol (Septentrio binary) at byte %zu\n", i);
+
+            // Switch to SBF parser
+            parser_ = std::make_unique<SBFParser>();
+
+            // Configure parser
+            GNSSInterface::Config config;
+            config.update_rate_hz = settings_.gps_update_rate_hz;
+            config.enable_sbas = settings_.enable_sbas;
+            config.ppp_service = settings_.ppp_service;
+            config.enable_rtk = settings_.rtk_enabled;
+            config.min_satellites = settings_.min_satellites;
+            config.static_hold_threshold_m = settings_.static_threshold_m;
+            parser_->Configure(config);
+
+            detected_protocol_ = GPSSettings::kUARTProtoSBF;
             auto_detect_active_ = false;
+
+            // Reset stats since we're switching parsers
+            stats_.parse_errors = 0;
+            stats_.messages_processed = 0;
+
+            // Process the buffered data with new parser
+            parser_->ParseData(uart_buffer_, uart_buffer_pos_);
             return true;
         }
     }
-    
-    // Check for RTCM messages (for RTK base stations)
+
+    // **PRIORITY 3: Check NMEA quality - high error rate means wrong parser**
+    // If we've processed enough data and error rate is very high, keep looking for binary
+    if (stats_.messages_processed + stats_.parse_errors > 50) {
+        float error_rate = static_cast<float>(stats_.parse_errors) /
+                          (stats_.messages_processed + stats_.parse_errors);
+
+        // If error rate > 80%, likely receiving binary data (UBX/SBF)
+        // Keep auto-detect active and keep searching for sync bytes
+        if (error_rate > 0.8f) {
+            LOG_INFO("High NMEA error rate (%.1f%%), continuing auto-detection\n", error_rate * 100);
+            // Don't disable auto-detect yet - keep looking for binary protocols
+            return false;
+        }
+    }
+
+    // **PRIORITY 4: Accept NMEA if we have valid position with low error rate**
+    if (parser_ && parser_->GetLastPosition().valid) {
+        // Check error rate before accepting NMEA
+        if (stats_.messages_processed + stats_.parse_errors > 10) {
+            float error_rate = static_cast<float>(stats_.parse_errors) /
+                              (stats_.messages_processed + stats_.parse_errors);
+
+            // Only accept NMEA if error rate is reasonable (< 30%)
+            if (error_rate < 0.3f) {
+                LOG_INFO("Detected NMEA protocol (error rate: %.1f%%)\n", error_rate * 100);
+                detected_protocol_ = GPSSettings::kUARTProtoNMEA;
+                auto_detect_active_ = false;
+                return true;
+            } else {
+                LOG_INFO("NMEA error rate too high (%.1f%%), waiting for binary protocol\n", error_rate * 100);
+            }
+        }
+    }
+
+    // **PRIORITY 5: Check for RTCM messages (for RTK base stations)**
     // RTCM3 preamble: 0xD3
     if (uart_buffer_pos_ > 0 && uart_buffer_[0] == 0xD3) {
         LOG_INFO("Detected RTCM protocol (RTK corrections)\n");
         detected_protocol_ = GPSSettings::kUARTProtoRTCM;
         auto_detect_active_ = false;
-        
+
         // RTCM is usually input, not output
         // This might be a base station or correction service
         return false;  // Don't try to parse as position
     }
-    
+
     return false;
 }
 
