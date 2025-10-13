@@ -575,41 +575,36 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
     switch (op) {
         case '?':
             {
-                char diag_buf[256];
-                gnss_manager.GetDiagnostics(diag_buf, sizeof(diag_buf));
-
                 // Basic status
                 CPP_AT_CMD_PRINTF("=%s,%s,%s",
                     gnss_manager.GetReceiverType(),
                     gnss_manager.IsPositionValid() ? "VALID" : "INVALID",
                     gnss_manager.SupportsHighPrecision() ? "HIGH_PRECISION" : "STANDARD");
 
-                // Current source and protocol
+                // Current source
                 const char* source_str = "UNKNOWN";
                 if (gnss_manager.GetCurrentSource() < GPSSettings::kGPSSourceCount) {
                     source_str = GPSSettings::kGPSSourceStrs[gnss_manager.GetCurrentSource()];
                 }
                 CPP_AT_CMD_PRINTF("\r\nSource: %s", source_str);
 
-                // Detailed statistics
+                // Statistics summary
                 GNSSManager::Statistics stats = gnss_manager.GetStatistics();
-                CPP_AT_CMD_PRINTF("\r\n--- GPS Statistics ---");
-                CPP_AT_CMD_PRINTF("\r\nMessages Processed: %u", stats.messages_processed);
-                CPP_AT_CMD_PRINTF("\r\nPosition Updates: %u", stats.position_updates);
-                CPP_AT_CMD_PRINTF("\r\nParse Errors: %u", stats.parse_errors);
-                CPP_AT_CMD_PRINTF("\r\nSource Switches: %u", stats.source_switches);
-                CPP_AT_CMD_PRINTF("\r\nFailover Count: %u", stats.failover_count);
-                CPP_AT_CMD_PRINTF("\r\nBest Accuracy: %.1fm", stats.best_accuracy_m);
-                CPP_AT_CMD_PRINTF("\r\nUptime: %us", stats.uptime_s);
+                CPP_AT_CMD_PRINTF("\r\nMsg: %u, Updates: %u, Errors: %u, Accuracy: %.1fm, Uptime: %us",
+                    stats.messages_processed,
+                    stats.position_updates,
+                    stats.parse_errors,
+                    stats.best_accuracy_m,
+                    stats.uptime_s);
 
-                // PPP status if enabled
-                if (stats.ppp_convergence_time_s > 0) {
-                    CPP_AT_CMD_PRINTF("\r\nPPP Convergence Time: %us", stats.ppp_convergence_time_s);
-                }
-
-                // Additional diagnostics
-                CPP_AT_CMD_PRINTF("\r\n--- Diagnostics ---");
-                CPP_AT_CMD_PRINTF("\r\n%s", diag_buf);
+                // Position info
+                GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
+                CPP_AT_CMD_PRINTF("\r\nLat: %.6f, Lon: %.6f, Alt: %.1fm, Sats: %d, HDOP: %.2f",
+                    pos.latitude_deg,
+                    pos.longitude_deg,
+                    pos.altitude_m,
+                    pos.satellites_used,
+                    pos.hdop);
 
                 CPP_AT_SILENT_SUCCESS();
             }

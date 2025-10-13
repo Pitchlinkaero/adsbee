@@ -156,13 +156,21 @@
                 this.ws.addEventListener('message', (event) => {
                     if (typeof event.data === 'string') {
                         // console.log('Received message:', event.data);
-                        appendToTerminal(event.data);
+                        // Filter out JSON metrics data that should only go to /metrics WebSocket
+                        const trimmed = event.data.trim();
+                        if (!trimmed.startsWith('{') && !trimmed.startsWith('{ "aircraft_dictionary_metrics"')) {
+                            appendToTerminal(event.data);
+                        }
                     } else if (event.data instanceof Blob) {
                         const reader = new FileReader();
                         reader.onload = () => {
                             const text = reader.result;
                             // console.log('Received binary message:', text);
-                            appendToTerminal(text);
+                            // Filter out JSON metrics data
+                            const trimmed = text.trim();
+                            if (!trimmed.startsWith('{') && !trimmed.startsWith('{ "aircraft_dictionary_metrics"')) {
+                                appendToTerminal(text);
+                            }
                         };
                         reader.readAsText(event.data);
                     }
@@ -752,7 +760,7 @@
 
                     this.ws.onmessage = (event) => {
                         const decoded_message = this.decoder.decode(event.data);
-                        console.log("ADSBeeAT received message:", decoded_message);
+                        // console.log("ADSBeeAT received message:", decoded_message);
                         this.messageQueue.push(decoded_message);
                         resolve();
                     };

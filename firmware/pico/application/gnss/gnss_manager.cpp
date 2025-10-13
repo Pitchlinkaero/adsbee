@@ -179,9 +179,8 @@ std::unique_ptr<GNSSInterface> GNSSManager::CreateParser(GPSSettings::UARTProtoc
             return std::make_unique<NMEAParser>();
             
         case GPSSettings::kUARTProtoUBX:
-            // TODO: return std::make_unique<UBXParser>();
-            LOG_INFO("UBX parser not yet implemented, using NMEA\n");
-            return std::make_unique<NMEAParser>();
+            LOG_INFO("Using UBX parser for u-blox receiver\n");
+            return std::make_unique<UBXParser>();
             
         case GPSSettings::kUARTProtoSBF:
             LOG_INFO("Using SBF parser for Septentrio receiver\n");
