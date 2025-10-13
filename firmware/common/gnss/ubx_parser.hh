@@ -138,7 +138,9 @@ private:
     bool ConfigureNavigationRate(uint8_t rate_hz);
     bool ConfigurePPP_F9P();
     bool ConfigureGalileoHAS();
+    bool ConfigureIGSRTS();
     bool ConfigurePointPerfect(const char* key);
+    bool ConfigureBeiDouB2b();
     bool EnableSBAS();
     
     // Auto-detection

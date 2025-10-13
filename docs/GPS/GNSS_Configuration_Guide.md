@@ -92,6 +92,8 @@ AT+GPS_PPP=AUTO
 # Available free PPP services
 AT+GPS_PPP=SBAS           # WAAS/EGNOS/MSAS - 1-2m accuracy, instant
 AT+GPS_PPP=GALILEO_HAS    # Galileo HAS - 20cm accuracy, 10-15min convergence
+AT+GPS_PPP=IGS_RTS        # IGS Real-Time Service - 10-20cm accuracy, 15-20min convergence
+AT+GPS_PPP=BEIDOU_B2B     # BeiDou PPP-B2b - 10-30cm accuracy (Asia-Pacific region)
 ```
 
 **Available PPP Services:**
@@ -100,11 +102,15 @@ AT+GPS_PPP=GALILEO_HAS    # Galileo HAS - 20cm accuracy, 10-15min convergence
 |---------|----------|-------------|----------|--------------|
 | **SBAS** | 1-2m | Instant | Regional (WAAS/EGNOS/MSAS) | Standard GPS receiver |
 | **Galileo HAS** | 20cm | 10-15min | Global | E6-capable receiver (mosaic-X5) |
-| **AUTO** | Best Available | Varies | Global | Tries GALILEO_HAS, then SBAS |
+| **IGS_RTS** | 10-20cm | 15-20min | Global | Multi-frequency receiver |
+| **BEIDOU_B2B** | 10-30cm | 10-15min | Asia-Pacific | BeiDou B2b-capable receiver |
+| **AUTO** | Best Available | Varies | Global | Auto-selects best service for receiver |
 
 **Service Details:**
 - **SBAS (WAAS/EGNOS/MSAS)**: Satellite-based augmentation system providing immediate 1-2m accuracy improvement
 - **Galileo HAS**: High Accuracy Service providing free 20cm accuracy globally via Galileo E6 signal
+- **IGS_RTS**: International GNSS Service Real-Time Service providing free 10-20cm accuracy via SSR corrections
+- **BeiDou PPP-B2b**: Free PPP service for Asia-Pacific region via BeiDou B2b signal
 - **AUTO**: Automatically selects the best available service for your receiver and location
 
 ### RTK (Real-Time Kinematic)
@@ -249,7 +255,9 @@ AT+GPS_SBAS=DISABLE
 3. Verify receiver supports selected PPP service:
    - SBAS: Any GPS receiver
    - Galileo HAS: Requires E6-capable receiver (mosaic-X5, etc.)
-4. Try different PPP service: `AT+GPS_PPP=SBAS`
+   - IGS_RTS: Multi-frequency GNSS receiver
+   - BeiDou B2b: BeiDou B2b-capable receiver (Asia-Pacific region)
+4. Try different PPP service: `AT+GPS_PPP=SBAS` or `AT+GPS_PPP=IGS_RTS`
 5. Check receiver model compatibility:
    ```bash
    AT+GPS_STATUS?  # Shows receiver type and capabilities

@@ -111,7 +111,8 @@ bool NMEAParser::ProcessNMEASentence(const char* sentence) {
     if (success && received_.HasMinimumForFix()) {
         last_fix_timestamp_ms_ = GET_TIME_MS();
         last_position_.timestamp_ms = last_fix_timestamp_ms_;
-        last_position_.valid = true;
+        // Only mark valid if we actually have a fix and satellites
+        last_position_.valid = (last_position_.fix_type >= k2DFix && last_position_.satellites_used > 0);
     }
 
     return success;

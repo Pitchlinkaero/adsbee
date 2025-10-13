@@ -586,11 +586,11 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
                 if (gnss_manager.GetCurrentSource() < GPSSettings::kGPSSourceCount) {
                     source_str = GPSSettings::kGPSSourceStrs[gnss_manager.GetCurrentSource()];
                 }
-                CPP_AT_CMD_PRINTF("\r\nSource: %s", source_str);
+                CPP_AT_PRINTF("Source: %s\r\n", source_str);
 
                 // Statistics summary
                 GNSSManager::Statistics stats = gnss_manager.GetStatistics();
-                CPP_AT_CMD_PRINTF("\r\nMsg: %u, Updates: %u, Errors: %u, Accuracy: %.1fm, Uptime: %us",
+                CPP_AT_PRINTF("Msg: %u, Updates: %u, Errors: %u, Accuracy: %.1fm, Uptime: %us\r\n",
                     stats.messages_processed,
                     stats.position_updates,
                     stats.parse_errors,
@@ -599,7 +599,7 @@ CPP_AT_CALLBACK(CommsManager::ATGPSStatusCallback) {
 
                 // Position info
                 GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
-                CPP_AT_CMD_PRINTF("\r\nLat: %.6f, Lon: %.6f, Alt: %.1fm, Sats: %d, HDOP: %.2f",
+                CPP_AT_PRINTF("Lat: %.6f, Lon: %.6f, Alt: %.1fm, Sats: %d, HDOP: %.2f\r\n",
                     pos.latitude_deg,
                     pos.longitude_deg,
                     pos.altitude_m,
@@ -1615,7 +1615,7 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .min_args = 0,
      .max_args = 2,
      .help_string_buf = "AT+GPS_PPP=<service>,<key>\r\n\tEnable PPP service.\r\n\t"
-                        "service: NONE|AUTO|GALILEO_HAS|POINTPERFECT|RTX\r\n\t"
+                        "service: NONE|SBAS|GALILEO_HAS|IGS_RTS|POINTPERFECT|RTX|TERRASTAR|BEIDOU_B2B|AUTO\r\n\t"
                         "key: Service key (optional, for paid services)\r\n\t"
                         "AT+GPS_PPP?\r\n\tQuery PPP status and convergence.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGPSPPPCallback, comms_manager)},

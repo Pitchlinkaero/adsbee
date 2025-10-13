@@ -48,10 +48,11 @@ public:
         "POINTPERFECT",
         "RTX",
         "TERRASTAR",
-        "BEIDOU_B2B"
+        "BEIDOU_B2B",
+        "AUTO"
     };
-    
-    static constexpr int kPPPServiceCount = 8;
+
+    static constexpr int kPPPServiceCount = 9;
 
     // Position structure optimized for ADSBEE use case
     struct Position {

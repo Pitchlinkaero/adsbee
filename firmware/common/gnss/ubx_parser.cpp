@@ -580,21 +580,30 @@ bool UBXParser::EnablePPP(PPPService service, const char* key) {
     switch (service) {
         case kPPPGalileoHAS:
             return ConfigureGalileoHAS();
-            
+
+        case kPPPIGSRTS:
+            return ConfigureIGSRTS();
+
         case kPPPPointPerfect:
             return ConfigurePointPerfect(key);
-            
+
+        case kPPPBeiDouB2b:
+            return ConfigureBeiDouB2b();
+
         case kPPPSBAS:
             return EnableSBAS();  // Basic SBAS
-            
+
         case kPPPAuto:
-            // Try Galileo HAS first (free), fall back to SBAS
+            // Try best free service: Galileo HAS > IGS_RTS > SBAS
             if (ConfigureGalileoHAS()) {
                 active_ppp_service_ = kPPPGalileoHAS;
                 return true;
+            } else if (ConfigureIGSRTS()) {
+                active_ppp_service_ = kPPPIGSRTS;
+                return true;
             }
             return EnableSBAS();
-            
+
         default:
             return false;
     }
@@ -623,6 +632,57 @@ bool UBXParser::ConfigureGalileoHAS() {
     *(uint32_t*)(payload + 4) = CFG_SIGNAL_GAL_E6_ENA;
     payload[8] = 0x01;  // Enable
     
+    return SendUBX(UBX_CLASS_CFG, UBX_CFG_VALSET, payload, 9);
+}
+
+bool UBXParser::ConfigureIGSRTS() {
+    // Configure IGS Real-Time Service
+    // Free 10-20cm accuracy via SSR corrections broadcast
+    // Requires internet connection or L-band for SSR stream
+
+    // IGS RTS provides corrections via external RTCM-SSR stream (NTRIP/L-band)
+    // The receiver needs to be configured to accept SSR corrections
+    // This is typically handled by the NTRIP client feeding RTCM data
+
+    // Enable SSR correction processing on the receiver
+    // For u-blox, this means enabling RTCM-SSR message input
+    // The actual SSR stream setup is handled externally by the GNSS manager
+
+    // Configuration using CFG-VALSET to enable SSR
+    const uint32_t CFG_NAVHPG_DGNSSMODE = 0x20140011;  // DGNSS mode (3 = RTK float/SSR)
+
+    uint8_t payload[12];
+    payload[0] = 0x00;  // Version
+    payload[1] = 0x01;  // Layer: RAM
+    payload[2] = 0x00;  // Reserved
+    payload[3] = 0x00;  // Reserved
+
+    *(uint32_t*)(payload + 4) = CFG_NAVHPG_DGNSSMODE;
+    payload[8] = 0x03;  // Mode: 3 = RTK float (accepts SSR)
+
+    return SendUBX(UBX_CLASS_CFG, UBX_CFG_VALSET, payload, 9);
+}
+
+bool UBXParser::ConfigureBeiDouB2b() {
+    // Configure BeiDou PPP-B2b service
+    // Free 10-30cm accuracy for Asia-Pacific region via B2b signal
+    // Requires BeiDou B2b-capable receiver
+
+    // Enable BeiDou B2b signal
+    // Configuration using CFG-VALSET
+    const uint32_t CFG_SIGNAL_BDS_B2B_ENA = 0x10310028;  // Enable BeiDou B2b
+
+    // Build VALSET message
+    uint8_t payload[12];
+    payload[0] = 0x00;  // Version
+    payload[1] = 0x01;  // Layer: RAM
+    payload[2] = 0x00;  // Reserved
+    payload[3] = 0x00;  // Reserved
+
+    // Add configuration items
+    *(uint32_t*)(payload + 4) = CFG_SIGNAL_BDS_B2B_ENA;
+    payload[8] = 0x01;  // Enable
+
     return SendUBX(UBX_CLASS_CFG, UBX_CFG_VALSET, payload, 9);
 }
 
@@ -680,12 +740,14 @@ bool UBXParser::SupportsPPPService(PPPService service) const {
         // Only F9P supports PPP
         return service == kPPPSBAS;  // All receivers support basic SBAS
     }
-    
+
     switch (service) {
         case kPPPSBAS:
         case kPPPGalileoHAS:
+        case kPPPIGSRTS:
         case kPPPPointPerfect:
         case kPPPCenterPointRTX:
+        case kPPPBeiDouB2b:
         case kPPPAuto:
             return true;
         default:

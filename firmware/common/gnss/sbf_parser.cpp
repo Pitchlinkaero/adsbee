@@ -434,6 +434,10 @@ bool SBFParser::SupportsPPPService(GNSSInterface::PPPService service) const {
             return true;  // All Septentrio receivers support SBAS
         case PPPService::kPPPGalileoHAS:
             return detected_model_ >= kModelMosaicX5;  // Newer models only
+        case PPPService::kPPPIGSRTS:
+            return true;  // Most Septentrio receivers support IGS RTS via SSR
+        case PPPService::kPPPBeiDouB2b:
+            return detected_model_ >= kModelMosaicX5;  // Newer models with BeiDou B2b
         case PPPService::kPPPAuto:
             return true;
         default:
@@ -472,6 +476,23 @@ bool SBFParser::EnablePPP(GNSSInterface::PPPService service, const char* key) {
                 return SendCommand("setGalileoHAS, on\n");
             }
             return false;
+        case PPPService::kPPPIGSRTS:
+            // Enable IGS Real-Time Service via SSR corrections
+            return SendCommand("setSSRMode, on, IGS-RTS\n");
+        case PPPService::kPPPBeiDouB2b:
+            if (detected_model_ >= kModelMosaicX5) {
+                return SendCommand("setBeiDouPPP, on\n");
+            }
+            return false;
+        case PPPService::kPPPAuto:
+            // Try best available: Galileo HAS > IGS_RTS > SBAS
+            if (detected_model_ >= kModelMosaicX5) {
+                return SendCommand("setGalileoHAS, on\n");
+            } else if (SupportsPPPService(PPPService::kPPPIGSRTS)) {
+                return SendCommand("setSSRMode, on, IGS-RTS\n");
+            } else {
+                return SendCommand("setSBASMode, on\n");
+            }
         default:
             return false;
     }
