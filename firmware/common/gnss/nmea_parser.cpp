@@ -101,14 +101,19 @@ bool NMEAParser::ProcessNMEASentence(const char* sentence) {
     else if (strncmp(type, "ZDA,", 4) == 0) {
         success = ParseZDA(sentence);
     }
-    
+    else {
+        // Unknown or proprietary sentence (e.g., $PUBX, $PSRF, $PMTK)
+        // Don't count as error - just ignore silently
+        return true;
+    }
+
     // Update timestamp if we got valid data
     if (success && received_.HasMinimumForFix()) {
         last_fix_timestamp_ms_ = GET_TIME_MS();
         last_position_.timestamp_ms = last_fix_timestamp_ms_;
         last_position_.valid = true;
     }
-    
+
     return success;
 }
 
