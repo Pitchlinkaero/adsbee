@@ -148,6 +148,7 @@ private:
     bool InitializeMAVLinkSource();
     
     bool DetectUARTProtocol();
+    bool AutodetectBaudRate(uint32_t& detected_baud);
     std::unique_ptr<GNSSInterface> CreateParser(GPSSettings::UARTProtocol protocol);
     
     bool ProcessUARTData();

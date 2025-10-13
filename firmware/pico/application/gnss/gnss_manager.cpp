@@ -94,16 +94,119 @@ bool GNSSManager::Initialize(const GPSSettings& settings) {
     return success;
 }
 
+bool GNSSManager::AutodetectBaudRate(uint32_t& detected_baud) {
+    // Try common u-blox baud rates in order of likelihood
+    const uint32_t baud_rates[] = {38400, 9600, 115200, 230400, 460800};
+    const size_t num_rates = sizeof(baud_rates) / sizeof(baud_rates[0]);
+
+#ifdef ON_EMBEDDED_DEVICE
+    uart_inst_t* uart = uart0;
+
+    for (size_t i = 0; i < num_rates; i++) {
+        uint32_t baud = baud_rates[i];
+        LOG_INFO("Trying baud rate %u...\n", baud);
+
+        // Set baud rate
+        uart_set_baudrate(uart, baud);
+
+        // Small delay for UART to settle
+        sleep_ms(100);
+
+        // Flush any old data
+        while (uart_is_readable(uart)) {
+            uart_getc(uart);
+        }
+
+        // Send UBX-CFG-PRT poll message (0xB5 0x62 0x06 0x00 0x00 0x00)
+        // This requests port configuration and should generate an ACK
+        const uint8_t poll_msg[] = {
+            0xB5, 0x62,  // Sync
+            0x06, 0x00,  // Class/ID (CFG-PRT)
+            0x00, 0x00,  // Length = 0 (poll)
+            0x06, 0x00   // Checksum
+        };
+
+        // Send poll message
+        for (size_t j = 0; j < sizeof(poll_msg); j++) {
+            uart_putc_raw(uart, poll_msg[j]);
+        }
+
+        // Wait for response (up to 500ms)
+        uint32_t start_time = to_ms_since_boot(get_absolute_time());
+        bool ubx_response = false;
+        uint8_t response_buffer[64];
+        size_t response_len = 0;
+
+        while ((to_ms_since_boot(get_absolute_time()) - start_time) < 500) {
+            if (uart_is_readable(uart)) {
+                uint8_t byte = uart_getc(uart);
+                response_buffer[response_len++] = byte;
+
+                // Check for UBX sync bytes (0xB5 0x62)
+                if (response_len >= 2 &&
+                    response_buffer[response_len-2] == 0xB5 &&
+                    response_buffer[response_len-1] == 0x62) {
+                    ubx_response = true;
+                    LOG_INFO("Got UBX sync bytes at %u baud!\n", baud);
+                    break;
+                }
+
+                if (response_len >= sizeof(response_buffer)) {
+                    break;  // Buffer full
+                }
+            }
+            sleep_ms(10);
+        }
+
+        if (ubx_response) {
+            detected_baud = baud;
+            LOG_INFO("Autodetect successful: %u baud\n", baud);
+            return true;
+        }
+    }
+
+    // No valid response at any baud rate
+    LOG_ERROR("Autobaud failed, no UBX response at any rate\n");
+    detected_baud = 38400;  // Default to most common
+    return false;
+#else
+    // Simulation mode - just return default
+    detected_baud = 38400;
+    return true;
+#endif
+}
+
 bool GNSSManager::InitializeUART() {
 #ifdef ON_EMBEDDED_DEVICE
     // Initialize UART0 for GNSS using the UART switch
     // UART0 is shared between ESP32 programming and GNSS, so we must use the switch
-    if (!UARTSwitch::InitForGNSS(settings_.gps_uart_baud)) {
+
+    uint32_t baud_rate = settings_.gps_uart_baud;
+
+    // If baud rate is 0 or if we want to autobaud, run autodetection
+    if (baud_rate == 0 || (settings_.gps_uart_protocol == GPSSettings::kUARTProtoAuto)) {
+        LOG_INFO("Running baud rate autodetection...\n");
+        uint32_t detected_baud = 0;
+
+        if (UARTSwitch::InitForGNSS(38400)) {  // Start with most common default
+            if (AutodetectBaudRate(detected_baud)) {
+                LOG_INFO("Autodetected baud rate: %u\n", detected_baud);
+                baud_rate = detected_baud;
+                settings_.gps_uart_baud = detected_baud;  // Update settings
+            } else {
+                LOG_ERROR("Baud rate autodetection failed, using %u\n", baud_rate);
+                baud_rate = (baud_rate == 0) ? 38400 : baud_rate;
+            }
+        }
+    }
+
+    // Initialize at detected or configured baud rate
+    if (!UARTSwitch::InitForGNSS(baud_rate)) {
         LOG_ERROR("Failed to initialize UART0 for GNSS\n");
         return false;
     }
 
-    LOG_INFO("GNSS UART0 initialized at %u baud\n", settings_.gps_uart_baud);
+    LOG_INFO("GNSS UART0 initialized at %u baud\n", baud_rate);
 #else
     LOG_INFO("UART initialization (simulated)\n");
 #endif

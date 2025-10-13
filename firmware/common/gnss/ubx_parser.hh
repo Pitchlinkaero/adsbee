@@ -85,9 +85,14 @@ private:
     static constexpr uint8_t UBX_RXM_COR = 0x34;      // Differential correction input
     
     // Configuration message IDs
+    static constexpr uint8_t UBX_CFG_PRT = 0x00;      // Port configuration
     static constexpr uint8_t UBX_CFG_VALSET = 0x8A;   // Set configuration (Gen 9+)
     static constexpr uint8_t UBX_CFG_VALGET = 0x8B;   // Get configuration (Gen 9+)
     static constexpr uint8_t UBX_CFG_VALDEL = 0x8C;   // Delete configuration (Gen 9+)
+
+    // ACK message IDs
+    static constexpr uint8_t UBX_ACK_NAK = 0x00;      // Message Not-Acknowledged
+    static constexpr uint8_t UBX_ACK_ACK = 0x01;      // Message Acknowledged
     
     // MON message IDs
     static constexpr uint8_t UBX_MON_VER = 0x04;      // Version information
@@ -146,6 +151,11 @@ private:
     // Auto-detection
     bool DetectReceiverModel();
     void ParseVersionString(const char* version);
+
+    // Autobaud detection
+    static constexpr uint32_t kAutobaudRates[] = {38400, 9600, 115200, 230400, 460800};
+    static constexpr size_t kAutobaudRateCount = 5;
+    bool DetectBaudRate(uint32_t& detected_baud);
     
     // Member variables
     ParserState parser_state_ = kWaitingSync1;
@@ -178,6 +188,12 @@ private:
     uint32_t messages_parsed_ = 0;
     uint32_t parse_errors_ = 0;
     uint32_t checksum_errors_ = 0;
+
+    // Autobaud detection
+    bool waiting_for_ack_ = false;
+    bool ack_received_ = false;
+    uint8_t ack_msg_class_ = 0;
+    uint8_t ack_msg_id_ = 0;
     
     // Output callback for sending configuration
     using OutputCallback = std::function<bool(const uint8_t*, size_t)>;

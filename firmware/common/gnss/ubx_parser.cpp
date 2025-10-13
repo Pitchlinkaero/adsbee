@@ -158,12 +158,29 @@ bool UBXParser::ProcessMessage(const UBXMessage& msg) {
         if (msg.msg_id == UBX_MON_VER) {
             handled = HandleMonVer(msg.payload.data(), msg.payload.size());
         }
+    } else if (msg.msg_class == UBX_CLASS_ACK) {
+        // Handle ACK/NAK messages (used for autobaud detection)
+        if (msg.payload.size() >= 2) {
+            uint8_t ack_class = msg.payload[0];
+            uint8_t ack_id = msg.payload[1];
+
+            if (waiting_for_ack_ && ack_class == ack_msg_class_ && ack_id == ack_msg_id_) {
+                if (msg.msg_id == UBX_ACK_ACK) {
+                    ack_received_ = true;
+                    handled = true;
+                } else if (msg.msg_id == UBX_ACK_NAK) {
+                    ack_received_ = false;
+                    handled = true;
+                }
+                waiting_for_ack_ = false;
+            }
+        }
     }
-    
+
     if (!handled) {
         parse_errors_++;
     }
-    
+
     return handled;
 }
 
@@ -831,6 +848,21 @@ size_t UBXParser::GetDiagnostics(char* buffer, size_t max_len) const {
     );
     
     return written > 0 ? written : 0;
+}
+
+bool UBXParser::DetectBaudRate(uint32_t& detected_baud) {
+    // This method should be called by GNSS manager which has control over UART baud rate
+    // It will try common u-blox baud rates and poll for a response
+
+    // The actual implementation needs to be in GNSS manager since it needs to:
+    // 1. Change UART baud rate
+    // 2. Send poll message
+    // 3. Wait for response
+    // 4. Check if valid UBX message received
+
+    // This is a placeholder - the real implementation is in GNSSManager::AutodetectBaudRate()
+    detected_baud = 38400;  // Default guess
+    return false;
 }
 
 // Helper function - would be defined elsewhere in actual implementation
