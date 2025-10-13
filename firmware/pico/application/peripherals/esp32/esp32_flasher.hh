@@ -59,10 +59,14 @@ class ESP32SerialFlasher {
         CONSOLE_PRINTF("ESP32SerialFlasher: UART0 initialized at %d baud (TX: GPIO%d, RX: GPIO%d)\r\n",
                       config_.esp32_baudrate, config_.esp32_uart_tx_pin, config_.esp32_uart_rx_pin);
 
-        // Initialize the enable and boot pins - exactly like RC7
+        // Initialize the enable and boot pins
         gpio_init(config_.esp32_enable_pin);
         gpio_set_dir(config_.esp32_enable_pin, GPIO_OUT);
+
+        // Initialize boot pin - CRITICAL: Disable pulls first!
+        // This pin may have pull-up enabled from ESP32 SPI handshake configuration
         gpio_init(config_.esp32_gpio0_boot_pin);
+        gpio_disable_pulls(config_.esp32_gpio0_boot_pin);  // Remove any pull-ups/downs
         gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_OUT);
 
         CONSOLE_PRINTF("ESP32SerialFlasher: Control pins initialized (Enable: GPIO%d, GPIO0/Boot: GPIO%d)\r\n",
