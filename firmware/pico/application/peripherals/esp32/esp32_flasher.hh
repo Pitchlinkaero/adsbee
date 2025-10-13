@@ -37,6 +37,15 @@ class ESP32SerialFlasher {
         // Deinitialize UART0 directly
         uart_deinit(config_.esp32_uart_handle);
 
+        // CRITICAL: Restore GPIO 13 (boot pin) back to SPI handshake function
+        // After flashing, GPIO 13 is left with pulls disabled (boot pin mode).
+        // We must restore it to INPUT with pull-up for SPI handshake to work!
+        gpio_init(config_.esp32_gpio0_boot_pin);
+        gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_IN);
+        gpio_set_pulls(config_.esp32_gpio0_boot_pin, true, false);  // Pull-up enabled for SPI handshake
+        CONSOLE_PRINTF("ESP32SerialFlasher: Restored GPIO %d to SPI handshake mode (input with pull-up).\r\n",
+                      config_.esp32_gpio0_boot_pin);
+
         // Re-enable receiver after update if it was previously enabled.
         adsbee.SetReceiver1090Enable(receiver_was_enabled_before_update_);
         return true;
