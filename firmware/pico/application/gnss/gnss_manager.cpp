@@ -272,13 +272,13 @@ bool GNSSManager::ProcessUARTData() {
     uart_inst_t* uart = uart0;  // GNSS uses UART0 (shared with ESP32)
 
     // Read available data from UART
-    size_t available = 0;
-    while (uart_is_readable(uart) && available < sizeof(uart_buffer_)) {
-        uart_buffer_[available++] = uart_getc(uart);
+    uart_buffer_pos_ = 0;
+    while (uart_is_readable(uart) && uart_buffer_pos_ < sizeof(uart_buffer_)) {
+        uart_buffer_[uart_buffer_pos_++] = uart_getc(uart);
     }
 
-    if (available > 0) {
-        return ProcessData(uart_buffer_, available);
+    if (uart_buffer_pos_ > 0) {
+        return ProcessData(uart_buffer_, uart_buffer_pos_);
     }
 #else
     // Simulation mode - no UART data
