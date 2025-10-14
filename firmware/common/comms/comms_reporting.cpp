@@ -359,15 +359,16 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
     GDL90Reporter::GDL90TargetReportData ownship_data = {};
 #ifndef ON_ESP32
     if (pos.valid && pos.HasFix()) {
-        ownship_data.latitude_deg = pos.GetLatitudeDeg();
-        ownship_data.longitude_deg = pos.GetLongitudeDeg();
-        ownship_data.altitude_ft = pos.GetAltitudeM() * 3.28084f;  // m to ft
-        ownship_data.speed_kts = pos.GetGroundSpeedMps() * 1.94384f;  // m/s to knots
-        ownship_data.direction_deg = pos.GetTrackDeg();
-        ownship_data.vertical_rate_fpm = pos.GetVerticalVelocityMps() * 196.85f;  // m/s to fpm
+        // Convert fixed-point to GDL90 float format
+        ownship_data.latitude_deg = pos.latitude_e7 / 1e7;
+        ownship_data.longitude_deg = pos.longitude_e7 / 1e7;
+        ownship_data.altitude_ft = pos.altitude_msl_mm * 0.00328084f;  // mm to ft
+        ownship_data.speed_kts = pos.ground_speed_mmps * 0.001944f;  // mm/s to knots
+        ownship_data.direction_deg = pos.track_e2 / 100.0f;
+        ownship_data.vertical_rate_fpm = pos.vertical_velocity_mmps * 0.19685f;  // mm/s to ft/min
 
-        // Set accuracy category based on GNSS accuracy
-        float accuracy_m = pos.GetAccuracyM();
+        // Set accuracy category based on GNSS accuracy (convert decimeters to meters)
+        float accuracy_m = pos.accuracy_horizontal_dm / 10.0f;
         if (accuracy_m < 3.0f) {
             ownship_data.navigation_accuracy_category_position = 11;  // <3m
         } else if (accuracy_m < 10.0f) {
