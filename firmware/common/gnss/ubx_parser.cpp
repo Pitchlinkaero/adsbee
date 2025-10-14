@@ -225,29 +225,34 @@ bool UBXParser::HandleNavPvt(const uint8_t* payload, size_t length) {
     uint16_t p_dop = *(uint16_t*)(payload + 76);  // 0.01 scale
     
     // Update position
-    last_position_.latitude_deg = lat_raw * 1e-7;
-    last_position_.longitude_deg = lon_raw * 1e-7;
-    last_position_.altitude_m = height_raw * 0.001f;
-    last_position_.altitude_msl_m = height_msl_raw * 0.001f;
-    
+    double lat_deg = lat_raw * 1e-7;
+    double lon_deg = lon_raw * 1e-7;
+    float alt_m = height_raw * 0.001f;
+    float alt_msl = height_msl_raw * 0.001f;
+
     // Apply high-precision offsets if available (F9P)
     if (has_high_precision_) {
-        last_position_.latitude_deg += hp_lat_offset_ * 1e-10;
-        last_position_.longitude_deg += hp_lon_offset_ * 1e-10;
-        last_position_.altitude_m += hp_alt_offset_ * 0.0001f;
+        lat_deg += hp_lat_offset_ * 1e-10;
+        lon_deg += hp_lon_offset_ * 1e-10;
+        alt_m += hp_alt_offset_ * 0.0001f;
     }
-    
+
+    last_position_.SetLatitudeDeg(lat_deg);
+    last_position_.SetLongitudeDeg(lon_deg);
+    last_position_.SetAltitudeM(alt_m);
+    last_position_.SetAltitudeMSL(alt_msl);
+
     // Set velocity
-    last_position_.ground_speed_mps = ground_speed * 0.001f;
-    last_position_.track_deg = heading_motion * 1e-5f;
-    last_position_.vertical_velocity_mps = -vel_d * 0.001f;  // Convert down to up
-    
+    last_position_.SetGroundSpeedMps(ground_speed * 0.001f);
+    last_position_.SetTrackDeg(heading_motion * 1e-5f);
+    last_position_.SetVerticalVelocityMps(-vel_d * 0.001f);  // Convert down to up
+
     // Set accuracy
-    last_position_.accuracy_horizontal_m = h_acc * 0.001f;
-    last_position_.accuracy_vertical_m = v_acc * 0.001f;
-    
+    last_position_.SetAccuracyHorizontalM(h_acc * 0.001f);
+    last_position_.SetAccuracyVerticalM(v_acc * 0.001f);
+
     // Set DOP
-    last_position_.pdop = p_dop * 0.01f;
+    last_position_.SetPDOP(p_dop * 0.01f);
     
     // Set satellites
     last_position_.satellites_used = num_sv;
@@ -331,12 +336,12 @@ bool UBXParser::HandleNavHpPosLlh(const uint8_t* payload, size_t length) {
     // Update accuracy if better
     float hp_h_acc = h_acc_hp * 0.0001f;  // Convert to meters
     float hp_v_acc = v_acc_hp * 0.0001f;
-    
-    if (hp_h_acc < last_position_.accuracy_horizontal_m) {
-        last_position_.accuracy_horizontal_m = hp_h_acc;
+
+    if (hp_h_acc < last_position_.GetAccuracyHorizontalM()) {
+        last_position_.SetAccuracyHorizontalM(hp_h_acc);
     }
-    if (hp_v_acc < last_position_.accuracy_vertical_m) {
-        last_position_.accuracy_vertical_m = hp_v_acc;
+    if (hp_v_acc < last_position_.GetAccuracyVerticalM()) {
+        last_position_.SetAccuracyVerticalM(hp_v_acc);
     }
     
     return true;
@@ -411,7 +416,7 @@ bool UBXParser::HandleNavRelPosNed(const uint8_t* payload, size_t length) {
     if (rel_pos_valid && carr_soln == 2) {
         last_position_.fix_type = kRTKFixed;
         last_position_.rtk_available = true;
-        last_position_.rtk_baseline_m = rtk_baseline_m_;
+        last_position_.SetRTKBaselineM(rtk_baseline_m_);
     }
     
     return true;
@@ -838,9 +843,9 @@ size_t UBXParser::GetDiagnostics(char* buffer, size_t max_len) const {
         receiver_type_string_,
         (unsigned long)messages_parsed_, (unsigned long)parse_errors_, (unsigned long)checksum_errors_,
         last_position_.fix_type, last_position_.satellites_used,
-        last_position_.accuracy_horizontal_m,
-        last_position_.accuracy_vertical_m,
-        active_ppp_service_ == kPPPNone ? "None" : 
+        last_position_.GetAccuracyHorizontalM(),
+        last_position_.GetAccuracyVerticalM(),
+        active_ppp_service_ == kPPPNone ? "None" :
             (active_ppp_service_ == kPPPGalileoHAS ? "Galileo HAS" :
              active_ppp_service_ == kPPPPointPerfect ? "PointPerfect" : "Other"),
         ppp_converged_ ? "Yes" : "No",

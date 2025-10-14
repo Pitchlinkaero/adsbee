@@ -466,13 +466,13 @@ CPP_AT_CALLBACK(CommsManager::ATGNSSPositionCallback) {
                 GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
                 if (pos.valid && pos.HasFix()) {
                     CPP_AT_CMD_PRINTF("=%.8f,%.8f,%.1f,%.1f,%d,%d,%.1f",
-                        pos.latitude_deg,
-                        pos.longitude_deg,
-                        pos.altitude_m,
-                        pos.altitude_msl_m,
+                        pos.GetLatitudeDeg(),
+                        pos.GetLongitudeDeg(),
+                        pos.GetAltitudeM(),
+                        pos.GetAltitudeMSL(),
                         pos.fix_type,
                         pos.satellites_used,
-                        pos.accuracy_horizontal_m);
+                        pos.GetAccuracyHorizontalM());
                 } else {
                     CPP_AT_CMD_PRINTF("=NO_FIX");
                 }

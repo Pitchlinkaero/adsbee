@@ -385,18 +385,18 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
                        sentence_id,
                        pos.fix_type,
                        pos.satellites_used,
-                       pos.latitude_deg,
-                       pos.longitude_deg,
-                       pos.altitude_msl_m,
-                       pos.hdop);
+                       pos.GetLatitudeDeg(),
+                       pos.GetLongitudeDeg(),
+                       pos.GetAltitudeMSL(),
+                       pos.GetHDOP());
         } else {
             // Binary protocol (UBX/SBF)
             LOG_WARNING("GNSS: Binary | Fix:%d Sats:%d Lat:%.6f Lon:%.6f Alt:%.1fm Acc:%.1fm\n",
                        pos.fix_type,
                        pos.satellites_used,
-                       pos.latitude_deg,
-                       pos.longitude_deg,
-                       pos.altitude_msl_m,
+                       pos.GetLatitudeDeg(),
+                       pos.GetLongitudeDeg(),
+                       pos.GetAltitudeMSL(),
                        pos.GetAccuracyM());
         }
     }
@@ -1004,12 +1004,12 @@ size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
         GetReceiverType(),
         update_rate_hz_,
         current_position_.valid ? "Valid" : "Invalid",
-        current_position_.latitude_deg,
-        current_position_.longitude_deg,
-        current_position_.altitude_m,
+        current_position_.GetLatitudeDeg(),
+        current_position_.GetLongitudeDeg(),
+        current_position_.GetAltitudeM(),
         current_position_.fix_type,
         current_position_.satellites_used,
-        current_position_.hdop,
+        current_position_.GetHDOP(),
         current_position_.GetAccuracyM(),
         ppp_enabled_ ? "Enabled" : "Disabled",
         active_ppp_service_,

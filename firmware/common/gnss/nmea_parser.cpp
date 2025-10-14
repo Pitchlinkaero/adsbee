@@ -157,17 +157,17 @@ bool NMEAParser::ParseGGA(const char* sentence) {
                     token = strtok_r(nullptr, ",", &saveptr);
                     field++;
                     if (token && token[0] == 'S') lat = -lat;
-                    last_position_.latitude_deg = lat;
+                    last_position_.SetLatitudeDeg(lat);
                 }
                 break;
-                
+
             case 4: // Longitude (DDDMM.mmmm)
                 if (strlen(token) > 0) {
                     double lon = ParseDecimalDegrees(token);
                     token = strtok_r(nullptr, ",", &saveptr);
                     field++;
                     if (token && token[0] == 'W') lon = -lon;
-                    last_position_.longitude_deg = lon;
+                    last_position_.SetLongitudeDeg(lon);
                 }
                 break;
                 
@@ -189,18 +189,22 @@ bool NMEAParser::ParseGGA(const char* sentence) {
                 break;
                 
             case 8: // HDOP
-                last_position_.hdop = ParseFloat(token, 99.99f);
+                last_position_.SetHDOP(ParseFloat(token, 99.99f));
                 break;
-                
+
             case 9: // Altitude (MSL)
-                last_position_.altitude_msl_m = ParseFloat(token, 0.0f);
-                last_position_.altitude_m = last_position_.altitude_msl_m; // Use MSL as primary
+                {
+                    float alt_msl = ParseFloat(token, 0.0f);
+                    last_position_.SetAltitudeMSL(alt_msl);
+                    last_position_.SetAltitudeM(alt_msl); // Use MSL as primary
+                }
                 break;
-                
+
             case 11: // Geoid separation
                 {
                     float sep = ParseFloat(token, 0.0f);
-                    last_position_.altitude_m = last_position_.altitude_msl_m + sep; // HAE
+                    // HAE = MSL + separation
+                    last_position_.SetAltitudeM(last_position_.GetAltitudeMSL() + sep);
                 }
                 break;
         }
@@ -256,30 +260,30 @@ bool NMEAParser::ParseRMC(const char* sentence) {
                     token = strtok_r(nullptr, ",", &saveptr);
                     field++;
                     if (token && token[0] == 'S') lat = -lat;
-                    last_position_.latitude_deg = lat;
+                    last_position_.SetLatitudeDeg(lat);
                 }
                 break;
-                
+
             case 5: // Longitude
                 if (strlen(token) > 0 && valid) {
                     double lon = ParseDecimalDegrees(token);
                     token = strtok_r(nullptr, ",", &saveptr);
                     field++;
                     if (token && token[0] == 'W') lon = -lon;
-                    last_position_.longitude_deg = lon;
+                    last_position_.SetLongitudeDeg(lon);
                 }
                 break;
-                
+
             case 7: // Speed over ground (knots)
                 if (strlen(token) > 0) {
                     float knots = ParseFloat(token, 0.0f);
-                    last_position_.ground_speed_mps = knots * 0.514444f; // knots to m/s
+                    last_position_.SetGroundSpeedMps(knots * 0.514444f); // knots to m/s
                 }
                 break;
-                
+
             case 8: // Track angle
                 if (strlen(token) > 0) {
-                    last_position_.track_deg = ParseFloat(token, 0.0f);
+                    last_position_.SetTrackDeg(ParseFloat(token, 0.0f));
                 }
                 break;
                 
@@ -341,15 +345,15 @@ bool NMEAParser::ParseGSA(const char* sentence) {
                 break;
                 
             case 15: // PDOP
-                last_position_.pdop = ParseFloat(token, 99.99f);
+                last_position_.SetPDOP(ParseFloat(token, 99.99f));
                 break;
-                
+
             case 16: // HDOP
-                last_position_.hdop = ParseFloat(token, 99.99f);
+                last_position_.SetHDOP(ParseFloat(token, 99.99f));
                 break;
-                
+
             case 17: // VDOP
-                last_position_.vdop = ParseFloat(token, 99.99f);
+                last_position_.SetVDOP(ParseFloat(token, 99.99f));
                 break;
         }
         
@@ -358,11 +362,13 @@ bool NMEAParser::ParseGSA(const char* sentence) {
     }
     
     // Estimate accuracy from DOP values (rough approximation)
-    if (last_position_.hdop < 99.0f) {
-        last_position_.accuracy_horizontal_m = last_position_.hdop * 2.5f; // Rough estimate
+    float hdop = last_position_.GetHDOP();
+    float vdop = last_position_.GetVDOP();
+    if (hdop < 99.0f) {
+        last_position_.SetAccuracyHorizontalM(hdop * 2.5f); // Rough estimate
     }
-    if (last_position_.vdop < 99.0f) {
-        last_position_.accuracy_vertical_m = last_position_.vdop * 2.5f;
+    if (vdop < 99.0f) {
+        last_position_.SetAccuracyVerticalM(vdop * 2.5f);
     }
     
     return fix_type > 1;
@@ -418,14 +424,14 @@ bool NMEAParser::ParseVTG(const char* sentence) {
         switch (field) {
             case 1: // True track
                 if (strlen(token) > 0) {
-                    last_position_.track_deg = ParseFloat(token, 0.0f);
+                    last_position_.SetTrackDeg(ParseFloat(token, 0.0f));
                 }
                 break;
-                
+
             case 7: // Ground speed (km/h)
                 if (strlen(token) > 0) {
                     float kmh = ParseFloat(token, 0.0f);
-                    last_position_.ground_speed_mps = kmh / 3.6f; // km/h to m/s
+                    last_position_.SetGroundSpeedMps(kmh / 3.6f); // km/h to m/s
                 }
                 break;
         }
@@ -615,10 +621,10 @@ size_t NMEAParser::GetDiagnostics(char* buffer, size_t max_len) const {
         parse_errors_,
         satellites_in_view_,
         last_position_.valid ? "Valid" : "Invalid",
-        last_position_.latitude_deg,
-        last_position_.longitude_deg,
-        last_position_.altitude_m,
-        last_position_.hdop,
+        last_position_.GetLatitudeDeg(),
+        last_position_.GetLongitudeDeg(),
+        last_position_.GetAltitudeM(),
+        last_position_.GetHDOP(),
         last_position_.satellites_used
     );
     
