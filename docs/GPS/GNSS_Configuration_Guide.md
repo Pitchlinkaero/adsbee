@@ -2,37 +2,37 @@
 
 ## Overview
 
-The ADSBee supports multiple GNSS (GPS) sources and protocols with advanced configuration options for high-precision positioning. This guide covers all available GPS configuration commands and options.
+The ADSBee supports multiple GNSS (GNSS) sources and protocols with advanced configuration options for high-precision positioning. This guide covers all available GNSS configuration commands and options.
 
 ## Quick Start
 
-### Basic GPS Configuration
+### Basic GNSS Configuration
 ```bash
-# Check current GPS status
-AT+GPS_STATUS?
+# Check current GNSS status
+AT+GNSS_STATUS?
 
-# Set GPS source to UART with auto-detection
-AT+GPS_CONFIG=UART,AUTO,1
+# Set GNSS source to UART with auto-detection
+AT+GNSS_CONFIG=UART,AUTO,1
 
 # Enable PPP for high precision (if supported)
-AT+GPS_PPP=AUTO
+AT+GNSS_PPP=AUTO
 
 # Set failover timeout
-AT+GPS_FAILOVER=10
+AT+GNSS_FAILOVER=10
 ```
 
-## GPS Sources
+## GNSS Sources
 
-The ADSBee supports multiple GPS data sources with automatic failover:
+The ADSBee supports multiple GNSS data sources with automatic failover:
 
 ### Priority Order (Highest to Lowest)
-1. **UART** - Direct connection to GPS receiver
-2. **Network** - GPS over TCP/UDP (NTRIP, etc.)
-3. **MAVLink** - GPS data from autopilot/flight controller
+1. **UART** - Direct connection to GNSS receiver
+2. **Network** - GNSS over TCP/UDP (NTRIP, etc.)
+3. **MAVLink** - GNSS data from autopilot/flight controller
 
 ### Source Configuration
 ```bash
-AT+GPS_CONFIG=<source>,<protocol>,<rate>
+AT+GNSS_CONFIG=<source>,<protocol>,<rate>
 ```
 
 **Parameters:**
@@ -43,22 +43,22 @@ AT+GPS_CONFIG=<source>,<protocol>,<rate>
 **Examples:**
 ```bash
 # Auto-detect everything
-AT+GPS_CONFIG=AUTO,AUTO,1
+AT+GNSS_CONFIG=AUTO,AUTO,1
 
 # u-blox receiver on UART
-AT+GPS_CONFIG=UART,UBX,5
+AT+GNSS_CONFIG=UART,UBX,5
 
 # Septentrio receiver
-AT+GPS_CONFIG=UART,SBF,1
+AT+GNSS_CONFIG=UART,SBF,1
 
 # Network RTCM corrections
-AT+GPS_CONFIG=NETWORK,RTCM,1
+AT+GNSS_CONFIG=NETWORK,RTCM,1
 ```
 
 ## Protocol Support
 
 ### NMEA (Text Format)
-- **Use Case**: Standard GPS receivers, simple applications
+- **Use Case**: Standard GNSS receivers, simple applications
 - **Accuracy**: 3-5 meters typical
 - **Supported Messages**: GGA, RMC, GSA, GSV, VTG, ZDA
 
@@ -84,23 +84,23 @@ PPP provides improved accuracy without base stations using free satellite-based 
 
 ```bash
 # Check PPP support
-AT+GPS_PPP?
+AT+GNSS_PPP?
 
 # Enable auto PPP selection
-AT+GPS_PPP=AUTO
+AT+GNSS_PPP=AUTO
 
 # Available free PPP services
-AT+GPS_PPP=SBAS           # WAAS/EGNOS/MSAS - 1-2m accuracy, instant
-AT+GPS_PPP=GALILEO_HAS    # Galileo HAS - 20cm accuracy, 10-15min convergence
-AT+GPS_PPP=IGS_RTS        # IGS Real-Time Service - 10-20cm accuracy, 15-20min convergence
-AT+GPS_PPP=BEIDOU_B2B     # BeiDou PPP-B2b - 10-30cm accuracy (Asia-Pacific region)
+AT+GNSS_PPP=SBAS           # WAAS/EGNOS/MSAS - 1-2m accuracy, instant
+AT+GNSS_PPP=GALILEO_HAS    # Galileo HAS - 20cm accuracy, 10-15min convergence
+AT+GNSS_PPP=IGS_RTS        # IGS Real-Time Service - 10-20cm accuracy, 15-20min convergence
+AT+GNSS_PPP=BEIDOU_B2B     # BeiDou PPP-B2b - 10-30cm accuracy (Asia-Pacific region)
 ```
 
 **Available PPP Services:**
 
 | Service | Accuracy | Convergence | Coverage | Requirements |
 |---------|----------|-------------|----------|--------------|
-| **SBAS** | 1-2m | Instant | Regional (WAAS/EGNOS/MSAS) | Standard GPS receiver |
+| **SBAS** | 1-2m | Instant | Regional (WAAS/EGNOS/MSAS) | Standard GNSS receiver |
 | **Galileo HAS** | 20cm | 10-15min | Global | E6-capable receiver (mosaic-X5) |
 | **IGS_RTS** | 10-20cm | 15-20min | Global | Multi-frequency receiver |
 | **BEIDOU_B2B** | 10-30cm | 10-15min | Asia-Pacific | BeiDou B2b-capable receiver |
@@ -118,22 +118,22 @@ RTK provides centimeter accuracy with base station corrections.
 
 ```bash
 # Enable RTK mode (if supported)
-AT+GPS_RTK=ENABLE
+AT+GNSS_RTK=ENABLE
 
 # Set NTRIP settings for RTK corrections
-AT+GPS_NETWORK=rtk.example.com,2101,MOUNT01,user,pass
+AT+GNSS_NETWORK=rtk.example.com,2101,MOUNT01,user,pass
 ```
 
 ## Failover Configuration
 
-Configure automatic source switching when GPS signal is lost:
+Configure automatic source switching when GNSS signal is lost:
 
 ```bash
 # Set failover timeout (5-30 seconds)
-AT+GPS_FAILOVER=15
+AT+GNSS_FAILOVER=15
 
 # Query current failover settings
-AT+GPS_FAILOVER?
+AT+GNSS_FAILOVER?
 # Returns: =15,ENABLED
 ```
 
@@ -143,36 +143,36 @@ AT+GPS_FAILOVER?
 3. Continue monitoring all sources
 4. Return to higher priority when available
 
-## Network GPS Configuration
+## Network GNSS Configuration
 
-Configure GPS over network (NTRIP, TCP, UDP):
+Configure GNSS over network (NTRIP, TCP, UDP):
 
 ```bash
-AT+GPS_NETWORK=<host>,<port>,<mountpoint>,<user>,<pass>
+AT+GNSS_NETWORK=<host>,<port>,<mountpoint>,<user>,<pass>
 ```
 
 **Examples:**
 ```bash
 # Public NTRIP caster
-AT+GPS_NETWORK=rtk.example.com,2101,STATION01,user,password
+AT+GNSS_NETWORK=rtk.example.com,2101,STATION01,user,password
 
 # Raw TCP stream
-AT+GPS_NETWORK=gps.server.com,8080,,,,
+AT+GNSS_NETWORK=GNSS.server.com,8080,,,,
 
 # Query current network settings
-AT+GPS_NETWORK?
+AT+GNSS_NETWORK?
 ```
 
-## GPS Status and Diagnostics
+## GNSS Status and Diagnostics
 
 ### Real-time Status
 ```bash
-AT+GPS_STATUS?
+AT+GNSS_STATUS?
 ```
 
 **Example Output:**
 ```
-GPS Status Report:
+GNSS Status Report:
   Source: UART (SBF parser)
   Fix: PPP Converged (6 satellites)
   Position: 48.117300, 11.516700 @ 515.2m
@@ -188,12 +188,12 @@ Parser Statistics:
 
 ### Position Query
 ```bash
-AT+GPS_POSITION?
+AT+GNSS_POSITION?
 ```
 
 **Example Output:**
 ```
-+GPS_POSITION=48.117300,11.516700,515.2,PPP_CONVERGED,8,0.08
++GNSS_POSITION=48.117300,11.516700,515.2,PPP_CONVERGED,8,0.08
 # Format: lat,lon,alt,fix_type,satellites,accuracy_m
 ```
 
@@ -204,10 +204,10 @@ For stationary applications, enable static mode for better accuracy:
 
 ```bash
 # Enable static hold with 2m threshold
-AT+GPS_STATIC=ENABLE,2.0
+AT+GNSS_STATIC=ENABLE,2.0
 
 # Disable static mode
-AT+GPS_STATIC=DISABLE
+AT+GNSS_STATIC=DISABLE
 ```
 
 ### Update Rate Optimization
@@ -215,13 +215,13 @@ Higher rates consume more power and processing:
 
 ```bash
 # Conservative: 1Hz for most applications
-AT+GPS_CONFIG=AUTO,AUTO,1
+AT+GNSS_CONFIG=AUTO,AUTO,1
 
 # Active tracking: 5Hz for moving applications
-AT+GPS_CONFIG=AUTO,AUTO,5
+AT+GNSS_CONFIG=AUTO,AUTO,5
 
 # High-rate: 10Hz for research/development
-AT+GPS_CONFIG=AUTO,AUTO,10
+AT+GNSS_CONFIG=AUTO,AUTO,10
 ```
 
 ### SBAS Configuration
@@ -229,10 +229,10 @@ SBAS provides 1-2m accuracy improvement instantly:
 
 ```bash
 # Enable SBAS (WAAS/EGNOS/MSAS)
-AT+GPS_SBAS=ENABLE
+AT+GNSS_SBAS=ENABLE
 
 # Disable SBAS
-AT+GPS_SBAS=DISABLE
+AT+GNSS_SBAS=DISABLE
 ```
 
 ### Debug Output Configuration
@@ -304,7 +304,7 @@ AT+LOG_LEVEL=INFO
 
 ## Troubleshooting
 
-### No GPS Fix
+### No GNSS Fix
 1. Check antenna connection: `AT+GNSS_STATUS?`
 2. Enable debug output to see raw data: `AT+GNSS_DEBUG=1,1` and `AT+LOG_LEVEL=INFO`
 3. Verify protocol: Try `AT+GNSS_CONFIG=AUTO,AUTO,1`
@@ -313,87 +313,87 @@ AT+LOG_LEVEL=INFO
 6. If no raw data appears, check UART connection and baud rate: `AT+BAUD_RATE?`
 
 ### Poor Accuracy
-1. Enable SBAS: `AT+GPS_SBAS=ENABLE`
-2. Try PPP: `AT+GPS_PPP=AUTO`
+1. Enable SBAS: `AT+GNSS_SBAS=ENABLE`
+2. Try PPP: `AT+GNSS_PPP=AUTO`
 3. Check for multipath (reflective surfaces)
-4. Increase static hold threshold: `AT+GPS_STATIC=ENABLE,5.0`
+4. Increase static hold threshold: `AT+GNSS_STATIC=ENABLE,5.0`
 
 ### PPP Not Converging
 1. Ensure clear sky view for 15+ minutes
 2. Check constellation availability
 3. Verify receiver supports selected PPP service:
-   - SBAS: Any GPS receiver
+   - SBAS: Any GNSS receiver
    - Galileo HAS: Requires E6-capable receiver (mosaic-X5, etc.)
    - IGS_RTS: Multi-frequency GNSS receiver
    - BeiDou B2b: BeiDou B2b-capable receiver (Asia-Pacific region)
-4. Try different PPP service: `AT+GPS_PPP=SBAS` or `AT+GPS_PPP=IGS_RTS`
+4. Try different PPP service: `AT+GNSS_PPP=SBAS` or `AT+GNSS_PPP=IGS_RTS`
 5. Check receiver model compatibility:
    ```bash
-   AT+GPS_STATUS?  # Shows receiver type and capabilities
+   AT+GNSS_STATUS?  # Shows receiver type and capabilities
    ```
 
 ### Frequent Failovers
-1. Increase timeout: `AT+GPS_FAILOVER=30`
+1. Increase timeout: `AT+GNSS_FAILOVER=30`
 2. Check primary source stability
 3. Verify antenna/cable integrity
 4. Monitor power supply stability
 
 ## AT Command Reference
 
-### GPS Configuration Commands
+### GNSS Configuration Commands
 | Command | Description |
 |---------|-------------|
-| `AT+GNSS_CONFIG` | Set GPS source, protocol, and rate |
+| `AT+GNSS_CONFIG` | Set GNSS source, protocol, and rate |
 | `AT+GNSS_PPP` | Configure PPP service |
 | `AT+GNSS_RTK` | Enable/disable RTK mode |
 | `AT+GNSS_FAILOVER` | Set failover timeout |
-| `AT+GNSS_NETWORK` | Configure network GPS settings |
+| `AT+GNSS_NETWORK` | Configure network GNSS settings |
 | `AT+GNSS_STATIC` | Configure static mode |
 | `AT+GNSS_SBAS` | Enable/disable SBAS |
 | `AT+GNSS_DEBUG` | Enable/disable debug output (decoded and raw) |
 
-### GPS Status Commands
+### GNSS Status Commands
 | Command | Description |
 |---------|-------------|
-| `AT+GNSS_STATUS` | Detailed GPS status report |
+| `AT+GNSS_STATUS` | Detailed GNSS status report |
 | `AT+GNSS_POSITION` | Current position and fix info |
 
 ### Examples by Use Case
 
 ```bash
 # High accuracy, low power
-AT+GPS_CONFIG=UART,SBF,1
-AT+GPS_PPP=GALILEO_HAS
-AT+GPS_STATIC=ENABLE,1.0
-AT+GPS_FAILOVER=30
+AT+GNSS_CONFIG=UART,SBF,1
+AT+GNSS_PPP=GALILEO_HAS
+AT+GNSS_STATIC=ENABLE,1.0
+AT+GNSS_FAILOVER=30
 ```
 
 ```bash
 # Balanced accuracy and responsiveness
-AT+GPS_CONFIG=AUTO,AUTO,5
-AT+GPS_PPP=AUTO
-AT+GPS_SBAS=ENABLE
-AT+GPS_FAILOVER=10
+AT+GNSS_CONFIG=AUTO,AUTO,5
+AT+GNSS_PPP=AUTO
+AT+GNSS_SBAS=ENABLE
+AT+GNSS_FAILOVER=10
 ```
 
 ```bash
 # High accuracy with free PPP service
-AT+GPS_CONFIG=UART,SBF,1
-AT+GPS_PPP=GALILEO_HAS
-AT+GPS_RTK=ENABLE
-AT+GPS_STATIC=ENABLE,0.5
+AT+GNSS_CONFIG=UART,SBF,1
+AT+GNSS_PPP=GALILEO_HAS
+AT+GNSS_RTK=ENABLE
+AT+GNSS_STATIC=ENABLE,0.5
 ```
 
 ```bash
 # Reliable with SBAS
-AT+GPS_CONFIG=AUTO,AUTO,1
-AT+GPS_SBAS=ENABLE
-AT+GPS_FAILOVER=15
+AT+GNSS_CONFIG=AUTO,AUTO,1
+AT+GNSS_SBAS=ENABLE
+AT+GNSS_FAILOVER=15
 ```
 
 ## Supported Hardware
 
-### Tested GPS Receivers
+### Tested GNSS Receivers
 - **u-blox F9P/F9H/F9T/M10**: Full UBX support, RTK, PPP
 - **Septentrio mosaic-X5**: Full SBF support, multi-band PPP
 - **Generic NMEA**: Basic positioning, limited accuracy

@@ -42,11 +42,14 @@ GNSSManager::~GNSSManager() {
 }
 
 bool GNSSManager::Initialize(const GPSSettings& settings) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     settings_ = settings;
     stats_ = Statistics(); // Reset stats
-    
-    // Set update rate
-    SetUpdateRate(settings.gps_update_rate_hz);
+
+    // Set update rate (internal call, already locked)
+    update_rate_hz_ = settings.gps_update_rate_hz;
+    update_interval_ms_ = 1000 / settings.gps_update_rate_hz;
     
     // Configure failover timeout
     if (settings.failover_timeout_ms >= 5000 && settings.failover_timeout_ms <= 30000) {
@@ -297,6 +300,8 @@ std::unique_ptr<GNSSInterface> GNSSManager::CreateParser(GPSSettings::UARTProtoc
 }
 
 bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!parser_ || !buffer || length == 0) {
         return false;
     }
@@ -397,10 +402,12 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
 }
 
 bool GNSSManager::UpdatePosition() {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!parser_) {
         return false;
     }
-    
+
     // Check rate limiting
     if (!ShouldUpdate()) {
         return false;
@@ -477,10 +484,12 @@ bool GNSSManager::ProcessNetworkData() {
 }
 
 bool GNSSManager::ProcessNetworkGPSMessage(uint8_t type, const uint8_t* buffer, size_t length) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!buffer || length == 0) {
         return false;
     }
-    
+
     // Update timestamp for network GPS activity
     last_network_gps_ms_ = GetTimeMs();
     
@@ -686,28 +695,33 @@ bool GNSSManager::DetectUARTProtocol() {
 }
 
 GNSSInterface::Position GNSSManager::GetCurrentPosition() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return current_position_;
 }
 
 bool GNSSManager::IsPositionValid() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!current_position_.valid) {
         return false;
     }
-    
+
     // Check for stale position
     uint32_t age_ms = GetTimeMs() - current_position_.timestamp_ms;
     if (age_ms > 5000) {  // 5 second timeout
         return false;
     }
-    
+
     return true;
 }
 
 bool GNSSManager::SetSource(GPSSettings::GPSSource source) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (source == current_source_) {
         return true;
     }
-    
+
     // Save current as backup
     if (current_source_ != GPSSettings::kGPSSourceNone) {
         backup_source_ = current_source_;
@@ -743,10 +757,12 @@ bool GNSSManager::SetSource(GPSSettings::GPSSource source) {
 }
 
 bool GNSSManager::EnablePPP(GNSSInterface::PPPService service) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!parser_) {
         return false;
     }
-    
+
     // Check if receiver supports this service
     if (service != GNSSInterface::kPPPAuto && !parser_->SupportsPPPService(service)) {
         LOG_ERROR("Receiver does not support PPP service %d\n", service);
@@ -788,16 +804,20 @@ bool GNSSManager::EnablePPP(GNSSInterface::PPPService service) {
 }
 
 GNSSInterface::PPPService GNSSManager::GetPPPStatus(float& convergence_percent, uint32_t& eta_seconds) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!parser_ || !ppp_enabled_) {
         convergence_percent = 0;
         eta_seconds = 0;
         return GNSSInterface::kPPPNone;
     }
-    
+
     return parser_->GetPPPStatus(convergence_percent, eta_seconds);
 }
 
 bool GNSSManager::SetUpdateRate(uint8_t hz) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (hz < 1 || hz > 10) {
         LOG_ERROR("Invalid update rate %d Hz (must be 1-10)\n", hz);
         return false;
@@ -909,25 +929,29 @@ void GNSSManager::UpdateStatistics() {
 }
 
 const char* GNSSManager::GetReceiverType() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!parser_) {
         return "NONE";
     }
-    
+
     const char* type = parser_->GetReceiverType();
-    
+
     // Add high precision indicator if detected
     static char type_buffer[32];
     if (supports_high_precision_) {
         snprintf(type_buffer, sizeof(type_buffer), "%s-HP", type);
         return type_buffer;
     }
-    
+
     return type;
 }
 
 size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!buffer || max_len == 0) return 0;
-    
+
     int written = snprintf(buffer, max_len,
         "GNSS Manager Diagnostics:\n"
         "  Source: %s\n"

@@ -6,6 +6,7 @@
 #include "nmea_parser.hh"
 #include <memory>
 #include <cstdint>
+#include <mutex>
 
 // Forward declarations for specific parsers (to be implemented)
 class UBXParser;
@@ -14,15 +15,19 @@ class MAVLinkGPSParser;
 
 /**
  * GNSS Manager - Central coordinator for all GPS/GNSS functionality.
- * 
+ *
  * Responsibilities:
  * - Manage GPS data sources (UART, Network, MAVLink)
  * - Handle parser selection and switching
  * - Coordinate PPP services
  * - Provide unified interface for position data
  * - Handle failover between sources
- * 
+ *
  * This runs on the RP2040 to balance CPU load with ESP32.
+ *
+ * Thread Safety:
+ * All public methods are thread-safe and can be called from multiple contexts
+ * (main loop, interrupts, callbacks, etc.) without external synchronization.
  */
 class GNSSManager {
 public:
@@ -207,6 +212,9 @@ private:
     // Statistics
     Statistics stats_;
     uint32_t start_time_ms_ = 0;
+
+    // Thread safety
+    mutable std::mutex mutex_;  // Protects all member variables
 };
 
 #endif // GNSS_MANAGER_HH_
