@@ -6,7 +6,10 @@
 #include "nmea_parser.hh"
 #include <memory>
 #include <cstdint>
-#include <mutex>
+
+#ifdef ON_EMBEDDED_DEVICE
+#include "pico/critical_section.h"
+#endif
 
 // Forward declarations for specific parsers (to be implemented)
 class UBXParser;
@@ -213,8 +216,10 @@ private:
     Statistics stats_;
     uint32_t start_time_ms_ = 0;
 
-    // Thread safety
-    mutable std::mutex mutex_;  // Protects all member variables
+#ifdef ON_EMBEDDED_DEVICE
+    // Thread safety (Pico SDK critical section)
+    mutable critical_section_t critical_section_;  // Protects all member variables
+#endif
 };
 
 #endif // GNSS_MANAGER_HH_

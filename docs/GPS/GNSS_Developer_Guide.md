@@ -13,27 +13,27 @@ This guide explains how the ADSBee GNSS system works internally and how to integ
 │                     ADSBee GNSS System                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌──────────────┐           ┌──────────────────────────┐   │
-│  │   ESP32      │           │        RP2040             │   │
-│  │              │   SPI     │                           │   │
-│  │  - TCP/UDP   │ Object    │  ┌──────────────────┐    │   │
-│  │  - NTRIP     │Dictionary │  │  GNSS Manager    │    │   │
-│  │  - MAVLink   │═══════════>  │                  │    │   │
-│  │  - Web UI    │           │  │  - UART Source   │    │   │
-│  │              │<═══════════  │  - Network Source│    │   │
-│  │  Receives    │           │  │  - Parser Select │    │   │
-│  │  NetworkGNSS │  Syncs    │  │  - Failover      │    │   │
-│  │  Messages    │  Status   │  │  - Position Data │    │   │
-│  └──────────────┘           │  └──────────────────┘    │   │
-│                             │           │               │   │
-│                             │           ▼               │   │
-│                             │  ┌──────────────────┐    │   │
-│                             │  │  Your App Code   │    │   │
-│                             │  │                  │    │   │
-│                             │  │  GetPosition()   │    │   │
-│                             │  │  IsValid()       │    │   │
-│                             │  └──────────────────┘    │   │
-│                             └──────────────────────────┘   │
+│  ┌──────────────┐           ┌──────────────────────────┐    │
+│  │   ESP32      │           │        RP2040            │    │
+│  │              │   SPI     │                          │    │
+│  │  - TCP/UDP   │ Object    │  ┌──────────────────┐    │    │
+│  │  - NTRIP     │Dictionary │  │  GNSS Manager    │    │    │
+│  │  - MAVLink   │═══════════>  │                  │    │    │
+│  │  - Web UI    │           │  │  - UART Source   │    │    │
+│  │              │<═══════════  │  - Network Source│    │    │
+│  │  Receives    │           │  │  - Parser Select │    │    │
+│  │  NetworkGNSS │  Syncs    │  │  - Failover      │    │    │
+│  │  Messages    │  Status   │  │  - Position Data │    │    │
+│  └──────────────┘           │  └──────────────────┘    │    │
+│                             │           │              │    │
+│                             │           ▼              │    │
+│                             │  ┌──────────────────┐    │    │
+│                             │  │ Application Code │    │    │
+│                             │  │                  │    │    │
+│                             │  │  GetPosition()   │    │    │
+│                             │  │  IsValid()       │    │    │
+│                             │  └──────────────────┘    │    │
+│                             └──────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 
        UART GNSS ─────────────────┐

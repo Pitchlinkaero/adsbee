@@ -28,21 +28,49 @@ extern CommsManager comms_manager;
 #define LOG_ERROR(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kErrors, __VA_ARGS__)
 #else
 #include <cstdio>
-#define LOG_INFO(...) printf(__VA_ARGS__)
-#define LOG_WARNING(...) printf(__VA_ARGS__)
+#define LOG_INFO(...) printf(__VA_ARGS())
+#define LOG_WARNING(...) printf(__VA_ARGS())
 #define LOG_ERROR(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
+#ifdef ON_EMBEDDED_DEVICE
+// RAII wrapper for Pico SDK critical section
+class CriticalSectionLock {
+public:
+    explicit CriticalSectionLock(critical_section_t& cs) : cs_(cs) {
+        critical_section_enter_blocking(&cs_);
+    }
+    ~CriticalSectionLock() {
+        critical_section_exit(&cs_);
+    }
+    // Non-copyable
+    CriticalSectionLock(const CriticalSectionLock&) = delete;
+    CriticalSectionLock& operator=(const CriticalSectionLock&) = delete;
+private:
+    critical_section_t& cs_;
+};
+#define LOCK_GUARD() CriticalSectionLock lock(critical_section_)
+#else
+// No-op for non-embedded builds
+#define LOCK_GUARD() (void)0
 #endif
 
 GNSSManager::GNSSManager() {
     start_time_ms_ = GetTimeMs();
+#ifdef ON_EMBEDDED_DEVICE
+    critical_section_init(&critical_section_);
+#endif
 }
 
 GNSSManager::~GNSSManager() {
+#ifdef ON_EMBEDDED_DEVICE
+    critical_section_deinit(&critical_section_);
+#endif
     // Cleanup handled by smart pointers
 }
 
 bool GNSSManager::Initialize(const GPSSettings& settings) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     settings_ = settings;
     stats_ = Statistics(); // Reset stats
@@ -300,7 +328,7 @@ std::unique_ptr<GNSSInterface> GNSSManager::CreateParser(GPSSettings::UARTProtoc
 }
 
 bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!parser_ || !buffer || length == 0) {
         return false;
@@ -402,7 +430,7 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
 }
 
 bool GNSSManager::UpdatePosition() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!parser_) {
         return false;
@@ -484,7 +512,7 @@ bool GNSSManager::ProcessNetworkData() {
 }
 
 bool GNSSManager::ProcessNetworkGPSMessage(uint8_t type, const uint8_t* buffer, size_t length) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!buffer || length == 0) {
         return false;
@@ -695,12 +723,12 @@ bool GNSSManager::DetectUARTProtocol() {
 }
 
 GNSSInterface::Position GNSSManager::GetCurrentPosition() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
     return current_position_;
 }
 
 bool GNSSManager::IsPositionValid() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!current_position_.valid) {
         return false;
@@ -716,7 +744,7 @@ bool GNSSManager::IsPositionValid() const {
 }
 
 bool GNSSManager::SetSource(GPSSettings::GPSSource source) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (source == current_source_) {
         return true;
@@ -757,7 +785,7 @@ bool GNSSManager::SetSource(GPSSettings::GPSSource source) {
 }
 
 bool GNSSManager::EnablePPP(GNSSInterface::PPPService service) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!parser_) {
         return false;
@@ -804,7 +832,7 @@ bool GNSSManager::EnablePPP(GNSSInterface::PPPService service) {
 }
 
 GNSSInterface::PPPService GNSSManager::GetPPPStatus(float& convergence_percent, uint32_t& eta_seconds) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!parser_ || !ppp_enabled_) {
         convergence_percent = 0;
@@ -816,7 +844,7 @@ GNSSInterface::PPPService GNSSManager::GetPPPStatus(float& convergence_percent, 
 }
 
 bool GNSSManager::SetUpdateRate(uint8_t hz) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (hz < 1 || hz > 10) {
         LOG_ERROR("Invalid update rate %d Hz (must be 1-10)\n", hz);
@@ -929,7 +957,7 @@ void GNSSManager::UpdateStatistics() {
 }
 
 const char* GNSSManager::GetReceiverType() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!parser_) {
         return "NONE";
@@ -948,7 +976,7 @@ const char* GNSSManager::GetReceiverType() const {
 }
 
 size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    LOCK_GUARD();
 
     if (!buffer || max_len == 0) return 0;
 
