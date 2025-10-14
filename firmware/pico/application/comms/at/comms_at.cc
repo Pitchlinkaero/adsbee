@@ -600,11 +600,11 @@ CPP_AT_CALLBACK(CommsManager::ATGNSSStatusCallback) {
                 // Position info
                 GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
                 CPP_AT_PRINTF("Lat: %.6f, Lon: %.6f, Alt: %.1fm, Sats: %d, HDOP: %.2f\r\n",
-                    pos.latitude_deg,
-                    pos.longitude_deg,
-                    pos.altitude_m,
+                    pos.GetLatitudeDeg(),
+                    pos.GetLongitudeDeg(),
+                    pos.GetAltitudeM(),
                     pos.satellites_used,
-                    pos.hdop);
+                    pos.GetHDOP());
 
                 CPP_AT_SILENT_SUCCESS();
             }

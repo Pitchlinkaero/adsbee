@@ -332,7 +332,16 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
     uint8_t buf[GDL90Reporter::kGDL90MessageMaxLenBytes];
     uint16_t msg_len;
 
+    // Get reference to gnss_manager
+    extern GNSSManager gnss_manager;
+
+    // Get current position (respects RX_POSITION source setting)
+    GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
+
     // Heartbeat Message
+    bool gnss_position_valid = pos.valid && pos.HasFix();
+    gdl90.gnss_position_valid = gnss_position_valid;
+
     msg_len = gdl90.WriteGDL90HeartbeatMessage(buf, get_time_since_boot_ms() / 1000,
                                                aircraft_dictionary.metrics.valid_extended_squitter_frames);
 
@@ -340,9 +349,48 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
         ret &= SendBuf(sinks[i], (char *)buf, msg_len);
     }
 
-    // Ownship Report
-    GDL90Reporter::GDL90TargetReportData ownship_data;
-    // TODO: Actually fill out ownship data!
+    // Ownship Report - populate from position
+    GDL90Reporter::GDL90TargetReportData ownship_data = {};
+    if (pos.valid && pos.HasFix()) {
+        ownship_data.latitude_deg = pos.GetLatitudeDeg();
+        ownship_data.longitude_deg = pos.GetLongitudeDeg();
+        ownship_data.altitude_ft = pos.GetAltitudeM() * 3.28084f;  // m to ft
+        ownship_data.speed_kts = pos.GetGroundSpeedMps() * 1.94384f;  // m/s to knots
+        ownship_data.direction_deg = pos.GetTrackDeg();
+        ownship_data.vertical_rate_fpm = pos.GetVerticalVelocityMps() * 196.85f;  // m/s to fpm
+
+        // Set accuracy category based on GNSS accuracy
+        float accuracy_m = pos.GetAccuracyM();
+        if (accuracy_m < 3.0f) {
+            ownship_data.navigation_accuracy_category_position = 11;  // <3m
+        } else if (accuracy_m < 10.0f) {
+            ownship_data.navigation_accuracy_category_position = 10;  // <10m
+        } else if (accuracy_m < 30.0f) {
+            ownship_data.navigation_accuracy_category_position = 9;   // <30m
+        } else {
+            ownship_data.navigation_accuracy_category_position = 8;   // <92.6m
+        }
+
+        // Set NIC based on fix type
+        if (pos.fix_type == GNSSInterface::kRTKFixed) {
+            ownship_data.navigation_integrity_category = 11;  // RTK fixed
+        } else if (pos.fix_type == GNSSInterface::kRTKFloat) {
+            ownship_data.navigation_integrity_category = 10;
+        } else if (pos.fix_type >= GNSSInterface::k3DFix) {
+            ownship_data.navigation_integrity_category = 8;
+        } else {
+            ownship_data.navigation_integrity_category = 0;
+        }
+
+        // Set common fields for valid position
+        ownship_data.address_type = GDL90Reporter::GDL90TargetReportData::kAddressTypeADSBWithSelfAssignedAddress;
+        ownship_data.participant_address = 0x000000;  // Self-assigned
+        ownship_data.SetMiscIndicator(
+            GDL90Reporter::GDL90TargetReportData::kMiscIndicatorTTIsTrueTrackAngle,
+            false,  // not extrapolated
+            false); // airborne status unknown for ground station
+    }
+
     msg_len = gdl90.WriteGDL90TargetReportMessage(buf, ownship_data, true);
     for (uint16_t i = 0; i < num_sinks; i++) {
         ret &= SendBuf(sinks[i], (char *)buf, msg_len);

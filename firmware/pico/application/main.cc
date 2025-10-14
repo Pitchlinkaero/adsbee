@@ -226,9 +226,12 @@ int main() {
 
     // Initialize GPS manager with current settings
     if (gnss_manager.Initialize(settings_manager.settings.gps_settings)) {
-        comms_manager.console_printf("GPS initialized: %s source\r\n", 
+        comms_manager.console_printf("GPS initialized: %s source\r\n",
                                     settings_manager.settings.gps_settings.GetSourceString());
     }
+
+    // Set RX position settings so GNSS manager respects position source
+    gnss_manager.SetRxPositionSettings(&settings_manager.settings.rx_position);
 
     multicore_reset_core1();
     multicore_launch_core1(main_core1);

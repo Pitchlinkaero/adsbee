@@ -64,18 +64,15 @@ class SettingsManager {
     // Receiver position settings.
     struct __attribute__((packed)) RxPosition {
         enum PositionSource : uint8_t {
-            kPositionSourceNone = 0,
-            kPositionSourceFixed = 1,
-            kPositionSourceGNSS = 2,
-            kPositionSourceAutoAircraftLowest = 3,
-            kPositionSourceAutoAircraftICAO = 4,
+            kPositionSourceGNSS = 0,   // Use GNSS position (or no position if GNSS invalid)
+            kPositionSourceFixed = 1,  // Use fixed position from settings
             kNumPositionSources
         };
 
         static const uint16_t kPositionSourceStrMaxLen = 30;
         static const char kPositionSourceStrs[kNumPositionSources][kPositionSourceStrMaxLen];
 
-        PositionSource source = kPositionSourceNone;
+        PositionSource source = kPositionSourceGNSS;  // Default to GNSS
         float latitude_deg = 0.0;     // Degrees, WGS84
         float longitude_deg = 0.0;    // Degrees, WGS84
         float gnss_altitude_m = 0.0;  // Meters, WGS84

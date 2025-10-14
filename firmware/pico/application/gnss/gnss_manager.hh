@@ -4,6 +4,7 @@
 #include "gnss_interface.hh"
 #include "gps_settings.hh"
 #include "nmea_parser.hh"
+#include "settings.hh"  // For SettingsManager::RxPosition
 #include <memory>
 #include <cstdint>
 
@@ -11,10 +12,11 @@
 #include "pico/critical_section.h"
 #endif
 
-// Forward declarations for specific parsers (to be implemented)
+// Forward declarations
 class UBXParser;
 class SBFParser;
 class MAVLinkGPSParser;
+class SettingsManager;
 
 /**
  * GNSS Manager - Central coordinator for all GPS/GNSS functionality.
@@ -69,14 +71,35 @@ public:
     bool UpdatePosition();
     
     /**
-     * Get current position
-     * @return Current GPS position (may be invalid if no fix)
+     * Set RX position settings reference for position source selection
+     * @param rx_position Pointer to RX position settings (must remain valid)
+     */
+    void SetRxPositionSettings(const SettingsManager::RxPosition* rx_position);
+
+    /**
+     * Get current position based on RX_POSITION source setting
+     * This respects the position source (GNSS, Fixed, Auto, None)
+     * @return Current position (may be invalid if no fix or source is None)
      */
     GNSSInterface::Position GetCurrentPosition() const;
-    
+
+    /**
+     * Set a static position (for testing or fixed installations)
+     * This overrides any GNSS-derived position until cleared
+     * @param latitude_deg Latitude in degrees
+     * @param longitude_deg Longitude in degrees
+     * @param altitude_m Altitude in meters (MSL)
+     */
+    void SetStaticPosition(double latitude_deg, double longitude_deg, float altitude_m);
+
+    /**
+     * Clear static position and resume normal GNSS operation
+     */
+    void ClearStaticPosition();
+
     /**
      * Check if position is valid
-     * @return true if we have a valid GPS fix
+     * @return true if we have a valid GPS fix or static position set
      */
     bool IsPositionValid() const;
     
@@ -177,7 +200,9 @@ private:
     
     std::unique_ptr<GNSSInterface> parser_;
     GNSSInterface::Position current_position_;
-    
+    bool static_position_set_ = false;  // True if using static position override
+    const SettingsManager::RxPosition* rx_position_settings_ = nullptr;  // Pointer to RX position settings
+
     // UART handling
     GPSSettings::UARTProtocol detected_protocol_ = GPSSettings::kUARTProtoAuto;
     uint8_t uart_buffer_[256];

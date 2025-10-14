@@ -404,17 +404,20 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
     if (success) {
         stats_.messages_processed++;
 
-        // Check if we have a new valid position
-        GNSSInterface::Position pos = parser_->GetLastPosition();
-        if (pos.valid && pos.timestamp_ms != current_position_.timestamp_ms) {
-            current_position_ = pos;
-            stats_.position_updates++;
-            last_valid_position_ms_ = GetTimeMs();
+        // Don't update position if static position is set
+        if (!static_position_set_) {
+            // Check if we have a new valid position
+            GNSSInterface::Position pos = parser_->GetLastPosition();
+            if (pos.valid && pos.timestamp_ms != current_position_.timestamp_ms) {
+                current_position_ = pos;
+                stats_.position_updates++;
+                last_valid_position_ms_ = GetTimeMs();
 
-            // Track best accuracy
-            float accuracy = pos.GetAccuracyM();
-            if (accuracy < stats_.best_accuracy_m) {
-                stats_.best_accuracy_m = accuracy;
+                // Track best accuracy
+                float accuracy = pos.GetAccuracyM();
+                if (accuracy < stats_.best_accuracy_m) {
+                    stats_.best_accuracy_m = accuracy;
+                }
             }
         }
     } else {
@@ -722,13 +725,53 @@ bool GNSSManager::DetectUARTProtocol() {
     return false;
 }
 
+void GNSSManager::SetRxPositionSettings(const SettingsManager::RxPosition* rx_position) {
+    LOCK_GUARD();
+    rx_position_settings_ = rx_position;
+}
+
 GNSSInterface::Position GNSSManager::GetCurrentPosition() const {
     LOCK_GUARD();
+
+    // If no RX position settings configured, just return GNSS position
+    if (!rx_position_settings_) {
+        return current_position_;
+    }
+
+    // Respect RX_POSITION source setting
+    if (rx_position_settings_->source == SettingsManager::RxPosition::kPositionSourceFixed) {
+        // Return fixed position from settings
+        GNSSInterface::Position fixed_pos;
+        fixed_pos.SetLatitudeDeg(rx_position_settings_->latitude_deg);
+        fixed_pos.SetLongitudeDeg(rx_position_settings_->longitude_deg);
+        fixed_pos.SetAltitudeM(rx_position_settings_->gnss_altitude_m);
+        fixed_pos.SetAltitudeMSL(rx_position_settings_->gnss_altitude_m);
+        fixed_pos.SetGroundSpeedMps(rx_position_settings_->speed_kts * 0.514444f);  // knots to m/s
+        fixed_pos.SetTrackDeg(rx_position_settings_->heading_deg);
+
+        // Mark as valid with good quality
+        fixed_pos.valid = true;
+        fixed_pos.fix_type = GNSSInterface::k3DFix;
+        fixed_pos.satellites_used = 12;
+        fixed_pos.SetHDOP(0.5f);
+        fixed_pos.SetAccuracyHorizontalM(0.1f);
+        fixed_pos.SetAccuracyVerticalM(0.1f);
+        fixed_pos.timestamp_ms = GetTimeMs();
+
+        return fixed_pos;
+    }
+
+    // Default: kPositionSourceGNSS (0) - return GNSS position
     return current_position_;
 }
 
 bool GNSSManager::IsPositionValid() const {
     LOCK_GUARD();
+
+    // Static position is always valid (until cleared)
+    if (static_position_set_) {
+        return true;
+    }
 
     if (!current_position_.valid) {
         return false;
@@ -975,6 +1018,46 @@ const char* GNSSManager::GetReceiverType() const {
     return type;
 }
 
+void GNSSManager::SetStaticPosition(double latitude_deg, double longitude_deg, float altitude_m) {
+    LOCK_GUARD();
+
+    // Create a static position
+    current_position_ = GNSSInterface::Position();  // Reset to defaults
+    current_position_.SetLatitudeDeg(latitude_deg);
+    current_position_.SetLongitudeDeg(longitude_deg);
+    current_position_.SetAltitudeM(altitude_m);
+    current_position_.SetAltitudeMSL(altitude_m);
+
+    // Mark as valid with good fix
+    current_position_.valid = true;
+    current_position_.fix_type = GNSSInterface::k3DFix;
+    current_position_.satellites_used = 12;  // Fake high satellite count
+    current_position_.SetHDOP(0.5f);  // Excellent HDOP
+    current_position_.SetAccuracyHorizontalM(0.1f);  // 10cm accuracy
+    current_position_.SetAccuracyVerticalM(0.1f);
+
+    // Set timestamp
+    current_position_.timestamp_ms = GetTimeMs();
+    last_valid_position_ms_ = current_position_.timestamp_ms;
+
+    // Mark that we're using static position
+    static_position_set_ = true;
+
+    LOG_INFO("Static position set: %.6f, %.6f @ %.1fm\n",
+             latitude_deg, longitude_deg, altitude_m);
+}
+
+void GNSSManager::ClearStaticPosition() {
+    LOCK_GUARD();
+
+    static_position_set_ = false;
+
+    // Invalidate current position to force update from GNSS
+    current_position_.valid = false;
+
+    LOG_INFO("Static position cleared, resuming GNSS operation\n");
+}
+
 size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
     LOCK_GUARD();
 
@@ -982,7 +1065,7 @@ size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
 
     int written = snprintf(buffer, max_len,
         "GNSS Manager Diagnostics:\n"
-        "  Source: %s\n"
+        "  Source: %s%s\n"
         "  Receiver: %s\n"
         "  Update rate: %d Hz\n"
         "  Position: %s\n"
@@ -1001,6 +1084,7 @@ size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
         "    Uptime: %u s\n"
         "    Best accuracy: %.2f m\n",
         settings_.GetSourceString(),
+        static_position_set_ ? " (STATIC OVERRIDE)" : "",
         GetReceiverType(),
         update_rate_hz_,
         current_position_.valid ? "Valid" : "Invalid",
@@ -1019,12 +1103,12 @@ size_t GNSSManager::GetDiagnostics(char* buffer, size_t max_len) const {
         stats_.uptime_s,
         stats_.best_accuracy_m
     );
-    
+
     // Add parser-specific diagnostics if available
     if (parser_ && written > 0 && written < static_cast<int>(max_len - 1)) {
         size_t remaining = max_len - written;
         written += parser_->GetDiagnostics(buffer + written, remaining);
     }
-    
+
     return (written > 0 && written < static_cast<int>(max_len)) ? written : 0;
 }
