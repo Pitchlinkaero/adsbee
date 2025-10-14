@@ -794,9 +794,9 @@ CPP_AT_CALLBACK(CommsManager::ATGNSSDebugCallback) {
         case '?':
             {
                 // Query debug status
-                CPP_AT_CMD_PRINTF("=%s,%s",
-                    settings_manager.settings.gps_settings.gps_debug_output ? "ENABLE" : "DISABLE",
-                    settings_manager.settings.gps_settings.gps_raw_output ? "ENABLE" : "DISABLE");
+                CPP_AT_CMD_PRINTF("=%d,%d",
+                    settings_manager.settings.gps_settings.gps_debug_output ? 1 : 0,
+                    settings_manager.settings.gps_settings.gps_raw_output ? 1 : 0);
                 CPP_AT_SILENT_SUCCESS();
             }
             break;
@@ -804,28 +804,18 @@ CPP_AT_CALLBACK(CommsManager::ATGNSSDebugCallback) {
             {
                 // Enable/disable GNSS debug modes
                 // AT+GNSS_DEBUG=<debug_messages>,<raw_hex>
-                // Both arguments optional, each can be ENABLE or DISABLE
+                // Both arguments optional, each can be 0 or 1
 
                 if (CPP_AT_HAS_ARG(0)) {
-                    if (args[0].compare("ENABLE") == 0) {
-                        settings_manager.settings.gps_settings.gps_debug_output = true;
-                    } else if (args[0].compare("DISABLE") == 0) {
-                        settings_manager.settings.gps_settings.gps_debug_output = false;
-                    } else {
-                        CPP_AT_ERROR("Invalid argument. Must be ENABLE or DISABLE.");
-                    }
+                    bool enabled;
+                    CPP_AT_TRY_ARG2NUM(0, enabled);
+                    settings_manager.settings.gps_settings.gps_debug_output = enabled;
                 }
 
                 if (CPP_AT_HAS_ARG(1)) {
-                    if (args[1].compare("ENABLE") == 0) {
-                        settings_manager.settings.gps_settings.gps_raw_output = true;
-                        CPP_AT_PRINTF("GNSS raw hex output enabled\r\n");
-                    } else if (args[1].compare("DISABLE") == 0) {
-                        settings_manager.settings.gps_settings.gps_raw_output = false;
-                        CPP_AT_PRINTF("GNSS raw hex output disabled\r\n");
-                    } else {
-                        CPP_AT_ERROR("Invalid argument for raw output. Must be ENABLE or DISABLE.");
-                    }
+                    bool enabled;
+                    CPP_AT_TRY_ARG2NUM(1, enabled);
+                    settings_manager.settings.gps_settings.gps_raw_output = enabled;
                 }
 
                 // Settings take effect immediately (no need to reinitialize)
@@ -1707,9 +1697,9 @@ const CppAT::ATCommandDef_t at_command_list[] = {
     {.command_buf = "GNSS_DEBUG",
      .min_args = 0,
      .max_args = 2,
-     .help_string_buf = "AT+GNSS_DEBUG=<debug_msgs>,<raw_hex>\r\n\tEnable/disable GNSS debug output.\r\n\t"
-                        "debug_msgs: ENABLE|DISABLE - Extra debug messages\r\n\t"
-                        "raw_hex: ENABLE|DISABLE - Raw NMEA/UBX hex output\r\n\t"
+     .help_string_buf = "AT+GNSS_DEBUG=<decoded_msgs>,<raw_hex>\r\n\tEnable/disable GNSS debug output.\r\n\t"
+                        "decoded_msgs: 0|1 - Decoded NMEA/UBX messages (WARNING level)\r\n\t"
+                        "raw_hex: 0|1 - Raw NMEA/UBX hex output (INFO level)\r\n\t"
                         "AT+GNSS_DEBUG?\r\n\tQuery debug status.",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATGNSSDebugCallback, comms_manager)},
     {.command_buf = "HOSTNAME",

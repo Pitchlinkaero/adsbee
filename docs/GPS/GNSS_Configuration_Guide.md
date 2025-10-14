@@ -235,13 +235,82 @@ AT+GPS_SBAS=ENABLE
 AT+GPS_SBAS=DISABLE
 ```
 
+### Debug Output Configuration
+Enable detailed GNSS message debugging with two levels of output:
+
+```bash
+# Query current debug settings
+AT+GNSS_DEBUG?
+# Returns: =0,0 (decoded_msgs,raw_hex)
+
+# Enable decoded message output (WARNING level - always visible)
+AT+GNSS_DEBUG=1,0
+
+# Enable raw hex output (INFO level - requires AT+LOG_LEVEL=INFO)
+AT+GNSS_DEBUG=0,1
+
+# Enable both outputs
+AT+GNSS_DEBUG=1,1
+
+# Disable all debug output
+AT+GNSS_DEBUG=0,0
+```
+
+**Debug Output Levels:**
+
+1. **Decoded Messages** (Parameter 1: `0` or `1`)
+   - **Log Level**: WARNING (visible at default log level)
+   - **Content**: Parsed GNSS information from each message
+   - **Use Case**: Monitor position updates without excessive data
+   - **Example Output**:
+     ```
+     GNSS: GNGGA | Fix:3 Sats:12 Lat:48.117300 Lon:11.516700 Alt:515.2m HDOP:1.20
+     GNSS: GNRMC | Fix:3 Sats:12 Lat:48.117301 Lon:11.516702 Alt:515.3m HDOP:1.19
+     ```
+
+2. **Raw Hex Output** (Parameter 2: `0` or `1`)
+   - **Log Level**: INFO (requires `AT+LOG_LEVEL=INFO`)
+   - **Content**: Raw bytes and ASCII interpretation of all GNSS data
+   - **Use Case**: Protocol debugging, troubleshooting parser issues
+   - **Example Output**:
+     ```
+     GNSS RAW [64 bytes]: 24 47 4E 47 47 41 2C 31 32 33 35 31 39 2E 30 30
+                          2C 34 38 30 37 2E 30 33 38 2C 4E 2C 30 31 31 33
+     GNSS ASCII: $GNGGA,123519.00,4807.038,N,01131.324,E,1,12,1.2,515.2,M...<CR><LF>
+     ```
+
+**Log Level Requirements:**
+```bash
+# Check current log level
+AT+LOG_LEVEL?
+
+# Set to WARNINGS (default) - shows decoded messages only
+AT+LOG_LEVEL=WARNINGS
+
+# Set to INFO - shows both decoded messages and raw hex
+AT+LOG_LEVEL=INFO
+```
+
+**Typical Usage Scenarios:**
+
+| Scenario | decoded_msgs | raw_hex | log_level | Purpose |
+|----------|--------------|---------|-----------|---------|
+| Normal Operation | 0 | 0 | WARNINGS | No debug output |
+| Position Monitoring | 1 | 0 | WARNINGS | Track parsed positions |
+| Protocol Debug | 1 | 1 | INFO | Full message inspection |
+| Parser Development | 0 | 1 | INFO | Raw data analysis |
+
+**Note:** The raw hex output only prints when the UART buffer starts with a sentence beginning (usually `$` for NMEA). Mid-sentence captures will only show hex dump without ASCII interpretation.
+
 ## Troubleshooting
 
 ### No GPS Fix
-1. Check antenna connection: `AT+GPS_STATUS?`
-2. Verify protocol: Try `AT+GPS_CONFIG=AUTO,AUTO,1`
-3. Check signal environment (indoor/urban canyon)
-4. Monitor satellites: Look for 4+ satellites in status
+1. Check antenna connection: `AT+GNSS_STATUS?`
+2. Enable debug output to see raw data: `AT+GNSS_DEBUG=1,1` and `AT+LOG_LEVEL=INFO`
+3. Verify protocol: Try `AT+GNSS_CONFIG=AUTO,AUTO,1`
+4. Check signal environment (indoor/urban canyon)
+5. Monitor satellites: Look for 4+ satellites in status
+6. If no raw data appears, check UART connection and baud rate: `AT+BAUD_RATE?`
 
 ### Poor Accuracy
 1. Enable SBAS: `AT+GPS_SBAS=ENABLE`
@@ -274,19 +343,20 @@ AT+GPS_SBAS=DISABLE
 ### GPS Configuration Commands
 | Command | Description |
 |---------|-------------|
-| `AT+GPS_CONFIG` | Set GPS source, protocol, and rate |
-| `AT+GPS_PPP` | Configure PPP service |
-| `AT+GPS_RTK` | Enable/disable RTK mode |
-| `AT+GPS_FAILOVER` | Set failover timeout |
-| `AT+GPS_NETWORK` | Configure network GPS settings |
-| `AT+GPS_STATIC` | Configure static mode |
-| `AT+GPS_SBAS` | Enable/disable SBAS |
+| `AT+GNSS_CONFIG` | Set GPS source, protocol, and rate |
+| `AT+GNSS_PPP` | Configure PPP service |
+| `AT+GNSS_RTK` | Enable/disable RTK mode |
+| `AT+GNSS_FAILOVER` | Set failover timeout |
+| `AT+GNSS_NETWORK` | Configure network GPS settings |
+| `AT+GNSS_STATIC` | Configure static mode |
+| `AT+GNSS_SBAS` | Enable/disable SBAS |
+| `AT+GNSS_DEBUG` | Enable/disable debug output (decoded and raw) |
 
 ### GPS Status Commands
 | Command | Description |
 |---------|-------------|
-| `AT+GPS_STATUS` | Detailed GPS status report |
-| `AT+GPS_POSITION` | Current position and fix info |
+| `AT+GNSS_STATUS` | Detailed GPS status report |
+| `AT+GNSS_POSITION` | Current position and fix info |
 
 ### Examples by Use Case
 

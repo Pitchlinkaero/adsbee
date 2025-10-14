@@ -24,10 +24,12 @@ extern BSP bsp;  // External BSP instance
 #include "comms.hh"
 extern CommsManager comms_manager;
 #define LOG_INFO(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kInfo, __VA_ARGS__)
+#define LOG_WARNING(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kWarnings, __VA_ARGS__)
 #define LOG_ERROR(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kErrors, __VA_ARGS__)
 #else
 #include <cstdio>
 #define LOG_INFO(...) printf(__VA_ARGS__)
+#define LOG_WARNING(...) printf(__VA_ARGS__)
 #define LOG_ERROR(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
@@ -299,7 +301,7 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
         return false;
     }
 
-    // Print raw hex data if debug mode is enabled
+    // Print raw hex data if raw output is enabled (INFO level)
     if (settings_.gps_raw_output && length > 0) {
         LOG_INFO("GNSS RAW [%zu bytes]: ", length);
         for (size_t i = 0; i < length; i++) {
@@ -331,6 +333,40 @@ bool GNSSManager::ProcessData(const uint8_t* buffer, size_t length) {
     }
 
     bool success = parser_->ParseData(buffer, length);
+
+    // Print decoded message information if debug output is enabled (WARNING level)
+    if (settings_.gps_debug_output && success) {
+        GNSSInterface::Position pos = parser_->GetLastPosition();
+
+        // Print decoded message info - always visible at WARNING level
+        if (buffer[0] == '$' || buffer[0] == '!') {
+            // Extract sentence ID from NMEA message (e.g., "$GNGGA" -> "GNGGA")
+            char sentence_id[8] = {0};
+            size_t id_len = 0;
+            for (size_t i = 1; i < length && i < 7 && buffer[i] != ','; i++) {
+                sentence_id[id_len++] = buffer[i];
+            }
+            sentence_id[id_len] = '\0';
+
+            LOG_WARNING("GNSS: %s | Fix:%d Sats:%d Lat:%.6f Lon:%.6f Alt:%.1fm HDOP:%.2f\n",
+                       sentence_id,
+                       pos.fix_type,
+                       pos.satellites_used,
+                       pos.latitude_deg,
+                       pos.longitude_deg,
+                       pos.altitude_msl_m,
+                       pos.hdop);
+        } else {
+            // Binary protocol (UBX/SBF)
+            LOG_WARNING("GNSS: Binary | Fix:%d Sats:%d Lat:%.6f Lon:%.6f Alt:%.1fm Acc:%.1fm\n",
+                       pos.fix_type,
+                       pos.satellites_used,
+                       pos.latitude_deg,
+                       pos.longitude_deg,
+                       pos.altitude_msl_m,
+                       pos.GetAccuracyM());
+        }
+    }
 
     if (success) {
         stats_.messages_processed++;
