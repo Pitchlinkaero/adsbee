@@ -225,13 +225,13 @@ void MAVLinkGPSParser::HandleGPSRawInt(const uint8_t* payload) {
     
     // Update position
     last_position_.timestamp_ms = GET_TIME_MS();
-    last_position_.latitude_deg = gps_raw.lat / 1e7;
-    last_position_.longitude_deg = gps_raw.lon / 1e7;
-    last_position_.altitude_m = gps_raw.alt / 1000.0f;
-    last_position_.hdop = gps_raw.eph / 100.0f;
-    last_position_.vdop = gps_raw.epv / 100.0f;
-    last_position_.ground_speed_mps = gps_raw.vel / 100.0f;
-    last_position_.track_deg = gps_raw.cog / 100.0f;  // Course over ground
+    last_position_.SetLatitudeDeg(gps_raw.lat / 1e7);
+    last_position_.SetLongitudeDeg(gps_raw.lon / 1e7);
+    last_position_.SetAltitudeM(gps_raw.alt / 1000.0f);
+    last_position_.SetHDOP(gps_raw.eph / 100.0f);
+    last_position_.SetVDOP(gps_raw.epv / 100.0f);
+    last_position_.SetGroundSpeedMps(gps_raw.vel / 100.0f);
+    last_position_.SetTrackDeg(gps_raw.cog / 100.0f);  // Course over ground
     last_position_.fix_type = static_cast<GNSSInterface::FixType>(gps_raw.fix_type);
     last_position_.satellites_used = gps_raw.satellites_visible;
     last_position_.valid = (gps_raw.fix_type >= 2);  // 2D fix or better
@@ -260,15 +260,15 @@ void MAVLinkGPSParser::HandleGlobalPositionInt(const uint8_t* payload) {
     
     // Update position (this is fused/filtered position)
     last_position_.timestamp_ms = GET_TIME_MS();
-    last_position_.latitude_deg = global_pos.lat / 1e7;
-    last_position_.longitude_deg = global_pos.lon / 1e7;
-    last_position_.altitude_m = global_pos.alt / 1000.0f;
-    
+    last_position_.SetLatitudeDeg(global_pos.lat / 1e7);
+    last_position_.SetLongitudeDeg(global_pos.lon / 1e7);
+    last_position_.SetAltitudeM(global_pos.alt / 1000.0f);
+
     // Calculate ground speed from velocity components
     float vx_mps = global_pos.vx / 100.0f;
     float vy_mps = global_pos.vy / 100.0f;
-    last_position_.ground_speed_mps = sqrtf(vx_mps * vx_mps + vy_mps * vy_mps);
-    last_position_.track_deg = global_pos.hdg / 100.0f;  // Heading
+    last_position_.SetGroundSpeedMps(sqrtf(vx_mps * vx_mps + vy_mps * vy_mps));
+    last_position_.SetTrackDeg(global_pos.hdg / 100.0f);  // Heading
     
     // Fused position is always valid if we're receiving it
     last_position_.valid = true;
@@ -330,11 +330,11 @@ void MAVLinkGPSParser::HandleHighLatency2(const uint8_t* payload) {
     
     // Update position from high latency message
     last_position_.timestamp_ms = GET_TIME_MS();
-    last_position_.latitude_deg = hl2.latitude / 1e7;
-    last_position_.longitude_deg = hl2.longitude / 1e7;
-    last_position_.altitude_m = hl2.altitude;
-    last_position_.ground_speed_mps = hl2.groundspeed / 5.0f;
-    last_position_.track_deg = hl2.heading * 2.0f;
+    last_position_.SetLatitudeDeg(hl2.latitude / 1e7);
+    last_position_.SetLongitudeDeg(hl2.longitude / 1e7);
+    last_position_.SetAltitudeM(hl2.altitude);
+    last_position_.SetGroundSpeedMps(hl2.groundspeed / 5.0f);
+    last_position_.SetTrackDeg(hl2.heading * 2.0f);
     last_position_.fix_type = static_cast<GNSSInterface::FixType>(hl2.gps_fix_type);
     last_position_.satellites_used = hl2.gps_nsat;
     last_position_.valid = (hl2.gps_fix_type >= 2);

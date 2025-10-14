@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include <cstring>
-#include "unit_conversions.hh"
+#include "../utils/unit_conversions.hh"
 
 /**
  * Base interface for all GNSS parsers and receivers.
@@ -54,6 +54,10 @@ public:
     };
 
     static constexpr int kPPPServiceCount = 9;
+
+    // Invalid value constants for fixed-point fields
+    static constexpr uint16_t kDopInvalidValue = 9999;      // 99.99 in fixed-point
+    static constexpr uint16_t kAccuracyInvalidValue = 9999; // 999.9m in decimeters
 
     /**
      * Position structure using fixed-point representation for performance.

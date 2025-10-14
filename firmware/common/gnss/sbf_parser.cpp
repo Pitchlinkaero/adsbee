@@ -216,20 +216,21 @@ bool SBFParser::HandlePVTGeodetic(const uint8_t* data, size_t length) {
     nr_sv_ = data[72];         // Number of satellites
     
     // Update position
-    last_position_.latitude_deg = ConvertRadiansToDegrees(lat_rad);
-    last_position_.longitude_deg = ConvertRadiansToDegrees(lon_rad);
-    last_position_.altitude_msl_m = height_m;
-    last_position_.altitude_m = height_m;  // HAE approximately same as MSL for Septentrio
-    
+    last_position_.SetLatitudeDeg(ConvertRadiansToDegrees(lat_rad));
+    last_position_.SetLongitudeDeg(ConvertRadiansToDegrees(lon_rad));
+    last_position_.SetAltitudeMSL(height_m);
+    last_position_.SetAltitudeM(height_m);  // HAE approximately same as MSL for Septentrio
+
     // Calculate ground speed and track
     float speed_ms = sqrt(vn * vn + ve * ve);
-    last_position_.ground_speed_mps = speed_ms;
-    last_position_.track_deg = atan2(ve, vn) * 180.0 / M_PI;
-    if (last_position_.track_deg < 0) {
-        last_position_.track_deg += 360.0;
+    last_position_.SetGroundSpeedMps(speed_ms);
+    float track_deg = atan2(ve, vn) * 180.0 / M_PI;
+    if (track_deg < 0) {
+        track_deg += 360.0;
     }
-    
-    last_position_.vertical_velocity_mps = vu;
+    last_position_.SetTrackDeg(track_deg);
+
+    last_position_.SetVerticalVelocityMps(vu);
     last_position_.satellites_used = nr_sv_;
     
     // Set solution type based on mode
@@ -261,9 +262,9 @@ bool SBFParser::HandlePVTCartesian(const uint8_t* data, size_t length) {
     double lon_rad = atan2(y, x);
     double height = p / cos(lat_rad) - 6378137.0;  // Approximate
     
-    last_position_.latitude_deg = ConvertRadiansToDegrees(lat_rad);
-    last_position_.longitude_deg = ConvertRadiansToDegrees(lon_rad);
-    last_position_.altitude_msl_m = height;
+    last_position_.SetLatitudeDeg(ConvertRadiansToDegrees(lat_rad));
+    last_position_.SetLongitudeDeg(ConvertRadiansToDegrees(lon_rad));
+    last_position_.SetAltitudeMSL(height);
     
     return true;
 }
@@ -294,11 +295,11 @@ bool SBFParser::HandleQualityIndicators(const uint8_t* data, size_t length) {
     pdop_ = *reinterpret_cast<const float*>(&data[24]);
     
     // Update accuracy estimate and DOP values
-    last_position_.accuracy_horizontal_m = position_rms_m_;
-    last_position_.accuracy_vertical_m = position_rms_m_ * 1.5;  // Approximate
-    last_position_.hdop = hdop_;
-    last_position_.vdop = vdop_;
-    last_position_.pdop = pdop_;
+    last_position_.SetAccuracyHorizontalM(position_rms_m_);
+    last_position_.SetAccuracyVerticalM(position_rms_m_ * 1.5);  // Approximate
+    last_position_.SetHDOP(hdop_);
+    last_position_.SetVDOP(vdop_);
+    last_position_.SetPDOP(pdop_);
     
     return true;
 }
@@ -318,7 +319,7 @@ bool SBFParser::HandleBaseVector(const uint8_t* data, size_t length) {
     
     // Update RTK fields in Position struct
     last_position_.rtk_available = (carrier_phase_status_ > 0);
-    last_position_.rtk_baseline_m = baseline_length_m_;
+    last_position_.SetRTKBaselineM(baseline_length_m_);
     
     return true;
 }
@@ -331,9 +332,9 @@ bool SBFParser::HandleDOP(const uint8_t* data, size_t length) {
     vdop_ = *reinterpret_cast<const float*>(&data[16]);
     
     // Update Position struct with DOP values
-    last_position_.hdop = hdop_;
-    last_position_.vdop = vdop_;
-    last_position_.pdop = pdop_;
+    last_position_.SetHDOP(hdop_);
+    last_position_.SetVDOP(vdop_);
+    last_position_.SetPDOP(pdop_);
     
     return true;
 }
