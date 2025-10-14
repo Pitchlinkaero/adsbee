@@ -332,7 +332,8 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
     uint8_t buf[GDL90Reporter::kGDL90MessageMaxLenBytes];
     uint16_t msg_len;
 
-    // Get reference to gnss_manager
+#ifndef ON_ESP32
+    // Get reference to gnss_manager (Pico only)
     extern GNSSManager gnss_manager;
 
     // Get current position (respects RX_POSITION source setting)
@@ -341,6 +342,11 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
     // Heartbeat Message
     bool gnss_position_valid = pos.valid && pos.HasFix();
     gdl90.gnss_position_valid = gnss_position_valid;
+#else
+    // ESP32: Position data comes via object dictionary, not directly from GNSS manager
+    // TODO: Implement ESP32 position handling via object dictionary
+    gdl90.gnss_position_valid = false;
+#endif
 
     msg_len = gdl90.WriteGDL90HeartbeatMessage(buf, get_time_since_boot_ms() / 1000,
                                                aircraft_dictionary.metrics.valid_extended_squitter_frames);
@@ -351,6 +357,7 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
 
     // Ownship Report - populate from position
     GDL90Reporter::GDL90TargetReportData ownship_data = {};
+#ifndef ON_ESP32
     if (pos.valid && pos.HasFix()) {
         ownship_data.latitude_deg = pos.GetLatitudeDeg();
         ownship_data.longitude_deg = pos.GetLongitudeDeg();
@@ -390,6 +397,9 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
             false,  // not extrapolated
             false); // airborne status unknown for ground station
     }
+#else
+    // ESP32: TODO - get position from object dictionary
+#endif
 
     msg_len = gdl90.WriteGDL90TargetReportMessage(buf, ownship_data, true);
     for (uint16_t i = 0; i < num_sinks; i++) {
