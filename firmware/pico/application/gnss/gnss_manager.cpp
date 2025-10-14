@@ -28,8 +28,8 @@ extern CommsManager comms_manager;
 #define LOG_ERROR(...) comms_manager.console_level_printf(SettingsManager::LogLevel::kErrors, __VA_ARGS__)
 #else
 #include <cstdio>
-#define LOG_INFO(...) printf(__VA_ARGS())
-#define LOG_WARNING(...) printf(__VA_ARGS())
+#define LOG_INFO(...) printf(__VA_ARGS__)
+#define LOG_WARNING(...) printf(__VA_ARGS__)
 #define LOG_ERROR(...) fprintf(stderr, __VA_ARGS__)
 #endif
 

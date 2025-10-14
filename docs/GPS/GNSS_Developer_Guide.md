@@ -516,10 +516,12 @@ void Thread2() {
 ```
 
 **Implementation Details:**
-- Uses `std::mutex` for synchronization
-- All public methods use `std::lock_guard` for RAII-style locking
+- Uses Pico SDK `critical_section_t` for synchronization (RP2040 native)
+- Custom RAII wrapper (`CriticalSectionLock`) for automatic lock/unlock
+- All public methods protected with `LOCK_GUARD()` macro
 - Const methods (getters) also lock to prevent reading during updates
 - No risk of deadlocks as locks are never held while calling external code
+- Multi-core safe - critical sections work across both RP2040 cores
 
 ## Performance Considerations
 
