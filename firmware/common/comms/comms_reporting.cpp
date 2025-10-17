@@ -1,6 +1,7 @@
 #include "comms.hh"
 #include "hal.hh"  // For timestamping.
 #include "settings.hh"
+#include "unit_conversions.hh"  // For fixed-point conversions
 
 // Reporting utils.
 #include "beast_utils.hh"
@@ -8,6 +9,10 @@
 #include "gdl90_utils.hh"
 #include "mavlink_utils.hh"
 #include "raw_utils.hh"
+
+#ifndef ON_ESP32
+#include "gnss_manager.hh"
+#endif
 
 #ifdef ON_ESP32
 AircraftDictionary &aircraft_dictionary = adsbee_server.aircraft_dictionary;
@@ -359,16 +364,25 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
     GDL90Reporter::GDL90TargetReportData ownship_data = {};
 #ifndef ON_ESP32
     if (pos.valid && pos.HasFix()) {
-        // Convert fixed-point to GDL90 float format
-        ownship_data.latitude_deg = pos.latitude_e7 / 1e7;
-        ownship_data.longitude_deg = pos.longitude_e7 / 1e7;
-        ownship_data.altitude_ft = pos.altitude_msl_mm * 0.00328084f;  // mm to ft
-        ownship_data.speed_kts = pos.ground_speed_mmps * 0.001944f;  // mm/s to knots
-        ownship_data.direction_deg = pos.track_e2 / 100.0f;
-        ownship_data.vertical_rate_fpm = pos.vertical_velocity_mmps * 0.19685f;  // mm/s to ft/min
+        // NOTE: latitude_fixed24/longitude_fixed24 are Q7.24 format which is compatible
+        // with GDL90's 24-bit binary fraction. We still convert to degrees here for
+        // the GDL90TargetReportData interface, but the GDL90 encoder will convert back.
+        // TODO: Consider adding a fixed-point version of GDL90TargetReportData to eliminate
+        // these conversions entirely.
+        ownship_data.latitude_deg = LatLonFixed24ToDeg(pos.latitude_fixed24);
+        ownship_data.longitude_deg = LatLonFixed24ToDeg(pos.longitude_fixed24);
+        // altitude_msl_mm to feet: mm * 0.00328084 = mm / 304.8
+        ownship_data.altitude_ft = pos.altitude_msl_mm / 304.8f;
+        // ground_speed_cms to knots: cm/s * 0.0194384 = cm/s / 51.4444
+        ownship_data.speed_kts = pos.ground_speed_cms / 51.4444f;
+        // track_cdeg to degrees: cdeg / 100
+        ownship_data.direction_deg = pos.track_cdeg * 0.01f;
+        // vertical_velocity_cms to fpm: cm/s * 1.9685 = cm/s * 1968.5 / 1000
+        ownship_data.vertical_rate_fpm = (pos.vertical_velocity_cms * 1968.5f) / 1000.0f;
 
-        // Set accuracy category based on GNSS accuracy (convert decimeters to meters)
-        float accuracy_m = pos.accuracy_horizontal_dm / 10.0f;
+        // Set accuracy category based on GNSS accuracy (already in decimeters)
+        // accuracy_horizontal_dm * 0.1 = accuracy in meters
+        float accuracy_m = pos.accuracy_horizontal_dm * 0.1f;
         if (accuracy_m < 3.0f) {
             ownship_data.navigation_accuracy_category_position = 11;  // <3m
         } else if (accuracy_m < 10.0f) {
