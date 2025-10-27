@@ -1,6 +1,7 @@
 #include "comms.hh"
 #include "hal.hh"  // For timestamping.
 #include "settings.hh"
+#include "unit_conversions.hh"  // For fixed-point conversions
 
 // Reporting utils.
 #include "beast_utils.hh"
@@ -8,6 +9,10 @@
 #include "gdl90_utils.hh"
 #include "mavlink_utils.hh"
 #include "raw_utils.hh"
+
+#ifndef ON_ESP32
+#include "gnss_manager.hh"
+#endif
 
 #ifdef ON_ESP32
 AircraftDictionary &aircraft_dictionary = adsbee_server.aircraft_dictionary;
@@ -332,7 +337,22 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
     uint8_t buf[GDL90Reporter::kGDL90MessageMaxLenBytes];
     uint16_t msg_len;
 
+#ifndef ON_ESP32
+    // Get reference to gnss_manager (Pico only)
+    extern GNSSManager gnss_manager;
+
+    // Get current position (respects RX_POSITION source setting)
+    GNSSInterface::Position pos = gnss_manager.GetCurrentPosition();
+
     // Heartbeat Message
+    bool gnss_position_valid = pos.valid && pos.HasFix();
+    gdl90.gnss_position_valid = gnss_position_valid;
+#else
+    // ESP32: Position data comes via object dictionary, not directly from GNSS manager
+    // TODO: Implement ESP32 position handling via object dictionary
+    gdl90.gnss_position_valid = false;
+#endif
+
     msg_len = gdl90.WriteGDL90HeartbeatMessage(buf, get_time_since_boot_ms() / 1000,
                                                aircraft_dictionary.metrics.valid_extended_squitter_frames);
 
@@ -340,9 +360,62 @@ bool CommsManager::ReportGDL90(ReportSink *sinks, uint16_t num_sinks) {
         ret &= SendBuf(sinks[i], (char *)buf, msg_len);
     }
 
-    // Ownship Report
-    GDL90Reporter::GDL90TargetReportData ownship_data;
-    // TODO: Actually fill out ownship data!
+    // Ownship Report - populate from position
+    GDL90Reporter::GDL90TargetReportData ownship_data = {};
+#ifndef ON_ESP32
+    if (pos.valid && pos.HasFix()) {
+        // NOTE: latitude_fixed24/longitude_fixed24 are Q7.24 format which is compatible
+        // with GDL90's 24-bit binary fraction. We still convert to degrees here for
+        // the GDL90TargetReportData interface, but the GDL90 encoder will convert back.
+        // TODO: Consider adding a fixed-point version of GDL90TargetReportData to eliminate
+        // these conversions entirely.
+        ownship_data.latitude_deg = LatLonFixed24ToDeg(pos.latitude_fixed24);
+        ownship_data.longitude_deg = LatLonFixed24ToDeg(pos.longitude_fixed24);
+        // altitude_msl_mm to feet: mm * 0.00328084 = mm / 304.8
+        ownship_data.altitude_ft = pos.altitude_msl_mm / 304.8f;
+        // ground_speed_cms to knots: cm/s * 0.0194384 = cm/s / 51.4444
+        ownship_data.speed_kts = pos.ground_speed_cms / 51.4444f;
+        // track_cdeg to degrees: cdeg / 100
+        ownship_data.direction_deg = pos.track_cdeg * 0.01f;
+        // vertical_velocity_cms to fpm: cm/s * 1.9685 = cm/s * 1968.5 / 1000
+        ownship_data.vertical_rate_fpm = (pos.vertical_velocity_cms * 1968.5f) / 1000.0f;
+
+        // Set accuracy category based on GNSS accuracy (already in decimeters)
+        // accuracy_horizontal_dm * 0.1 = accuracy in meters
+        float accuracy_m = pos.accuracy_horizontal_dm * 0.1f;
+        if (accuracy_m < 3.0f) {
+            ownship_data.navigation_accuracy_category_position = 11;  // <3m
+        } else if (accuracy_m < 10.0f) {
+            ownship_data.navigation_accuracy_category_position = 10;  // <10m
+        } else if (accuracy_m < 30.0f) {
+            ownship_data.navigation_accuracy_category_position = 9;   // <30m
+        } else {
+            ownship_data.navigation_accuracy_category_position = 8;   // <92.6m
+        }
+
+        // Set NIC based on fix type
+        if (pos.fix_type == GNSSInterface::kRTKFixed) {
+            ownship_data.navigation_integrity_category = 11;  // RTK fixed
+        } else if (pos.fix_type == GNSSInterface::kRTKFloat) {
+            ownship_data.navigation_integrity_category = 10;
+        } else if (pos.fix_type >= GNSSInterface::k3DFix) {
+            ownship_data.navigation_integrity_category = 8;
+        } else {
+            ownship_data.navigation_integrity_category = 0;
+        }
+
+        // Set common fields for valid position
+        ownship_data.address_type = GDL90Reporter::GDL90TargetReportData::kAddressTypeADSBWithSelfAssignedAddress;
+        ownship_data.participant_address = 0x000000;  // Self-assigned
+        ownship_data.SetMiscIndicator(
+            GDL90Reporter::GDL90TargetReportData::kMiscIndicatorTTIsTrueTrackAngle,
+            false,  // not extrapolated
+            false); // airborne status unknown for ground station
+    }
+#else
+    // ESP32: TODO - get position from object dictionary
+#endif
+
     msg_len = gdl90.WriteGDL90TargetReportMessage(buf, ownship_data, true);
     for (uint16_t i = 0; i < num_sinks; i++) {
         ret &= SendBuf(sinks[i], (char *)buf, msg_len);

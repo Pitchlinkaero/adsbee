@@ -41,6 +41,7 @@ endfunction()
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Test")
     # Flag indicating that build is for the embedded target. Used to toggle target_source calls.
     set(ON_EMBEDDED_DEVICE 1)
+    set(ON_PICO 1)  # Set CMake variable for use in CMakeLists conditionals
 endif()
 
 if (ON_EMBEDDED_DEVICE)
@@ -57,6 +58,7 @@ if (ON_EMBEDDED_DEVICE)
     # Differentiate common code between Pico and ESP32. For code highlighting, add this to the "defines" property of
     # "configurations" in c_cpp_properties.json.
     add_compile_definitions(ON_PICO)
+    add_compile_definitions(ON_EMBEDDED_DEVICE)
     add_compile_definitions(
         # Can't pass in expression in parentheses or else it's a "functional" macro that isn't supported.
         PICO_FLASH_SIZE_BYTES=16777216 # 16MB = 16*1024*1024 Bytes of flash.

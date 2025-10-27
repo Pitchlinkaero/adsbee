@@ -5,6 +5,7 @@
 #include <functional>  // for strtoull
 
 #include "crc.hh"
+#include "gps_settings.hh"
 #include "macros.hh"
 #include "stdio.h"
 #include "stdlib.h"  // for strtoull
@@ -13,7 +14,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 10;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 20;  // Change this when settings format changes! (Packed Settings struct)
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -61,20 +62,17 @@ class SettingsManager {
     static const char kSubGHzModeStrs[kNumSubGHzRadioModes][kSubGHzModeStrMaxLen];
 
     // Receiver position settings.
-    struct RxPosition {
+    struct __attribute__((packed)) RxPosition {
         enum PositionSource : uint8_t {
-            kPositionSourceNone = 0,
-            kPositionSourceFixed = 1,
-            kPositionSourceGNSS = 2,
-            kPositionSourceAutoAircraftLowest = 3,
-            kPositionSourceAutoAircraftICAO = 4,
+            kPositionSourceGNSS = 0,   // Use GNSS position (or no position if GNSS invalid)
+            kPositionSourceFixed = 1,  // Use fixed position from settings
             kNumPositionSources
         };
 
         static const uint16_t kPositionSourceStrMaxLen = 30;
         static const char kPositionSourceStrs[kNumPositionSources][kPositionSourceStrMaxLen];
 
-        PositionSource source = kPositionSourceNone;
+        PositionSource source = kPositionSourceGNSS;  // Default to GNSS
         float latitude_deg = 0.0;     // Degrees, WGS84
         float longitude_deg = 0.0;    // Degrees, WGS84
         float gnss_altitude_m = 0.0;  // Meters, WGS84
@@ -85,7 +83,7 @@ class SettingsManager {
 
     // This struct contains nonvolatile settings that should persist across reboots but may be overwritten during a
     // firmware upgrade if the format of the settings struct changes.
-    struct Settings {
+    struct __attribute__((packed)) Settings {
         static constexpr int kDefaultTLOffsetMV = 600;  // [mV]
         static constexpr uint32_t kDefaultWatchdogTimeoutSec = 10;
         // NOTE: Lengths do not include null terminator.
@@ -108,7 +106,7 @@ class SettingsManager {
          * settings via AT commands after a software upgrade changes other parts of the settings struct or associated
          * code.
          */
-        struct CoreNetworkSettings {
+        struct __attribute__((packed)) CoreNetworkSettings {
             // ESP32 settings
             bool esp32_enabled = true;
 
@@ -188,6 +186,9 @@ class SettingsManager {
         bool feed_is_active[kMaxNumFeeds];
         ReportingProtocol feed_protocols[kMaxNumFeeds];
         uint8_t feed_receiver_ids[kMaxNumFeeds][kFeedReceiverIDNumBytes];
+        
+        // GPS/GNSS settings
+        GPSSettings gps_settings;
 
         // MAVLINK settings
         uint8_t mavlink_system_id = 1;

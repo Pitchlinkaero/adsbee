@@ -2,6 +2,7 @@
 
 #include "comms.hh"
 #include "gdl90/gdl90_utils.hh"
+#include "gps/gps_network_server.hh"
 #include "json_utils.hh"
 #include "pico.hh"
 #include "settings.hh"
@@ -215,6 +216,17 @@ bool ADSBeeServer::Update() {
 
     // Prune inactive WebSocket clients and other housekeeping.
     network_console.Update();
+    
+    // Forward GPS network messages to RP2040
+    // On ESP32 (slave side), we need to make the data available for the RP2040 to read
+    // Store the latest GPS message in object dictionary for RP2040 to poll
+    GPSNetworkServer::GPSNetworkMessage gps_msg;
+    if (gps_network_server.GetNextMessage(gps_msg, 0)) {
+        // Store GPS message in object dictionary for RP2040 to read
+        // The RP2040 will poll for this data during its update cycle
+        object_dictionary.SetBytes(ObjectDictionary::Address::kAddrGPSNetworkMessage, 
+                                  reinterpret_cast<uint8_t*>(&gps_msg), sizeof(gps_msg));
+    }
 
     // Check to see whether the RP2040 sent over new metrics.
     xQueueReceive(rp2040_aircraft_dictionary_metrics_queue, &rp2040_aircraft_dictionary_metrics, 0);

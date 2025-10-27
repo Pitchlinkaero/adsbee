@@ -44,6 +44,13 @@ class CommsManager {
     bool Init();
 
     /**
+     * Initialize GNSS UART after ESP32 firmware check is complete.
+     * This is separate from Init() to allow ESP32 firmware updates first.
+     * @retval True if initialization succeeded, false otherwise.
+     */
+    bool InitGNSSUART();
+
+    /**
      * Update the CommsManager. Runs all the update subroutines required for normal operation.
      * @retval True if update succeeded, false otherwise.
      */
@@ -64,6 +71,16 @@ class CommsManager {
     CPP_AT_CALLBACK(ATESP32FlashCallback);
     CPP_AT_CALLBACK(ATEthernetCallback);
     CPP_AT_CALLBACK(ATFeedCallback);
+    CPP_AT_CALLBACK(ATGNSSConfigCallback);
+    CPP_AT_CALLBACK(ATGNSSPositionCallback);
+    CPP_AT_CALLBACK(ATGNSSPPPCallback);
+    CPP_AT_CALLBACK(ATGNSSStatusCallback);
+    CPP_AT_CALLBACK(ATGNSSFailoverCallback);
+    CPP_AT_CALLBACK(ATGNSSNetworkCallback);
+    CPP_AT_CALLBACK(ATGNSSRTKCallback);
+    CPP_AT_CALLBACK(ATGNSSStaticCallback);
+    CPP_AT_CALLBACK(ATGNSSSBASCallback);
+    CPP_AT_CALLBACK(ATGNSSDebugCallback);
     CPP_AT_CALLBACK(ATHostnameCallback);
     CPP_AT_CALLBACK(ATOTACallback);
     CPP_AT_HELP_CALLBACK(ATOTAHelpCallback);

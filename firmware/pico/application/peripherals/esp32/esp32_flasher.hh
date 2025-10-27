@@ -9,6 +9,7 @@
 #include "led_flasher.hh"
 #include "pico/stdlib.h"
 #include "unit_conversions.hh"
+#include "uart_switch.hh"
 
 class ESP32SerialFlasher {
    public:
@@ -16,9 +17,9 @@ class ESP32SerialFlasher {
     static constexpr uint32_t kSerialFlasherBootHoldTimeMs = 50;
 
     struct ESP32SerialFlasherConfig {
-        uart_inst_t *esp32_uart_handle = bsp.esp32_uart_handle;
-        uint16_t esp32_uart_tx_pin = bsp.esp32_uart_tx_pin;
-        uint16_t esp32_uart_rx_pin = bsp.esp32_uart_rx_pin;
+        uart_inst_t *esp32_uart_handle = bsp.esp32_uart_handle;  // UART0 on dedicated ESP32 pins
+        uint16_t esp32_uart_tx_pin = bsp.esp32_uart_tx_pin;      // GPIO 16
+        uint16_t esp32_uart_rx_pin = bsp.esp32_uart_rx_pin;      // GPIO 17
         uint16_t esp32_enable_pin = bsp.esp32_enable_pin;
         uint16_t esp32_gpio0_boot_pin = bsp.esp32_spi_handshake_pin;
         uint32_t esp32_baudrate = 115200;         // Previously 115200
@@ -31,11 +32,19 @@ class ESP32SerialFlasher {
     ESP32SerialFlasher(ESP32SerialFlasherConfig config_in) : config_(config_in) {};
 
     bool DeInit() {
-        CONSOLE_INFO("ESP32SerialFlasher::DeInit", "De-Initializing ESP32 firmware upgrade peripherals.");
+        CONSOLE_PRINTF("ESP32SerialFlasher: De-initializing ESP32 firmware upgrade peripherals.\r\n");
+
+        // Deinitialize UART0 directly
         uart_deinit(config_.esp32_uart_handle);
 
-        gpio_deinit(config_.esp32_uart_tx_pin);
-        gpio_deinit(config_.esp32_uart_rx_pin);
+        // CRITICAL: Restore GPIO 13 (boot pin) back to SPI handshake function
+        // After flashing, GPIO 13 is left with pulls disabled (boot pin mode).
+        // We must restore it to INPUT with pull-up for SPI handshake to work!
+        gpio_init(config_.esp32_gpio0_boot_pin);
+        gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_IN);
+        gpio_set_pulls(config_.esp32_gpio0_boot_pin, true, false);  // Pull-up enabled for SPI handshake
+        CONSOLE_PRINTF("ESP32SerialFlasher: Restored GPIO %d to SPI handshake mode (input with pull-up).\r\n",
+                      config_.esp32_gpio0_boot_pin);
 
         // Re-enable receiver after update if it was previously enabled.
         adsbee.SetReceiver1090Enable(receiver_was_enabled_before_update_);
@@ -43,20 +52,34 @@ class ESP32SerialFlasher {
     }
 
     bool Init() {
-        CONSOLE_INFO("ESP32SerialFlasher::Init", "Initializing ESP32 firmware upgrade peripherals.");
-        // Initialize the UART.
+        CONSOLE_PRINTF("ESP32SerialFlasher: Initializing ESP32 firmware upgrade peripherals.\r\n");
+
+        // Initialize UART0 - exactly like RC7
         gpio_set_function(config_.esp32_uart_tx_pin, GPIO_FUNC_UART);
         gpio_set_function(config_.esp32_uart_rx_pin, GPIO_FUNC_UART);
+        uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
+
+        // Explicitly set UART format: 8 data bits, 1 stop bit, no parity (ESP32 bootloader standard)
+        uart_set_format(config_.esp32_uart_handle, 8, 1, UART_PARITY_NONE);
         uart_set_translate_crlf(config_.esp32_uart_handle, false);
         uart_set_fifo_enabled(config_.esp32_uart_handle, true);
-        uart_init(config_.esp32_uart_handle, config_.esp32_baudrate);
-        uart_tx_wait_blocking(config_.esp32_uart_handle);  // Wait for the UART tx buffer to drain.
+        uart_tx_wait_blocking(config_.esp32_uart_handle);  // Wait for UART tx buffer to drain
 
-        // Initialize the enable and boot pins.
+        CONSOLE_PRINTF("ESP32SerialFlasher: UART0 initialized at %d baud (TX: GPIO%d, RX: GPIO%d)\r\n",
+                      config_.esp32_baudrate, config_.esp32_uart_tx_pin, config_.esp32_uart_rx_pin);
+
+        // Initialize the enable and boot pins
         gpio_init(config_.esp32_enable_pin);
         gpio_set_dir(config_.esp32_enable_pin, GPIO_OUT);
+
+        // Initialize boot pin - CRITICAL: Disable pulls first!
+        // This pin may have pull-up enabled from ESP32 SPI handshake configuration
         gpio_init(config_.esp32_gpio0_boot_pin);
+        gpio_disable_pulls(config_.esp32_gpio0_boot_pin);  // Remove any pull-ups/downs
         gpio_set_dir(config_.esp32_gpio0_boot_pin, GPIO_OUT);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher: Control pins initialized (Enable: GPIO%d, GPIO0/Boot: GPIO%d)\r\n",
+                      config_.esp32_enable_pin, config_.esp32_gpio0_boot_pin);
 
         receiver_was_enabled_before_update_ = adsbee.Receiver1090IsEnabled();
         adsbee.SetReceiver1090Enable(false);  // Disable receiver to avoid interrupts during update.
@@ -113,14 +136,34 @@ class ESP32SerialFlasher {
     }
 
     void EnterBootloader() {
+        CONSOLE_PRINTF("ESP32SerialFlasher: Entering bootloader mode...\r\n");
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 1 - Pull GPIO0 (pin %d) LOW\r\n", config_.esp32_gpio0_boot_pin);
         gpio_put(config_.esp32_gpio0_boot_pin, 0);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 2 - Reset ESP32 (power cycle via pin %d)\r\n", config_.esp32_enable_pin);
         ResetTarget();
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 3 - Hold GPIO0 LOW for %d ms\r\n", kSerialFlasherBootHoldTimeMs);
         busy_wait_ms(kSerialFlasherBootHoldTimeMs);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 4 - Release GPIO0 (set HIGH)\r\n");
         gpio_put(config_.esp32_gpio0_boot_pin, 1);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 5 - Wait 100ms for bootloader\r\n");
         busy_wait_ms(100);
-        // Flush the rx uart.
+
+        CONSOLE_PRINTF("ESP32SerialFlasher:   Step 6 - Flush UART RX buffer\r\n");
+        int flushed = 0;
+        uint8_t first_byte = 0;
         while (uart_is_readable_within_us(config_.esp32_uart_handle, 100)) {
-            uart_getc(config_.esp32_uart_handle);
+            uint8_t byte = uart_getc(config_.esp32_uart_handle);
+            if (flushed == 0) first_byte = byte;
+            flushed++;
+        }
+        if (flushed > 0) {
+            CONSOLE_PRINTF("ESP32SerialFlasher: Bootloader entry complete (flushed %d bytes, first byte: 0x%02X)\r\n", flushed, first_byte);
+        } else {
+            CONSOLE_PRINTF("ESP32SerialFlasher: Bootloader entry complete (no bytes received - ESP32 may not be responding)\r\n");
         }
     }
 

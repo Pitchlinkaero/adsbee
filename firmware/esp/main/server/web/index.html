@@ -30,6 +30,43 @@
                 <div id="feed-count" class="metrics-header">Feeds: 0</div>
                 <!-- Cards will be dynamically inserted here -->
             </div>
+            <div id="gps-metrics-container">
+                <div class="metrics-header">GPS Status</div>
+                <div id="gps-status-card" class="metrics-card">
+                    <div class="metrics-item">
+                        <span class="metrics-label">Fix:</span>
+                        <span id="gps-fix-type" class="metrics-value">No Fix</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Position:</span>
+                        <span id="gps-position" class="metrics-value">---.----°, ---.----°</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Altitude:</span>
+                        <span id="gps-altitude" class="metrics-value">--- m</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Accuracy:</span>
+                        <span id="gps-accuracy" class="metrics-value">--- m</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Satellites:</span>
+                        <span id="gps-satellites" class="metrics-value">0</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">PPP:</span>
+                        <span id="gps-ppp-status" class="metrics-value">None</span>
+                    </div>
+                    <div class="metrics-item" id="gps-ppp-convergence" style="display:none;">
+                        <span class="metrics-label">Convergence:</span>
+                        <span id="gps-ppp-percent" class="metrics-value">0%</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">UTC Date/Time:</span>
+                        <span id="gps-datetime" class="metrics-value">----/--/-- --:--:--</span>
+                    </div>
+                </div>
+            </div>
             <div id="device-status-container" class="device-status">
                 <div class="metrics-header">Device Status</div>
                 <div id="device-status-cards-container" class="device-status-cards">
@@ -119,13 +156,21 @@
                 this.ws.addEventListener('message', (event) => {
                     if (typeof event.data === 'string') {
                         // console.log('Received message:', event.data);
-                        appendToTerminal(event.data);
+                        // Filter out JSON metrics data that should only go to /metrics WebSocket
+                        const trimmed = event.data.trim();
+                        if (!trimmed.startsWith('{') && !trimmed.startsWith('{ "aircraft_dictionary_metrics"')) {
+                            appendToTerminal(event.data);
+                        }
                     } else if (event.data instanceof Blob) {
                         const reader = new FileReader();
                         reader.onload = () => {
                             const text = reader.result;
                             // console.log('Received binary message:', text);
-                            appendToTerminal(text);
+                            // Filter out JSON metrics data
+                            const trimmed = text.trim();
+                            if (!trimmed.startsWith('{') && !trimmed.startsWith('{ "aircraft_dictionary_metrics"')) {
+                                appendToTerminal(text);
+                            }
                         };
                         reader.readAsText(event.data);
                     }
@@ -473,6 +518,82 @@
                 this.container = document.getElementById('metrics-container');
             }
 
+            updateGPSStatus(gpsData) {
+                // Update fix type
+                const fixTypes = ['No Fix', 'Dead', '2D', '3D', 'DGPS', 'PPP Conv', 'PPP', 'RTK Float', 'RTK Fixed'];
+                const fixElement = document.getElementById('gps-fix-type');
+                if (fixElement) {
+                    fixElement.textContent = fixTypes[gpsData.fix_type] || 'No Fix';
+                    // Add color coding for fix quality
+                    fixElement.style.color = gpsData.fix_type >= 3 ? '#4CAF50' : 
+                                            gpsData.fix_type >= 2 ? '#FFA500' : '#FF5252';
+                }
+                
+                // Update position
+                const posElement = document.getElementById('gps-position');
+                if (posElement) {
+                    if (gpsData.valid) {
+                        posElement.textContent = `${gpsData.latitude_deg.toFixed(6)}°, ${gpsData.longitude_deg.toFixed(6)}°`;
+                    } else {
+                        posElement.textContent = '---.----°, ---.----°';
+                    }
+                }
+                
+                // Update altitude
+                const altElement = document.getElementById('gps-altitude');
+                if (altElement) {
+                    altElement.textContent = gpsData.valid ? `${gpsData.altitude_m.toFixed(1)} m` : '--- m';
+                }
+                
+                // Update accuracy
+                const accElement = document.getElementById('gps-accuracy');
+                if (accElement) {
+                    accElement.textContent = gpsData.valid ? `${gpsData.accuracy_horizontal_m.toFixed(2)} m` : '--- m';
+                }
+                
+                // Update satellites
+                const satElement = document.getElementById('gps-satellites');
+                if (satElement) {
+                    satElement.textContent = gpsData.satellites_used || '0';
+                }
+                
+                // Update PPP status
+                const pppServices = ['None', 'SBAS', 'Galileo HAS', 'IGS-RTS', 'PointPerfect', 'RTX', 'TerraStar', 'BeiDou'];
+                const pppElement = document.getElementById('gps-ppp-status');
+                if (pppElement) {
+                    pppElement.textContent = pppServices[gpsData.ppp_service] || 'None';
+                }
+                
+                // Update PPP convergence if active
+                const convergenceDiv = document.getElementById('gps-ppp-convergence');
+                const convergenceElement = document.getElementById('gps-ppp-percent');
+                if (convergenceDiv && convergenceElement) {
+                    if (gpsData.ppp_service > 0 && gpsData.ppp_convergence_percent > 0) {
+                        convergenceDiv.style.display = 'flex';
+                        convergenceElement.textContent = `${gpsData.ppp_convergence_percent.toFixed(1)}%`;
+                    } else {
+                        convergenceDiv.style.display = 'none';
+                    }
+                }
+
+                // Update UTC Date/Time
+                const datetimeElement = document.getElementById('gps-datetime');
+                if (datetimeElement) {
+                    if (gpsData.utc_year && gpsData.utc_year > 2000) {
+                        // Format as YYYY/MM/DD HH:MM:SS
+                        const year = gpsData.utc_year;
+                        const month = String(gpsData.utc_month || 0).padStart(2, '0');
+                        const day = String(gpsData.utc_day || 0).padStart(2, '0');
+                        const hour = String(gpsData.utc_hour || 0).padStart(2, '0');
+                        const minute = String(gpsData.utc_minute || 0).padStart(2, '0');
+                        const second = String(gpsData.utc_second || 0).padStart(2, '0');
+                        datetimeElement.textContent = `${year}/${month}/${day} ${hour}:${minute}:${second}`;
+                    } else {
+                        datetimeElement.textContent = '----/--/-- --:--:--';
+                    }
+                }
+            }
+
             updateMetricsCards(parentLabel, data) {
                 // Remove charts that are no longer in the data
                 Object.keys(this.cards[parentLabel]).forEach(label => {
@@ -592,6 +713,9 @@
                             // console.log('Device Status:', deviceStatus);
                             this.updateDeviceStatus(deviceStatus);
                         }
+                        if (data.hasOwnProperty('gps_status')) {
+                            this.updateGPSStatus(data['gps_status']);
+                        }
                     } catch (error) {
                         console.error('Error parsing WebSocket message:', error);
                     }
@@ -636,7 +760,7 @@
 
                     this.ws.onmessage = (event) => {
                         const decoded_message = this.decoder.decode(event.data);
-                        console.log("ADSBeeAT received message:", decoded_message);
+                        // console.log("ADSBeeAT received message:", decoded_message);
                         this.messageQueue.push(decoded_message);
                         resolve();
                     };

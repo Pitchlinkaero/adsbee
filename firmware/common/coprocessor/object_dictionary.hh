@@ -17,6 +17,7 @@
 #include "adsbee_server.hh"
 #include "esp_mac.h"   // For retrieving Base MAC address.
 #include "esp_wifi.h"  // For retrieving WiFi Station MAC address.
+#include "gps/gps_network_server.hh"  // For GPSNetworkMessage struct
 #endif
 #ifdef ON_TI
 #endif
@@ -64,6 +65,9 @@ class ObjectDictionary {
         kAddrRollQueue = 0x0E,     // Used to roll various queues on coprocessor slaves to confirm they have been read.
         kAddrSCCommandRequests = 0x0F,         // Used by slave to request commands from master.
         kAddrCompositeArrayRawPackets = 0x10,  // Single endpoint for reading / writing raw ADSB and UAT packets.
+        kAddrGPSNetworkMessage = 0x11,  // GPS data from network sources (ESP32 to RP2040).
+        kAddrGPSNetworkMessageArray = 0x12,  // Array of GPS messages for bulk transfer.
+        kAddrGPSStatus = 0x13,      // GPS status information for web interface.
         kNumAddrs
     };
 
@@ -146,6 +150,61 @@ class ObjectDictionary {
         uint8_t ethernet_mac[kMACAddrLenBytes];
     };
 
+    /**
+     * Struct for GPS status information shared between RP2040 and ESP32.
+     * Used for web interface display.
+     */
+    struct __attribute__((__packed__)) GPSStatus {
+        // Position data
+        bool valid = false;
+        uint8_t fix_type = 0;  // 0=no fix, 2=2D, 3=3D, 5=PPP converging, 6=PPP converged
+        double latitude_deg = 0.0;
+        double longitude_deg = 0.0;
+        float altitude_m = 0.0;
+        float accuracy_horizontal_m = 999.0;
+        float accuracy_vertical_m = 999.0;
+        
+        // Velocity
+        float ground_speed_mps = 0.0;
+        float track_deg = 0.0;
+        
+        // Satellites
+        uint8_t satellites_used = 0;
+        uint8_t satellites_visible = 0;
+        float hdop = 99.99;
+        float pdop = 99.99;
+        
+        // PPP status
+        uint8_t ppp_service = 0;  // PPPService enum
+        float ppp_convergence_percent = 0.0;
+        uint32_t ppp_eta_seconds = 0;
+        
+        // Source info
+        uint8_t gps_source = 0;  // GPSSource enum
+        char receiver_type[32] = {0};
+        
+        // Network GPS status
+        uint8_t network_clients_nmea = 0;
+        uint8_t network_clients_mavlink = 0;
+        uint32_t network_messages_received = 0;
+        
+        // Timing
+        uint32_t timestamp_ms = 0;
+        uint32_t time_since_fix_ms = 0;
+
+        // UTC Date/Time from GPS
+        uint16_t utc_year = 0;       // Full year (e.g., 2025)
+        uint8_t utc_month = 0;       // 1-12
+        uint8_t utc_day = 0;         // 1-31
+        uint8_t utc_hour = 0;        // 0-23
+        uint8_t utc_minute = 0;      // 0-59
+        uint8_t utc_second = 0;      // 0-59
+
+        // Statistics
+        uint32_t messages_processed = 0;
+        uint32_t parse_errors = 0;
+    };
+    
     /**
      * Struct used to retrieve network information from the ESP32.
      */
@@ -336,6 +395,13 @@ class ObjectDictionary {
     };
     SubGHzRadioMetrics metrics = {0};
     SubGHzDeviceStatus device_status = {};
+#endif
+
+#ifdef ON_ESP32
+    // Buffer to store GPS network message for RP2040 to read (public for access in GetBytes/SetBytes)
+    GPSNetworkServer::GPSNetworkMessage gps_network_message_buffer_ = {};
+    // Buffer to store GPS status for RP2040 to read (for web interface)
+    GPSStatus gps_status_buffer_ = {};
 #endif
 
    private:

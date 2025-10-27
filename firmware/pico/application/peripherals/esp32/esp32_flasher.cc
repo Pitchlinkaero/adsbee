@@ -70,18 +70,34 @@ esp_binaries_t bin = {
     .app = {.data = adsbee_esp_bin, .size = adsbee_esp_bin_size, .addr = APPLICATION_ADDRESS}};
 
 bool ESP32SerialFlasher::FlashESP32() {
-    CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Beginning serial initialization.");
-    Init();
-    if (connect_to_target(config_.esp32_higher_baudrate) == ESP_LOADER_SUCCESS) {
-        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Connected to target.");
+    CONSOLE_PRINTF("ESP32SerialFlasher: Beginning ESP32 flash sequence.\r\n");
 
-        flash_binary(bin.boot.data, bin.boot.size, bin.boot.addr);
-        flash_binary(bin.part.data, bin.part.size, bin.part.addr);
-        flash_binary(bin.app.data, bin.app.size, bin.app.addr);
-        CONSOLE_INFO("ESP32SerialFlasher::FlashESP32", "Firmware upload complete.");
-    } else {
-        CONSOLE_ERROR("ESP32SerialFlasher::FlashESP32", "Serial initialization failed.");
+    if (!Init()) {
+        CONSOLE_ERROR("ESP32SerialFlasher::FlashESP32", "Failed to initialize flasher.");
+        return false;
     }
+
+    CONSOLE_PRINTF("ESP32SerialFlasher: Connecting to ESP32 bootloader (will enter bootloader mode automatically)...\r\n");
+    if (connect_to_target(config_.esp32_higher_baudrate) == ESP_LOADER_SUCCESS) {
+        CONSOLE_PRINTF("ESP32SerialFlasher: Connected to bootloader successfully!\r\n");
+
+        CONSOLE_PRINTF("ESP32SerialFlasher: Flashing bootloader...\r\n");
+        flash_binary(bin.boot.data, bin.boot.size, bin.boot.addr);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher: Flashing partition table...\r\n");
+        flash_binary(bin.part.data, bin.part.size, bin.part.addr);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher: Flashing application...\r\n");
+        flash_binary(bin.app.data, bin.app.size, bin.app.addr);
+
+        CONSOLE_PRINTF("ESP32SerialFlasher: Firmware upload complete.\r\n");
+    } else {
+        CONSOLE_ERROR("ESP32SerialFlasher::FlashESP32", "Failed to connect to bootloader.");
+        DeInit();
+        return false;
+    }
+
+    CONSOLE_PRINTF("ESP32SerialFlasher: Resetting ESP32 to run new firmware...\r\n");
     ResetTarget();
     DeInit();
 
