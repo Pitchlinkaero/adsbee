@@ -56,7 +56,9 @@ private:
 #endif
 
 GNSSManager::GNSSManager() {
-    start_time_ms_ = GetTimeMs();
+    // Don't call GetTimeMs() here! This constructor runs before main(),
+    // before Pico SDK is initialized. Set start_time_ms_ in Initialize() instead.
+    start_time_ms_ = 0;
 #ifdef ON_EMBEDDED_DEVICE
     critical_section_init(&critical_section_);
 #endif
@@ -71,6 +73,11 @@ GNSSManager::~GNSSManager() {
 
 bool GNSSManager::Initialize(const GPSSettings& settings) {
     LOCK_GUARD();
+
+    // Initialize start time if this is the first call
+    if (start_time_ms_ == 0) {
+        start_time_ms_ = GetTimeMs();
+    }
 
     settings_ = settings;
     stats_ = Statistics(); // Reset stats
