@@ -318,7 +318,7 @@ TEST(MQTTProtocol, FormatTelemetryJSON) {
 
     EXPECT_NE(strstr(json, "\"uptime\":3600"), nullptr);
     EXPECT_NE(strstr(json, "\"msgs_adsb_ps\":42"), nullptr);
-    EXPECT_NE(strstr(json, "\"cpu_temp\":45"), nullptr);
+    EXPECT_NE(strstr(json, "\"esp_temp\":45"), nullptr);
     EXPECT_NE(strstr(json, "\"noise_floor\":-95"), nullptr);
     EXPECT_NE(strstr(json, "\"fw_ver\":\"2.3.1\""), nullptr);
 }

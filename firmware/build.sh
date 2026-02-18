@@ -66,7 +66,7 @@ build_test() {
         cmake -DBUILD_SHARED_LIBS=ON .. &&
         make -j $JOBS &&
         cd /adsbee/pico &&
-        mkdir -p build && cd build &&
+        mkdir -p build_test && cd build_test &&
         cmake -DCMAKE_BUILD_TYPE=Test \
               -DCMAKE_C_COMPILER=/usr/bin/gcc \
               -DCMAKE_CXX_COMPILER=/usr/bin/g++ .. &&
