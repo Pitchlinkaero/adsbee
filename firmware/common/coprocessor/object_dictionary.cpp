@@ -15,7 +15,7 @@ const uint8_t ObjectDictionary::kFirmwareVersionMajor = 0;
 const uint8_t ObjectDictionary::kFirmwareVersionMinor = 9;
 const uint8_t ObjectDictionary::kFirmwareVersionPatch = 0;
 // NOTE: Indicate a final release with RC = 0.
-const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 13;
+const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 17;
 
 const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24) | (kFirmwareVersionMinor << 16) |
                                                     (kFirmwareVersionPatch << 8) | kFirmwareVersionReleaseCandidate;
@@ -29,6 +29,7 @@ extern CPUMonitor cpu_monitor;
 #ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::SetBytes(Address addr, uint8_t* buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
+        // Temperature handling removed - each processor uses its own sensor
         case kAddrScratch:
             // Warning: printing here will cause a timeout and tests will fail.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,
@@ -105,6 +106,9 @@ bool ObjectDictionary::SetBytes(Address addr, uint8_t* buf, uint16_t buf_len, ui
             // Don't print here to avoid print of print doom loop explosion.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Forwarding %d byte message to network console.", buf_len);
             adsbee_server.network_console.BroadcastMessage(reinterpret_cast<const char*>(buf), buf_len);
+            if (console_intercept_callback) {
+                console_intercept_callback(reinterpret_cast<const char*>(buf), buf_len);
+            }
             break;
         }
         case kAddrAircraftDictionaryMetrics: {
@@ -164,6 +168,16 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t* buf, uint16_t buf_len, ui
         case kAddrDeviceStatus: {
             UpdateDeviceStatus();
             memcpy(buf, (uint8_t*)&device_status + offset, buf_len);
+            break;
+        }
+        case kAddrCapabilities: {
+            // Advertise support for unified telemetry packet
+            ObjectDictionary::Capabilities caps = object_dictionary.capabilities;
+            caps.version = 1;
+            caps.features = 0;
+            // Bit 0 = telemetry supported
+            caps.features |= 0x01;
+            memcpy(buf, &caps + offset, buf_len);
             break;
         }
         case kAddrLogMessages: {
@@ -300,7 +314,7 @@ bool ObjectDictionary::RequestSCCommandBlocking(const SCCommandRequestWithCallba
 #endif
     return ret;
 }
-#endif
+#endif  // ON_COPRO_SLAVE
 
 #ifdef ON_COPRO_SLAVE
 /**
@@ -378,8 +392,10 @@ uint16_t ObjectDictionary::UnpackLogMessages(uint8_t* buf, uint16_t buf_len,
                                              uint16_t max_num_messages) {
     uint16_t bytes_read = 0;
     uint16_t num_messages = 0;
+    uint16_t consecutive_errors = 0;
+    const uint16_t kMaxConsecutiveErrors = 10;  // Limit resync attempts
 
-    while (bytes_read < buf_len && num_messages < max_num_messages) {
+    while (bytes_read < buf_len && num_messages < max_num_messages && consecutive_errors < kMaxConsecutiveErrors) {
         LogMessage log_message;
         if (buf_len - bytes_read < LogMessage::kHeaderSize) {
             break;  // Not enough data for header.
@@ -390,12 +406,27 @@ uint16_t ObjectDictionary::UnpackLogMessages(uint8_t* buf, uint16_t buf_len,
         if (log_message.num_chars > kLogMessageMaxNumChars) {
             CONSOLE_ERROR("ObjectDictionary::UnpackLogMessages", "Invalid log message length: %d",
                           log_message.num_chars);
-            break;  // Invalid length.
+            // Skip corrupted data and try to recover
+            bytes_read++;  // Move forward one byte to try to resync
+            consecutive_errors++;
+            continue;  // Try next position instead of breaking completely
         }
 
         if (buf_len - bytes_read < LogMessage::kHeaderSize + log_message.num_chars + 1) {
             break;  // Not enough data for the full message.
         }
+
+        // Additional sanity check before memcpy to prevent buffer overflow
+        if (log_message.num_chars > sizeof(log_message.message) - 1) {
+            CONSOLE_ERROR("ObjectDictionary::UnpackLogMessages", "Message length %d exceeds buffer size",
+                          log_message.num_chars);
+            bytes_read++;
+            consecutive_errors++;
+            continue;
+        }
+
+        // Reset error counter on successful message
+        consecutive_errors = 0;
 
         memcpy(log_message.message, buf + bytes_read + LogMessage::kHeaderSize, log_message.num_chars);
         log_message.message[log_message.num_chars] = '\0';  // Null terminate the message.

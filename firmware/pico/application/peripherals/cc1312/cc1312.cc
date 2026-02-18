@@ -104,6 +104,13 @@ bool CC1312::Init(bool spi_already_initialized) {
 }
 
 bool CC1312::Update() {
+    // Debug: Log the update attempt
+    static uint32_t update_count = 0;
+    update_count++;
+    if (update_count % 100 == 1) {  // Log every 100th attempt to avoid spam
+        CONSOLE_INFO("CC1312::Update", "Attempting to read CC1312 status (attempt %d)", update_count);
+    }
+
     // Query CC1312's device status.
     if (adsbee.subg_radio.Read(ObjectDictionary::Address::kAddrDeviceStatus, device_status)) {
         // We only update the device_status vars exposed publicly here. Other reads of device_status are for

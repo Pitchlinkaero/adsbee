@@ -393,6 +393,191 @@ CPP_AT_CALLBACK(CommsManager::ATFeedCallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+CPP_AT_CALLBACK(CommsManager::ATFeedProtocolCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed protocol
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%s", index,
+                    SettingsManager::kReportingProtocolStrs[settings_manager.settings.feed_protocols[index]]);
+            } else {
+                // Query all feed protocols
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%s", i,
+                        SettingsManager::kReportingProtocolStrs[settings_manager.settings.feed_protocols[i]]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed protocol
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDPROTOCOL=<index>,<protocol>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            // Match the protocol string
+            SettingsManager::ReportingProtocol feed_protocol = SettingsManager::ReportingProtocol::kNumProtocols;
+            for (uint16_t i = 0; i < SettingsManager::ReportingProtocol::kNumProtocols; i++) {
+                if (args[1].compare(SettingsManager::kReportingProtocolStrs[i]) == 0) {
+                    feed_protocol = static_cast<SettingsManager::ReportingProtocol>(i);
+                    break;
+                }
+            }
+
+            if (feed_protocol == SettingsManager::kNumProtocols) {
+                CPP_AT_ERROR("Invalid protocol %s.", args[1].data());
+            }
+
+            // Check that the protocol is valid for feeds
+            if (!(feed_protocol == SettingsManager::ReportingProtocol::kBeast ||
+                  feed_protocol == SettingsManager::ReportingProtocol::kNoReports ||
+                  feed_protocol == SettingsManager::ReportingProtocol::kMQTT)) {
+                CPP_AT_ERROR("Protocol %s is not supported for network feeds.",
+                             SettingsManager::kReportingProtocolStrs[feed_protocol]);
+            }
+
+            settings_manager.settings.feed_protocols[index] = feed_protocol;
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATFeedURICallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed URI
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%s", index, settings_manager.settings.feed_uris[index]);
+            } else {
+                // Query all feed URIs
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%s", i, settings_manager.settings.feed_uris[i]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed URI
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDURI=<index>,<uri>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            strncpy(settings_manager.settings.feed_uris[index], args[1].data(),
+                    SettingsManager::Settings::kFeedURIMaxNumChars);
+            settings_manager.settings.feed_uris[index][SettingsManager::Settings::kFeedURIMaxNumChars] = '\0';
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATFeedPortCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed port
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%d", index, settings_manager.settings.feed_ports[index]);
+            } else {
+                // Query all feed ports
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%d", i, settings_manager.settings.feed_ports[i]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed port
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDPORT=<index>,<port>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            CPP_AT_TRY_ARG2NUM(1, settings_manager.settings.feed_ports[index]);
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATFeedEnCallback) {
+    switch (op) {
+        case '?':
+            if (CPP_AT_HAS_ARG(0)) {
+                // Query specific feed enable status
+                uint16_t index = UINT16_MAX;
+                CPP_AT_TRY_ARG2NUM(0, index);
+                if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                    CPP_AT_ERROR("Feed index must be between 0-%d.",
+                                 SettingsManager::Settings::kMaxNumFeeds - 1);
+                }
+                CPP_AT_CMD_PRINTF("=%d,%d", index, settings_manager.settings.feed_is_active[index]);
+            } else {
+                // Query all feed enable status
+                for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                    CPP_AT_CMD_PRINTF("=%d,%d", i, settings_manager.settings.feed_is_active[i]);
+                }
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        case '=':
+            // Set feed enable
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Requires two arguments: AT+FEEDEN=<index>,<enabled>");
+            }
+
+            uint16_t index = UINT16_MAX;
+            CPP_AT_TRY_ARG2NUM(0, index);
+            if (index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Feed index must be between 0-%d.",
+                             SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+
+            CPP_AT_TRY_ARG2NUM(1, settings_manager.settings.feed_is_active[index]);
+            CPP_AT_SUCCESS();
+            break;
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 CPP_AT_CALLBACK(CommsManager::ATHostnameCallback) {
     SettingsManager::Settings::CoreNetworkSettings& cns = settings_manager.settings.core_network_settings;
     switch (op) {
@@ -1233,6 +1418,78 @@ CPP_AT_CALLBACK(CommsManager::ATWiFiSTACallback) {
     CPP_AT_ERROR("Operator '%c' not supported.", op);
 }
 
+CPP_AT_CALLBACK(CommsManager::ATMQTTFormatCallback) {
+    using MQTTFmt = SettingsManager::Settings::MQTTFormat;
+    switch (op) {
+        case '?': {
+            // Query all feeds
+            for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                const char* fmt = (settings_manager.settings.feed_mqtt_formats[i] == MQTTFmt::MQTT_FORMAT_BINARY)
+                                      ? "BINARY"
+                                      : "JSON";
+                CPP_AT_CMD_PRINTF("=%d,%s", i, fmt);
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        }
+        case '=': {
+            // Set a specific feed
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Use AT+MQTTFORMAT=<feed>,<JSON|BINARY>");
+            }
+            uint16_t feed_index = 0xFFFF;
+            CPP_AT_TRY_ARG2NUM(0, feed_index);
+            if (feed_index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Invalid feed index (0-%d)", SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+            if (args[1].compare("BINARY") == 0) {
+                settings_manager.settings.feed_mqtt_formats[feed_index] = MQTTFmt::MQTT_FORMAT_BINARY;
+            } else {
+                settings_manager.settings.feed_mqtt_formats[feed_index] = MQTTFmt::MQTT_FORMAT_JSON;
+            }
+            CPP_AT_SUCCESS();
+            break;
+        }
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
+CPP_AT_CALLBACK(CommsManager::ATMQTTContentCallback) {
+    using MQTTCont = SettingsManager::Settings::MQTTContent;
+    switch (op) {
+        case '?': {
+            for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+                const char* content_str = "ALL";
+                if (settings_manager.settings.feed_mqtt_content[i] == MQTTCont::MQTT_CONTENT_RAW) content_str = "RAW";
+                else if (settings_manager.settings.feed_mqtt_content[i] == MQTTCont::MQTT_CONTENT_STATUS) content_str = "STATUS";
+                CPP_AT_CMD_PRINTF("=%d,%s", i, content_str);
+            }
+            CPP_AT_SILENT_SUCCESS();
+            break;
+        }
+        case '=': {
+            if (!(CPP_AT_HAS_ARG(0) && CPP_AT_HAS_ARG(1))) {
+                CPP_AT_ERROR("Use AT+MQTTCONTENT=<feed>,<ALL|RAW|STATUS>");
+            }
+            uint16_t feed_index = 0xFFFF;
+            CPP_AT_TRY_ARG2NUM(0, feed_index);
+            if (feed_index >= SettingsManager::Settings::kMaxNumFeeds) {
+                CPP_AT_ERROR("Invalid feed index (0-%d)", SettingsManager::Settings::kMaxNumFeeds - 1);
+            }
+            if (args[1].compare("RAW") == 0) {
+                settings_manager.settings.feed_mqtt_content[feed_index] = MQTTCont::MQTT_CONTENT_RAW;
+            } else if (args[1].compare("STATUS") == 0) {
+                settings_manager.settings.feed_mqtt_content[feed_index] = MQTTCont::MQTT_CONTENT_STATUS;
+            } else {
+                settings_manager.settings.feed_mqtt_content[feed_index] = MQTTCont::MQTT_CONTENT_ALL;
+            }
+            CPP_AT_SUCCESS();
+            break;
+        }
+    }
+    CPP_AT_ERROR("Operator '%c' not supported.", op);
+}
+
 const CppAT::ATCommandDef_t at_command_list[] = {
     {.command = "BAUD_RATE",
      .min_args = 0,
@@ -1274,6 +1531,30 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .max_args = 5,
      .help_callback = ATFeedHelpCallback,
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedCallback, comms_manager)},
+    {.command = "FEEDPROTOCOL",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string = "AT+FEEDPROTOCOL=<index>,<protocol>\r\n\tSet the protocol for a specific feed.\r\n\t"
+                    "AT+FEEDPROTOCOL?\r\n\tQuery all feed protocols.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedProtocolCallback, comms_manager)},
+    {.command = "FEEDURI",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string = "AT+FEEDURI=<index>,<uri>\r\n\tSet the URI for a specific feed.\r\n\t"
+                    "AT+FEEDURI?\r\n\tQuery all feed URIs.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedURICallback, comms_manager)},
+    {.command = "FEEDPORT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string = "AT+FEEDPORT=<index>,<port>\r\n\tSet the port for a specific feed.\r\n\t"
+                    "AT+FEEDPORT?\r\n\tQuery all feed ports.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedPortCallback, comms_manager)},
+    {.command = "FEEDEN",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string = "AT+FEEDEN=<index>,<enabled>\r\n\tEnable/disable a specific feed.\r\n\t"
+                    "AT+FEEDEN?\r\n\tQuery all feed enable status.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATFeedEnCallback, comms_manager)},
     {.command = "HOSTNAME",
      .min_args = 0,
      .max_args = 1,
@@ -1393,6 +1674,16 @@ const CppAT::ATCommandDef_t at_command_list[] = {
      .help_string = "Set WiFi station params.\r\n\tAT+WIFI_STA=<enabled>,<sta_ssid>,<sta_pwd>\r\n\t"
                     "Get WiFi station params.\r\n\tAT+WIFI_STA?\r\n\t+WIFI_STA=<enabled>,<sta_ssid>,<sta_pwd>",
      .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATWiFiSTACallback, comms_manager)},
+    {.command = "+MQTTFORMAT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string = "AT+MQTTFORMAT=<feed>,<JSON|BINARY>\r\n\tSet MQTT output format per feed.\r\n\tAT+MQTTFORMAT?\r\n\tQuery all feed formats.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTFormatCallback, comms_manager)},
+    {.command = "+MQTTCONTENT",
+     .min_args = 0,
+     .max_args = 2,
+     .help_string = "AT+MQTTCONTENT=<feed>,<ALL|RAW|STATUS>\r\n\tSet MQTT content type per feed.\r\n\tAT+MQTTCONTENT?\r\n\tQuery all feed content types.",
+     .callback = CPP_AT_BIND_MEMBER_CALLBACK(CommsManager::ATMQTTContentCallback, comms_manager)},
 };
 const uint16_t at_command_list_num_commands = sizeof(at_command_list) / sizeof(at_command_list[0]);
 

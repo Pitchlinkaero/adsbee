@@ -190,6 +190,10 @@ int main() {
 
         esp32.Update();
 
+        // Periodically sample RP2040 internal temperature for local use only (do not write over SPI)
+        // Temperature handling removed - causes SPI bus crashes with 0x10 address
+        // ESP32 now handles its own temperature sensing independently
+
         // Poke the watchdog to keep things alive if the ESP32 is responding or if it's disabled.
         uint32_t old_esp32_last_heartbeat_timestamp_ms = esp32_last_heartbeat_timestamp_ms;
         esp32_last_heartbeat_timestamp_ms = esp32.GetLastHeartbeatTimestampMs();
