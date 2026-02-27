@@ -13,6 +13,19 @@ services:
 
     command: tail -f /dev/null # keep the container running forever
 
+  # ESP-IDF container for compiling ESP32-S3 firmware.
+  # NOTE: This container is for CI/headless builds only. For breakpoint debugging, use the
+  # ESP-IDF VS Code extension running on the host.
+  # The RP2040 and CC1312 are debugged over JLink GDB from their Docker containers.
+  esp-idf:
+    image: espressif/idf:release-v5.4
+    volumes:
+      - ./esp:/adsbee/esp
+      - ./common:/adsbee/common
+      - ./modules:/adsbee/modules
+
+    command: tail -f /dev/null # keep the container running forever
+
   ti-lpf2:
     image: coolnamesalltaken/ti-lpf2:latest
     platform: "linux/amd64" # Make sure we run the AMD64 image so that installed utilities work.
