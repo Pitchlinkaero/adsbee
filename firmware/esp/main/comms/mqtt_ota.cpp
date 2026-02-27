@@ -37,10 +37,12 @@ bool MQTTOTAHandler::Initialize(ADSBeeMQTTClient* mqtt_client) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Console intercept - captures Pico responses via ObjectDictionary callback.
-// Called from the SPI receive task context, NOT the MQTT task.
-// ---------------------------------------------------------------------------
+/**
+ * Console intercept callback. Captures Pico responses via ObjectDictionary callback.
+ * Called from the SPI receive task context, NOT the MQTT task.
+ * @param[in] data Response data from the Pico.
+ * @param[in] len Length of the response data.
+ */
 void MQTTOTAHandler::ConsoleInterceptCb(const char* data, size_t len) {
     if (active_instance_) {
         active_instance_->OnConsoleData(data, len);
@@ -129,9 +131,12 @@ bool MQTTOTAHandler::WaitForPicoResponse(const char* expected_str, uint32_t time
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// HandleManifest - parse JSON manifest, store metadata
-// ---------------------------------------------------------------------------
+/**
+ * Parse a JSON manifest and store OTA metadata.
+ * @param[in] data Raw JSON manifest data.
+ * @param[in] len Length of the manifest data.
+ * @retval True if manifest was parsed successfully, false otherwise.
+ */
 bool MQTTOTAHandler::HandleManifest(const uint8_t* data, size_t len) {
     const char* json = (const char*)data;
 
@@ -164,9 +169,12 @@ bool MQTTOTAHandler::HandleManifest(const uint8_t* data, size_t len) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// HandleCommand - route control commands to AT+OTA
-// ---------------------------------------------------------------------------
+/**
+ * Route a control command (START, VERIFY, BOOT, ABORT, REBOOT) to the Pico via AT+OTA.
+ * @param[in] data Raw JSON command data.
+ * @param[in] len Length of the command data.
+ * @retval True if command was handled successfully, false otherwise.
+ */
 bool MQTTOTAHandler::HandleCommand(const uint8_t* data, size_t len) {
     char command[32] = {};
     if (!ParseJsonString((const char*)data, len, "command", command, sizeof(command))) {
@@ -177,7 +185,14 @@ bool MQTTOTAHandler::HandleCommand(const uint8_t* data, size_t len) {
     CONSOLE_INFO(TAG, "Command: %s", command);
 
     if (strcmp(command, "START") == 0) {
-        // Register console intercept to capture Pico responses
+        // Check that no other handler already owns the console intercept callback.
+        if (object_dictionary.console_intercept_callback != nullptr && active_instance_ != this) {
+            CONSOLE_ERROR(TAG, "Console intercept callback already in use by another handler.");
+            PublishState("ERROR", "intercept_busy");
+            return false;
+        }
+
+        // Register console intercept to capture Pico responses.
         active_instance_ = this;
         object_dictionary.console_intercept_callback = ConsoleInterceptCb;
 
@@ -255,11 +270,15 @@ bool MQTTOTAHandler::HandleCommand(const uint8_t* data, size_t len) {
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// HandleChunk - parse binary header, forward as AT+OTA=WRITE + data,
-//               wait for Pico OK before publishing ACK to MQTT.
-//               After last chunk, auto-verify and publish READY_TO_BOOT.
-// ---------------------------------------------------------------------------
+/**
+ * Parse a binary chunk header, forward as AT+OTA=WRITE + data to the Pico,
+ * wait for Pico OK before publishing ACK to MQTT.
+ * After the last chunk, auto-verifies and publishes READY_TO_BOOT.
+ * @param[in] chunk_index Chunk index from the MQTT topic.
+ * @param[in] data Raw chunk data (14-byte header + payload).
+ * @param[in] len Total length of the chunk data.
+ * @retval True if chunk was written successfully, false otherwise.
+ */
 bool MQTTOTAHandler::HandleChunk(uint32_t chunk_index, const uint8_t* data, size_t len) {
     // Reject chunks while still erasing
     if (erase_pending_) {
@@ -375,9 +394,11 @@ bool MQTTOTAHandler::HandleChunk(uint32_t chunk_index, const uint8_t* data, size
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Queue helpers
-// ---------------------------------------------------------------------------
+/**
+ * Push an AT command string into the network console RX queue.
+ * @param[in] cmd Null-terminated command string.
+ * @retval True if command was enqueued successfully, false otherwise.
+ */
 bool MQTTOTAHandler::SendCommandToPico(const char* cmd) {
     size_t cmd_len = strlen(cmd);
 
@@ -434,9 +455,11 @@ bool MQTTOTAHandler::SendDataToPico(const uint8_t* data, size_t len) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// MQTT publishing helpers
-// ---------------------------------------------------------------------------
+/**
+ * Publish JSON state to the MQTT OTA status topic.
+ * @param[in] state Current OTA state string (e.g., "ERASING", "DOWNLOADING").
+ * @param[in] detail Optional detail string for error context.
+ */
 void MQTTOTAHandler::PublishState(const char* state, const char* detail) {
     if (!mqtt_client_) return;
 
@@ -470,9 +493,15 @@ void MQTTOTAHandler::PublishChunkAck(uint32_t chunk_index, bool success) {
     mqtt_client_->Publish(topic, (const uint8_t*)ack, 1, 1, false);
 }
 
-// ---------------------------------------------------------------------------
-// JSON parsing helpers
-// ---------------------------------------------------------------------------
+/**
+ * Parse a JSON string value by key.
+ * @param[in] json JSON string to search.
+ * @param[in] json_len Length of the JSON string.
+ * @param[in] key Key to search for.
+ * @param[out] buf Buffer to write the value into.
+ * @param[in] buf_size Size of the output buffer.
+ * @retval True if the key was found and value extracted, false otherwise.
+ */
 bool MQTTOTAHandler::ParseJsonString(const char* json, size_t json_len,
                                      const char* key, char* buf, size_t buf_size) {
     char pattern[64];

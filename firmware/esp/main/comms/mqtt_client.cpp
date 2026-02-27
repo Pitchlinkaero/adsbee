@@ -9,6 +9,14 @@
 #include <cstring>  // For strstr, strrchr
 #endif
 
+// Compile-time check that Settings::MQTTFormat and MQTTProtocol::Format enum values match.
+static_assert(static_cast<uint8_t>(SettingsManager::Settings::kMQTTFormatJSON) ==
+              static_cast<uint8_t>(MQTTProtocol::kFormatJSON),
+              "Settings::kMQTTFormatJSON must match MQTTProtocol::kFormatJSON");
+static_assert(static_cast<uint8_t>(SettingsManager::Settings::kMQTTFormatBinary) ==
+              static_cast<uint8_t>(MQTTProtocol::kFormatBinary),
+              "Settings::kMQTTFormatBinary must match MQTTProtocol::kFormatBinary");
+
 static const char* TAG = "MQTT";
 
 ADSBeeMQTTClient::ADSBeeMQTTClient()
@@ -295,13 +303,13 @@ void ADSBeeMQTTClient::HandleOTAMessage(const char* topic, const uint8_t* data, 
 #endif
 
 bool ADSBeeMQTTClient::PublishPacket(const DecodedModeSPacket& packet,
-                                     MQTTProtocol::FrequencyBand band) {
+                                     MQTTProtocol::TransponderProtocol protocol) {
     if (!initialized_ || !client_ || !connected_) {
         return false;
     }
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer), config_.format, band);
+    uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer), config_.format, protocol);
 
     if (len == 0) {
         return false;
@@ -309,9 +317,9 @@ bool ADSBeeMQTTClient::PublishPacket(const DecodedModeSPacket& packet,
 
     uint32_t icao24 = packet.icao_address;
     char topic[MQTTProtocol::kMaxTopicSize];
-    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    bool use_short = (config_.format == MQTTProtocol::kFormatBinary);
 
-    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), band, use_short, config_.device_id)) {
+    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), protocol, use_short, config_.device_id)) {
         return false;
     }
 
@@ -340,9 +348,9 @@ bool ADSBeeMQTTClient::PublishUATPacket(const DecodedUATADSBPacket& packet) {
 
     uint32_t icao24 = packet.GetICAOAddress();
     char topic[MQTTProtocol::kMaxTopicSize];
-    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    bool use_short = (config_.format == MQTTProtocol::kFormatBinary);
 
-    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), MQTTProtocol::BAND_978_MHZ, use_short, config_.device_id)) {
+    if (!MQTTProtocol::GetTopic(icao24, "raw", topic, sizeof(topic), MQTTProtocol::kUAT, use_short, config_.device_id)) {
         return false;
     }
 
@@ -358,22 +366,22 @@ bool ADSBeeMQTTClient::PublishUATPacket(const DecodedUATADSBPacket& packet) {
 }
 
 bool ADSBeeMQTTClient::PublishAircraft(const ModeSAircraft& aircraft,
-                                       MQTTProtocol::FrequencyBand band) {
+                                       MQTTProtocol::TransponderProtocol protocol) {
     if (!connected_) {
         return false;
     }
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer), config_.format, band);
+    uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer), config_.format, protocol);
 
     if (len == 0) {
         return false;
     }
 
     char topic[MQTTProtocol::kMaxTopicSize];
-    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    bool use_short = (config_.format == MQTTProtocol::kFormatBinary);
 
-    if (!MQTTProtocol::GetTopic(aircraft.icao_address, "status", topic, sizeof(topic), band, use_short, config_.device_id)) {
+    if (!MQTTProtocol::GetTopic(aircraft.icao_address, "status", topic, sizeof(topic), protocol, use_short, config_.device_id)) {
         return false;
     }
 
@@ -401,7 +409,7 @@ bool ADSBeeMQTTClient::PublishTelemetry(const MQTTProtocol::TelemetryData& telem
     }
 
     char topic[MQTTProtocol::kMaxTopicSize];
-    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    bool use_short = (config_.format == MQTTProtocol::kFormatBinary);
 
     if (!MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "telemetry", use_short, config_.device_id)) {
         return false;
@@ -418,22 +426,22 @@ bool ADSBeeMQTTClient::PublishTelemetry(const MQTTProtocol::TelemetryData& telem
     return false;
 }
 
-bool ADSBeeMQTTClient::PublishGPS(const MQTTProtocol::GPSData& gps) {
+bool ADSBeeMQTTClient::PublishGNSS(const MQTTProtocol::GNSSData& gnss) {
     if (!connected_) {
         return false;
     }
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatGPS(gps, buffer, sizeof(buffer), config_.format);
+    uint16_t len = MQTTProtocol::FormatGNSS(gnss, buffer, sizeof(buffer), config_.format);
 
     if (len == 0) {
         return false;
     }
 
     char topic[MQTTProtocol::kMaxTopicSize];
-    bool use_short = (config_.format == MQTTProtocol::FORMAT_BINARY);
+    bool use_short = (config_.format == MQTTProtocol::kFormatBinary);
 
-    if (!MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "gps", use_short, config_.device_id)) {
+    if (!MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "position", use_short, config_.device_id)) {
         return false;
     }
 

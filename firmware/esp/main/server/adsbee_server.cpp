@@ -82,18 +82,6 @@ bool ADSBeeServer::Init() {
         return false;
     }
 
-    // Debug: Log the size being requested
-    CONSOLE_INFO("ADSBeeServer::Init", "Requesting settings from Pico, size: %zu bytes",
-                 sizeof(SettingsManager::Settings));
-
-    // More detailed debugging of structure layout
-    CONSOLE_INFO("ADSBeeServer::Init", "Settings structure details:");
-    CONSOLE_INFO("ADSBeeServer::Init", "  - feed_mqtt_formats array size: %zu bytes",
-                 sizeof(settings_manager.settings.feed_mqtt_formats));
-    CONSOLE_INFO("ADSBeeServer::Init", "  - feed_mqtt_formats offset: %zu",
-                 offsetof(SettingsManager::Settings, feed_mqtt_formats));
-    CONSOLE_INFO("ADSBeeServer::Init", "  - Total settings size: %zu", sizeof(settings_manager.settings));
-
     object_dictionary.RequestSCCommand(ObjectDictionary::SCCommandRequestWithCallback{
         .request =
             ObjectDictionary::SCCommandRequest{.command = ObjectDictionary::SCCommand::kCmdWriteToSlaveRequireAck,

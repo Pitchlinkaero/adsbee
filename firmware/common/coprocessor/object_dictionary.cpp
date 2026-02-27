@@ -15,7 +15,7 @@ const uint8_t ObjectDictionary::kFirmwareVersionMajor = 0;
 const uint8_t ObjectDictionary::kFirmwareVersionMinor = 9;
 const uint8_t ObjectDictionary::kFirmwareVersionPatch = 0;
 // NOTE: Indicate a final release with RC = 0.
-const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 17;
+const uint8_t ObjectDictionary::kFirmwareVersionReleaseCandidate = 21;
 
 const uint32_t ObjectDictionary::kFirmwareVersion = (kFirmwareVersionMajor << 24) | (kFirmwareVersionMinor << 16) |
                                                     (kFirmwareVersionPatch << 8) | kFirmwareVersionReleaseCandidate;
@@ -29,7 +29,6 @@ extern CPUMonitor cpu_monitor;
 #ifdef ON_COPRO_SLAVE
 bool ObjectDictionary::SetBytes(Address addr, uint8_t* buf, uint16_t buf_len, uint16_t offset) {
     switch (addr) {
-        // Temperature handling removed - each processor uses its own sensor
         case kAddrScratch:
             // Warning: printing here will cause a timeout and tests will fail.
             // CONSOLE_INFO("ObjectDictionary::SetBytes", "Setting %d settings Bytes at offset %d.", buf_len,
@@ -168,16 +167,6 @@ bool ObjectDictionary::GetBytes(Address addr, uint8_t* buf, uint16_t buf_len, ui
         case kAddrDeviceStatus: {
             UpdateDeviceStatus();
             memcpy(buf, (uint8_t*)&device_status + offset, buf_len);
-            break;
-        }
-        case kAddrCapabilities: {
-            // Advertise support for unified telemetry packet
-            ObjectDictionary::Capabilities caps = object_dictionary.capabilities;
-            caps.version = 1;
-            caps.features = 0;
-            // Bit 0 = telemetry supported
-            caps.features |= 0x01;
-            memcpy(buf, &caps + offset, buf_len);
             break;
         }
         case kAddrLogMessages: {
@@ -404,7 +393,7 @@ uint16_t ObjectDictionary::UnpackLogMessages(uint8_t* buf, uint16_t buf_len,
         memcpy((uint8_t*)(&log_message), buf + bytes_read, LogMessage::kHeaderSize);
 
         if (log_message.num_chars > kLogMessageMaxNumChars) {
-            CONSOLE_ERROR("ObjectDictionary::UnpackLogMessages", "Invalid log message length: %d",
+            CONSOLE_ERROR("ObjectDictionary::UnpackLogMessages", "Invalid log message length: %d.",
                           log_message.num_chars);
             // Skip corrupted data and try to recover
             bytes_read++;  // Move forward one byte to try to resync

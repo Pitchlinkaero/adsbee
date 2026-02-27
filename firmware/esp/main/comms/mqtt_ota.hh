@@ -1,5 +1,4 @@
-#ifndef MQTT_OTA_HH
-#define MQTT_OTA_HH
+#pragma once
 
 #include "mqtt_config.h"
 #include <cstdint>
@@ -94,5 +93,3 @@ private:
     // Static instance pointer for the C callback
     static MQTTOTAHandler* active_instance_;
 };
-
-#endif // MQTT_OTA_HH

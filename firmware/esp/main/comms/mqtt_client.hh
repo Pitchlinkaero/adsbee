@@ -1,5 +1,4 @@
-#ifndef MQTT_CLIENT_HH_
-#define MQTT_CLIENT_HH_
+#pragma once
 
 #include "esp_log.h"
 #include "mqtt_client.h"  // ESP-IDF MQTT client
@@ -26,7 +25,7 @@ public:
         uint16_t broker_port;         // From settings feed_ports
         const char* client_id;        // Unique client ID
         const char* device_id;        // Device identifier for topic hierarchy
-        MQTTProtocol::Format format;  // JSON or BINARY
+        MQTTProtocol::Format format;  // kFormatJSON or kFormatBinary
         uint8_t mqtt_content = 0;     // 0=ALL, 1=RAW, 2=STATUS
         bool ota_enabled = false;     // Enable OTA via MQTT
     };
@@ -62,7 +61,7 @@ public:
      * Publish decoded packet immediately (no buffering)
      */
     bool PublishPacket(const DecodedModeSPacket& packet,
-                      MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ);
+                      MQTTProtocol::TransponderProtocol protocol = MQTTProtocol::kModeS);
 
     /**
      * Publish decoded UAT ADS-B packet immediately (no buffering)
@@ -73,7 +72,7 @@ public:
      * Publish aircraft status immediately
      */
     bool PublishAircraft(const ModeSAircraft& aircraft,
-                        MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ);
+                        MQTTProtocol::TransponderProtocol protocol = MQTTProtocol::kModeS);
 
     /**
      * Publish device telemetry
@@ -81,9 +80,9 @@ public:
     bool PublishTelemetry(const MQTTProtocol::TelemetryData& telemetry);
 
     /**
-     * Publish GPS position
+     * Publish GNSS position
      */
-    bool PublishGPS(const MQTTProtocol::GPSData& gps);
+    bool PublishGNSS(const MQTTProtocol::GNSSData& gnss);
 
     /**
      * Generic publish method for arbitrary topic/payload (used by OTA handler)
@@ -157,4 +156,3 @@ private:
     void HandleEvent(esp_mqtt_event_handle_t event);
 };
 
-#endif // MQTT_CLIENT_HH_

@@ -15,23 +15,16 @@
 #include "object_dictionary.hh"        // For device_status, firmware version constants.
 #include "task_priorities.hh"
 
-// Compile-time check that Settings::MQTTFormat and MQTTProtocol::Format enum values match.
-static_assert(static_cast<uint8_t>(SettingsManager::Settings::MQTT_FORMAT_JSON) ==
-              static_cast<uint8_t>(MQTTProtocol::FORMAT_JSON),
-              "Settings::MQTT_FORMAT_JSON must match MQTTProtocol::FORMAT_JSON");
-static_assert(static_cast<uint8_t>(SettingsManager::Settings::MQTT_FORMAT_BINARY) ==
-              static_cast<uint8_t>(MQTTProtocol::FORMAT_BINARY),
-              "Settings::MQTT_FORMAT_BINARY must match MQTTProtocol::FORMAT_BINARY");
-
 static const uint32_t kTCPSocketReconnectIntervalMs = 10000;
 
 // Heap threshold for back-pressure. If free heap drops below this, safe_send will block.
 // Set high enough to leave room for WebSocket allocations (~2KB) and other system needs.
 static const uint32_t kHeapBackPressureThresholdBytes = 20480;
 // DMA-capable memory threshold. WiFi TX buffers require internal DMA memory which is more constrained.
-static const uint32_t kDMABackPressureThresholdBytes = 16384;
+// Steady-state DMA free is typically ~14KB, so threshold must be below that to avoid perpetual back-pressure.
+static const uint32_t kDMABackPressureThresholdBytes = 10240;
 static const uint32_t kHeapBackPressureCheckIntervalMs = 50;
-static const uint32_t kHeapBackPressureTimeoutMs = 5000;
+static const uint32_t kHeapBackPressureTimeoutMs = 1000;
 
 // #define ENABLE_TCP_SOCKET_RATE_LIMITING
 #ifdef ENABLE_TCP_SOCKET_RATE_LIMITING
@@ -54,6 +47,7 @@ void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, 
     comms_manager.IPEventHandler(arg, event_base, event_id, event_data);
 }
 void ip_wan_task(void* pvParameters) { comms_manager.IPWANTask(pvParameters); }
+void ip_wan_connection_task(void* pvParameters) { comms_manager.IPWANConnectionTask(pvParameters); }
 /** End "Pass-Through" functions. **/
 
 bool IsNotIPAddress(const char* uri) {
@@ -157,6 +151,9 @@ bool CommsManager::IPInit() {
 
     // IP WAN task stack size reduced since raw_packets_buf is now allocated on heap instead of stack.
     xTaskCreate(ip_wan_task, "ip_wan_task", 2 * 4096, &ip_wan_task_handle, kIPWANTaskPriority, NULL);
+    // Connection management task handles blocking TCP connect() and MQTT connect so they don't stall packet forwarding.
+    xTaskCreate(ip_wan_connection_task, "ip_wan_conn", 4096, &ip_wan_connection_task_handle,
+                kIPWANConnectionTaskPriority, NULL);
 
     // Initialize mDNS service.
     esp_err_t err = mdns_init();
@@ -244,84 +241,278 @@ void CommsManager::IPEventHandler(void* arg, esp_event_base_t event_base, int32_
     }
 }
 
-void CommsManager::IPWANTask(void* pvParameters) {
-    // MQTT clients for each feed (local to task, dynamically allocated).
-    ADSBeeMQTTClient* mqtt_clients[SettingsManager::Settings::kMaxNumFeeds] = {nullptr};
-    uint32_t mqtt_last_connect_attempt[SettingsManager::Settings::kMaxNumFeeds] = {0};
+// --- MQTT Feed Management Helpers ---
+// Decomposed from IPWANTask to keep the main task loop readable.
 
-    CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
-    
-    // Wait a bit for system to stabilize before initializing MQTT
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    
-    // Initialize MQTT clients for feeds configured with MQTT protocol
+struct MQTTFeedState {
+    ADSBeeMQTTClient* clients[SettingsManager::Settings::kMaxNumFeeds] = {nullptr};
+    uint32_t last_connect_attempt_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+    uint32_t last_telemetry_publish_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+    uint32_t last_aircraft_publish_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+};
+
+static const uint32_t kMQTTTelemetryIntervalMs = 60000;
+static const uint32_t kMQTTAircraftStatusIntervalMs = 5000;
+static const uint32_t kMQTTConnectRetryIntervalMs = 5000;
+static const uint32_t kIPWANConnectionTaskIntervalMs = 1000;
+
+// File-static MQTT state shared between the forwarding task and the connection task.
+// The connection task initializes clients and manages connections.
+// The forwarding task uses connected clients for publishing.
+static MQTTFeedState mqtt_feed_state;
+
+/** Initialize MQTT clients for feeds configured with MQTT protocol. */
+static void MQTTInitClients(MQTTFeedState& mqtt) {
     for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-        // Only initialize MQTT if the feed is active AND configured for MQTT
-        if (settings_manager.settings.feed_is_active[i] &&
-            settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
-            
-            // Validate feed configuration
-            if (strlen(settings_manager.settings.feed_uris[i]) == 0) {
-                CONSOLE_WARNING("CommsManager::IPWANTask", 
-                               "Feed %d configured for MQTT but no URI set", i);
-                continue;
-            }
-            
-            mqtt_clients[i] = new ADSBeeMQTTClient();
-            if (!mqtt_clients[i]) {
-                CONSOLE_ERROR("CommsManager::IPWANTask", 
-                             "Failed to allocate MQTT client for feed %d", i);
-                continue;
-            }
-            
-            // Generate unique client ID
-            char client_id[32];
-            snprintf(client_id, sizeof(client_id), "ADSBee-%d-%06X", 
-                     i, (unsigned int)(esp_random() & 0xFFFFFF));
-            
-            // Convert receiver ID to hex string for device ID
-            char device_id[17];  // 8 bytes * 2 + null terminator
-            snprintf(device_id, sizeof(device_id), "%02x%02x%02x%02x%02x%02x%02x%02x",
-                    settings_manager.settings.feed_receiver_ids[i][0],
-                    settings_manager.settings.feed_receiver_ids[i][1],
-                    settings_manager.settings.feed_receiver_ids[i][2],
-                    settings_manager.settings.feed_receiver_ids[i][3],
-                    settings_manager.settings.feed_receiver_ids[i][4],
-                    settings_manager.settings.feed_receiver_ids[i][5],
-                    settings_manager.settings.feed_receiver_ids[i][6],
-                    settings_manager.settings.feed_receiver_ids[i][7]);
-            
-            // Configure client
-            ADSBeeMQTTClient::Config mqtt_config;
-            mqtt_config.feed_index = i;
-            mqtt_config.broker_uri = settings_manager.settings.feed_uris[i];
-            mqtt_config.broker_port = settings_manager.settings.feed_ports[i];
-            mqtt_config.client_id = client_id;
-            mqtt_config.device_id = device_id;
-            mqtt_config.format = static_cast<MQTTProtocol::Format>(
-                settings_manager.settings.feed_mqtt_formats[i]);
-            mqtt_config.mqtt_content = settings_manager.settings.feed_mqtt_content[i];
-            mqtt_config.ota_enabled = settings_manager.settings.mqtt_ota_enabled[i];
+        if (!settings_manager.settings.feed_is_active[i] ||
+            settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
+            continue;
+        }
+        if (strlen(settings_manager.settings.feed_uris[i]) == 0) {
+            CONSOLE_WARNING("MQTTInitClients", "Feed %d configured for MQTT but no URI set", i);
+            continue;
+        }
 
-            if (mqtt_clients[i]->Init(mqtt_config)) {
-                CONSOLE_INFO("CommsManager::IPWANTask", 
-                            "MQTT client initialized for feed %d", i);
-            } else {
-                delete mqtt_clients[i];
-                mqtt_clients[i] = nullptr;
-                CONSOLE_ERROR("CommsManager::IPWANTask", 
-                             "Failed to initialize MQTT for feed %d", i);
+        mqtt.clients[i] = new ADSBeeMQTTClient();
+        if (!mqtt.clients[i]) {
+            CONSOLE_ERROR("MQTTInitClients", "Failed to allocate MQTT client for feed %d", i);
+            continue;
+        }
+
+        char client_id[32];
+        snprintf(client_id, sizeof(client_id), "ADSBee-%d-%06X",
+                 i, (unsigned int)(esp_random() & 0xFFFFFF));
+
+        char device_id[17];
+        snprintf(device_id, sizeof(device_id), "%02x%02x%02x%02x%02x%02x%02x%02x",
+                 settings_manager.settings.feed_receiver_ids[i][0],
+                 settings_manager.settings.feed_receiver_ids[i][1],
+                 settings_manager.settings.feed_receiver_ids[i][2],
+                 settings_manager.settings.feed_receiver_ids[i][3],
+                 settings_manager.settings.feed_receiver_ids[i][4],
+                 settings_manager.settings.feed_receiver_ids[i][5],
+                 settings_manager.settings.feed_receiver_ids[i][6],
+                 settings_manager.settings.feed_receiver_ids[i][7]);
+
+        ADSBeeMQTTClient::Config mqtt_config;
+        mqtt_config.feed_index = i;
+        mqtt_config.broker_uri = settings_manager.settings.feed_uris[i];
+        mqtt_config.broker_port = settings_manager.settings.feed_ports[i];
+        mqtt_config.client_id = client_id;
+        mqtt_config.device_id = device_id;
+        mqtt_config.format = static_cast<MQTTProtocol::Format>(
+            settings_manager.settings.feed_mqtt_formats[i]);
+        mqtt_config.mqtt_content = settings_manager.settings.feed_mqtt_content[i];
+        mqtt_config.ota_enabled = settings_manager.settings.mqtt_ota_enabled[i];
+
+        if (mqtt.clients[i]->Init(mqtt_config)) {
+            CONSOLE_INFO("MQTTInitClients", "MQTT client initialized for feed %d", i);
+        } else {
+            delete mqtt.clients[i];
+            mqtt.clients[i] = nullptr;
+            CONSOLE_ERROR("MQTTInitClients", "Failed to initialize MQTT for feed %d", i);
+        }
+    }
+}
+
+/** Proactively attempt MQTT connection for configured feeds. */
+static void MQTTConnectFeeds(MQTTFeedState& mqtt) {
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (!mqtt.clients[i]) continue;
+        if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+        if (!settings_manager.settings.feed_is_active[i]) continue;
+        if (!mqtt.clients[i]->IsConnected()) {
+            uint32_t now = get_time_since_boot_ms();
+            if (now - mqtt.last_connect_attempt_ms[i] > kMQTTConnectRetryIntervalMs) {
+                CONSOLE_INFO("MQTTConnectFeeds", "MQTT feed %d: connecting to %s (heap=%u)",
+                             i, settings_manager.settings.feed_uris[i],
+                             heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                mqtt.clients[i]->Connect();
+                mqtt.last_connect_attempt_ms[i] = now;
             }
         }
     }
+}
 
-    // Telemetry publishing interval (ms)
-    static const uint32_t kTelemetryIntervalMs = 60000;
-    uint32_t last_telemetry_publish_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+/** Publish raw packets from a composite array to all connected MQTT feeds. */
+static void MQTTPublishRawPackets(MQTTFeedState& mqtt,
+                                   CompositeArray::RawPackets& composite_array,
+                                   uint16_t* feed_mps_counter) {
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (!mqtt.clients[i] || !mqtt.clients[i]->IsConnected()) continue;
+        if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+        if (!settings_manager.settings.feed_is_active[i]) continue;
 
-    // Aircraft status publishing interval (ms)
-    static const uint32_t kAircraftStatusIntervalMs = 5000;
-    uint32_t last_aircraft_publish_ms[SettingsManager::Settings::kMaxNumFeeds] = {0};
+        uint8_t content = mqtt.clients[i]->GetConfig().mqtt_content;
+        if (content != SettingsManager::Settings::kMQTTContentAll &&
+            content != SettingsManager::Settings::kMQTTContentRaw) {
+            continue;
+        }
+
+        for (uint16_t p = 0; p < composite_array.header->num_mode_s_packets; p++) {
+            DecodedModeSPacket decoded_packet(composite_array.mode_s_packets[p]);
+            if (!decoded_packet.is_valid) continue;
+            if (mqtt.clients[i]->PublishPacket(decoded_packet, MQTTProtocol::kModeS)) {
+                feed_mps_counter[i]++;
+            }
+        }
+
+        for (uint16_t p = 0; p < composite_array.header->num_uat_adsb_packets; p++) {
+            DecodedUATADSBPacket decoded_packet(composite_array.uat_adsb_packets[p]);
+            if (!decoded_packet.is_valid) continue;
+            if (mqtt.clients[i]->PublishUATPacket(decoded_packet)) {
+                feed_mps_counter[i]++;
+            }
+        }
+    }
+}
+
+/** Periodically publish telemetry data on connected MQTT feeds. */
+static void MQTTPublishTelemetry(MQTTFeedState& mqtt) {
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (!mqtt.clients[i]) continue;
+        if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+        if (!settings_manager.settings.feed_is_active[i]) continue;
+        if (!mqtt.clients[i]->IsConnected()) continue;
+
+        uint32_t now = get_time_since_boot_ms();
+        if (now - mqtt.last_telemetry_publish_ms[i] < kMQTTTelemetryIntervalMs) continue;
+
+        MQTTProtocol::TelemetryData t = {};
+        t.uptime_sec = now / 1000;
+        uint32_t total_mps = 0;
+        uint8_t mps_count = 0;
+        for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
+            total_mps += comms_manager.feed_mps[j];
+            if (mps_count < MQTTProtocol::TelemetryData::kMaxFeedsForTelemetry) {
+                t.mps_feeds[mps_count++] = comms_manager.feed_mps[j];
+            }
+        }
+        t.messages_received = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
+        t.mps_total = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
+        t.mps_feed_count = mps_count;
+        t.messages_sent = (uint16_t)MIN(mqtt.clients[i]->GetMessagesSent(), (uint32_t)0xFFFF);
+        t.cpu_temp_c = object_dictionary.device_status.temperature_deg_c;
+        t.pico_temp_c = object_dictionary.composite_device_status.rp2040.temperature_deg_c;
+        t.pico_core0_pct = object_dictionary.composite_device_status.rp2040.core_0_usage_percent;
+        t.pico_core1_pct = object_dictionary.composite_device_status.rp2040.core_1_usage_percent;
+        t.aircraft_count = (uint16_t)adsbee_server.aircraft_dictionary.dict.size();
+        t.memory_free_kb = (uint16_t)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+        t.rssi_noise_floor_dbm = 0;
+        t.receiver_1090_enabled = 1;
+        t.receiver_subg_enabled = 0;
+        t.wifi_connected = comms_manager.WiFiStationHasIP() ? 1 : 0;
+        t.mqtt_connected = 1;
+        t.fw_major = ObjectDictionary::kFirmwareVersionMajor;
+        t.fw_minor = ObjectDictionary::kFirmwareVersionMinor;
+        t.fw_patch = ObjectDictionary::kFirmwareVersionPatch;
+
+        if (!mqtt.clients[i]->PublishTelemetry(t)) {
+            CONSOLE_WARNING("MQTTPublishTelemetry", "Failed to publish telemetry on MQTT feed %d", i);
+        }
+        mqtt.last_telemetry_publish_ms[i] = now;
+    }
+}
+
+/** Periodically publish decoded aircraft status from the aircraft dictionary. */
+static void MQTTPublishAircraftStatus(MQTTFeedState& mqtt) {
+    for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+        if (!mqtt.clients[i] || !mqtt.clients[i]->IsConnected()) continue;
+        if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
+        if (!settings_manager.settings.feed_is_active[i]) continue;
+
+        uint8_t content = mqtt.clients[i]->GetConfig().mqtt_content;
+        if (content != SettingsManager::Settings::kMQTTContentAll &&
+            content != SettingsManager::Settings::kMQTTContentStatus) {
+            continue;
+        }
+
+        uint32_t now = get_time_since_boot_ms();
+        if (now - mqtt.last_aircraft_publish_ms[i] < kMQTTAircraftStatusIntervalMs) continue;
+
+        uint32_t cutoff = mqtt.last_aircraft_publish_ms[i];
+        mqtt.last_aircraft_publish_ms[i] = now;
+
+        for (auto& itr : adsbee_server.aircraft_dictionary.dict) {
+            if (ModeSAircraft* ac = get_if<ModeSAircraft>(&(itr.second)); ac) {
+                if (!ac->HasBitFlag(ModeSAircraft::kBitFlagPositionValid)) continue;
+                if (ac->last_message_timestamp_ms <= cutoff) continue;
+                mqtt.clients[i]->PublishAircraft(*ac, MQTTProtocol::kModeS);
+            } else if (UATAircraft* uat = get_if<UATAircraft>(&(itr.second)); uat) {
+                if (!uat->HasBitFlag(UATAircraft::kBitFlagPositionValid)) continue;
+                if (uat->last_message_timestamp_ms <= cutoff) continue;
+                ModeSAircraft tmp;
+                tmp.icao_address = uat->icao_address;
+                strncpy(tmp.callsign, uat->callsign, sizeof(tmp.callsign));
+                tmp.latitude_deg = uat->latitude_deg;
+                tmp.longitude_deg = uat->longitude_deg;
+                tmp.baro_altitude_ft = uat->baro_altitude_ft;
+                tmp.direction_deg = uat->direction_deg;
+                tmp.speed_kts = uat->speed_kts;
+                tmp.baro_vertical_rate_fpm = uat->baro_vertical_rate_fpm;
+                tmp.squawk = uat->squawk;
+                tmp.emitter_category_raw = uat->emitter_category_raw;
+                tmp.last_message_signal_strength_dbm = uat->last_message_signal_strength_dbm;
+                tmp.last_message_timestamp_ms = uat->last_message_timestamp_ms;
+                if (uat->HasBitFlag(UATAircraft::kBitFlagIsAirborne))
+                    tmp.flags |= (1 << ModeSAircraft::kBitFlagIsAirborne);
+                if (uat->HasBitFlag(UATAircraft::kBitFlagIdent))
+                    tmp.flags |= (1 << ModeSAircraft::kBitFlagIdent);
+                if (uat->HasBitFlag(UATAircraft::kBitFlagTCASRA))
+                    tmp.flags |= (1 << ModeSAircraft::kBitFlagTCASRA);
+                mqtt.clients[i]->PublishAircraft(tmp, MQTTProtocol::kUAT);
+            }
+        }
+    }
+}
+
+// --- IPWANConnectionTask ---
+// Manages TCP feed socket connections and MQTT client connections in a separate task.
+// This prevents blocking connect()/DNS operations from stalling the packet forwarding loop.
+
+void CommsManager::IPWANConnectionTask(void* pvParameters) {
+    CONSOLE_INFO("CommsManager::IPWANConnectionTask", "IP WAN Connection Task started.");
+    vTaskDelay(pdMS_TO_TICKS(2000));  // Allow other subsystems to initialize first.
+
+    MQTTInitClients(mqtt_feed_state);
+
+    while (true) {
+        // Don't try establishing connections until the ESP32 has been assigned an IP address.
+        while (!HasIP()) {
+            vTaskDelay(1);
+        }
+
+        // Connect/disconnect TCP feed sockets as needed.
+        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
+            if (!settings_manager.settings.feed_is_active[i]) {
+                if (feed_sock_is_connected_[i]) {
+                    CloseFeedSocket(i);
+                }
+                continue;
+            }
+            // MQTT feeds manage their own connection via the ESP-IDF MQTT library.
+            if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
+                continue;
+            }
+            if (!feed_sock_is_connected_[i]) {
+                ConnectFeedSocket(i);  // May block on DNS resolution and TCP connect().
+            }
+        }
+
+        // Connect MQTT feeds (rate-limited internally by kMQTTConnectRetryIntervalMs).
+        MQTTConnectFeeds(mqtt_feed_state);
+
+        vTaskDelay(pdMS_TO_TICKS(kIPWANConnectionTaskIntervalMs));
+    }
+}
+
+// --- IPWANTask ---
+// Drains the raw packet queue and forwards packets to connected feeds. Kept free of blocking
+// connection operations so that packet forwarding is never stalled by slow network connections.
+
+void CommsManager::IPWANTask(void* pvParameters) {
+    CONSOLE_INFO("CommsManager::IPWANTask", "IP WAN Task started.");
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
     uint8_t* raw_packets_buf = (uint8_t*)heap_caps_malloc(CompositeArray::RawPackets::kMaxLenBytes, MALLOC_CAP_8BIT);
     if (raw_packets_buf == nullptr) {
@@ -331,73 +522,39 @@ void CommsManager::IPWANTask(void* pvParameters) {
     }
 
     while (true) {
-        // Don't try establishing socket connections until the ESP32 has been assigned an IP address.
+        // Don't try forwarding packets until the ESP32 has been assigned an IP address.
         while (!HasIP()) {
-            vTaskDelay(1);  // Delay for 1 tick.
+            vTaskDelay(1);
         }
 
         UpdateFeedMetrics();
 
+        // Build list of active TCP report sinks from already-connected sockets.
+        // Connection management is handled by IPWANConnectionTask.
         uint16_t num_active_report_sinks = 0;
         ReportSink active_report_sinks[SettingsManager::Settings::kMaxNumFeeds] = {0};
         SettingsManager::ReportingProtocol active_reporting_protocols[SettingsManager::Settings::kMaxNumFeeds] = {
             SettingsManager::ReportingProtocol::kNoReports};
 
-        // Maintain socket connections and build list of acive report sinks.
         for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            // Iterate through feeds, open/close and send message as required.
-            if (!settings_manager.settings.feed_is_active[i]) {
-                // Feed is not active, ensure socket is closed.
-                if (feed_sock_is_connected_[i]) {
-                    // Need to close the socket connection.
-                    CloseFeedSocket(i);
-                }
-                continue;
-            } else {
-                // MQTT feeds manage their own connection via the ESP-IDF MQTT library,
-                // so skip raw TCP socket management for them.
-                if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) {
-                    continue;
-                }
-                // Feed is active, ensure socket is open and add to active sinks if connected.
-                if (!feed_sock_is_connected_[i] && !ConnectFeedSocket(i)) {
-                    // Need to open the socket connection, but failed to do so.
-                    continue;  // Failed to connect, try again later.
-                }
-                // Socket is connected, add to active sinks.
-                active_report_sinks[num_active_report_sinks] = i;
-                active_reporting_protocols[num_active_report_sinks] = settings_manager.settings.feed_protocols[i];
-                num_active_report_sinks++;
-            }
+            if (!settings_manager.settings.feed_is_active[i]) continue;
+            // MQTT feeds are handled separately via MQTTPublishRawPackets.
+            if (settings_manager.settings.feed_protocols[i] == SettingsManager::ReportingProtocol::kMQTT) continue;
+            if (!feed_sock_is_connected_[i]) continue;  // Not connected yet; connection task will handle it.
+            active_report_sinks[num_active_report_sinks] = i;
+            active_reporting_protocols[num_active_report_sinks] = settings_manager.settings.feed_protocols[i];
+            num_active_report_sinks++;
         }
 
-        // Proactively attempt MQTT connection for configured feeds, independent of packet flow.
-        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            if (!mqtt_clients[i]) {
-                continue;
-            }
-            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
-                continue;
-            }
-            if (!settings_manager.settings.feed_is_active[i]) {
-                continue;
-            }
-            if (!mqtt_clients[i]->IsConnected()) {
-                uint32_t now = get_time_since_boot_ms();
-                if (now - mqtt_last_connect_attempt[i] > 5000) {
-                    CONSOLE_INFO("CommsManager::IPWANTask",
-                                 "MQTT feed %d: connecting to %s (heap=%u)",
-                                 i, settings_manager.settings.feed_uris[i],
-                                 heap_caps_get_free_size(MALLOC_CAP_8BIT));
-                    mqtt_clients[i]->Connect();
-                    mqtt_last_connect_attempt[i] = now;
-                }
-            }
-        }
+        // Check if heap is too low for network sends. If so, skip forwarding to avoid failed
+        // allocations (DMA exhaustion) that slow the drain loop and cause queue overflow.
+        bool heap_ok_for_sends = heap_caps_get_free_size(MALLOC_CAP_8BIT) >= kHeapBackPressureThresholdBytes &&
+                                 heap_caps_get_free_size(MALLOC_CAP_DMA) >= kDMABackPressureThresholdBytes;
 
-        // Drain all queued raw packets first, before slow periodic MQTT work.
-        // This prevents the 3-element queue from overflowing during aircraft status bursts.
+        // Drain all queued raw packets. Always drain even if we can't forward, to prevent queue overflow.
         while (xQueueReceive(ip_wan_reporting_composite_array_queue_, raw_packets_buf, 0) == pdTRUE) {
+            if (!heap_ok_for_sends) continue;  // Discard packet to keep queue moving.
+
             CompositeArray::RawPackets reporting_composite_array;
             if (!CompositeArray::UnpackRawPacketsBuffer(reporting_composite_array, raw_packets_buf,
                                                         CompositeArray::RawPackets::kMaxLenBytes)) {
@@ -405,168 +562,20 @@ void CommsManager::IPWANTask(void* pvParameters) {
                 continue;
             }
 
-            // Update feeds with raw and digested reports (handles TCP-based protocols).
+            // Update TCP-based feeds with raw and digested reports.
             if (!UpdateReporting(active_report_sinks, active_reporting_protocols, num_active_report_sinks,
                                  &reporting_composite_array)) {
                 CONSOLE_ERROR("CommsManager::IPWANTask", "Error during UpdateReporting for feeds.");
             }
 
-            // Publish raw packets to MQTT feeds (separate from TCP-based UpdateReporting flow).
-            for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-                if (!mqtt_clients[i] || !mqtt_clients[i]->IsConnected()) {
-                    continue;
-                }
-                if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
-                    continue;
-                }
-                if (!settings_manager.settings.feed_is_active[i]) {
-                    continue;
-                }
-                // Only publish raw packets if content mode is ALL or RAW.
-                uint8_t content = mqtt_clients[i]->GetConfig().mqtt_content;
-                if (content != SettingsManager::Settings::MQTT_CONTENT_ALL &&
-                    content != SettingsManager::Settings::MQTT_CONTENT_RAW) {
-                    continue;
-                }
-                // Iterate through Mode S packets in the composite array and publish each one.
-                for (uint16_t p = 0; p < reporting_composite_array.header->num_mode_s_packets; p++) {
-                    DecodedModeSPacket decoded_packet(reporting_composite_array.mode_s_packets[p]);
-                    if (!decoded_packet.is_valid) {
-                        continue;
-                    }
-                    MQTTProtocol::FrequencyBand band = MQTTProtocol::BAND_1090_MHZ;
-                    if (mqtt_clients[i]->PublishPacket(decoded_packet, band)) {
-                        feed_mps_counter_[i]++;
-                    }
-                }
-                // Iterate through UAT ADS-B packets and publish each one.
-                for (uint16_t p = 0; p < reporting_composite_array.header->num_uat_adsb_packets; p++) {
-                    DecodedUATADSBPacket decoded_packet(reporting_composite_array.uat_adsb_packets[p]);
-                    if (!decoded_packet.is_valid) {
-                        continue;
-                    }
-                    if (mqtt_clients[i]->PublishUATPacket(decoded_packet)) {
-                        feed_mps_counter_[i]++;
-                    }
-                }
-            }
+            MQTTPublishRawPackets(mqtt_feed_state, reporting_composite_array, feed_mps_counter_);
         }
 
-        // Periodic telemetry publish on connected MQTT feeds
-        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            if (!mqtt_clients[i]) {
-                continue;
-            }
-            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) {
-                continue;
-            }
-            if (!settings_manager.settings.feed_is_active[i]) {
-                continue;
-            }
-            if (!mqtt_clients[i]->IsConnected()) {
-                continue;
-            }
-            uint32_t now = get_time_since_boot_ms();
-            if (now - last_telemetry_publish_ms[i] >= kTelemetryIntervalMs) {
-                MQTTProtocol::TelemetryData t = {};
-                t.uptime_sec = now / 1000;
-                uint32_t total_mps = 0;
-                uint8_t mps_count = 0;
-                for (uint16_t j = 0; j < SettingsManager::Settings::kMaxNumFeeds; j++) {
-                    total_mps += feed_mps[j];
-                    if (mps_count < MQTTProtocol::TelemetryData::kMaxFeedsForTelemetry) {
-                        t.mps_feeds[mps_count++] = feed_mps[j];
-                    }
-                }
-                t.messages_received = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
-                t.mps_total = (uint16_t)MIN(total_mps, (uint32_t)0xFFFF);
-                t.mps_feed_count = mps_count;
-                // Use per-client cumulative MQTT messages sent
-                t.messages_sent = (uint16_t)MIN(mqtt_clients[i]->GetMessagesSent(), (uint32_t)0xFFFF);
-                // ESP32 temperature from device_status_update_task (already running in app_main.cpp)
-                t.cpu_temp_c = object_dictionary.device_status.temperature_deg_c;
-                // RP2040 metrics from composite device status (sent via SPI)
-                t.pico_temp_c = object_dictionary.composite_device_status.rp2040.temperature_deg_c;
-                t.pico_core0_pct = object_dictionary.composite_device_status.rp2040.core_0_usage_percent;
-                t.pico_core1_pct = object_dictionary.composite_device_status.rp2040.core_1_usage_percent;
-                // Aircraft count
-                t.aircraft_count = (uint16_t)adsbee_server.aircraft_dictionary.dict.size();
-                // Free heap (8-bit accessible)
-                t.memory_free_kb = (uint16_t)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
-                // Noise floor not measured on ESP32 side
-                t.rssi_noise_floor_dbm = 0;
-                t.receiver_1090_enabled = 1;
-                t.receiver_978_enabled = 0;
-                t.wifi_connected = wifi_sta_has_ip_ ? 1 : 0;
-                t.mqtt_connected = 1;
-                // Firmware version from ObjectDictionary constants
-                t.fw_major = ObjectDictionary::kFirmwareVersionMajor;
-                t.fw_minor = ObjectDictionary::kFirmwareVersionMinor;
-                t.fw_patch = ObjectDictionary::kFirmwareVersionPatch;
-
-                if (mqtt_clients[i]->PublishTelemetry(t)) {
-                    // Published OK; no counter increment (feed_mps is packet traffic)
-                } else {
-                    CONSOLE_WARNING("CommsManager::IPWANTask",
-                                    "Failed to publish telemetry on MQTT feed %d", i);
-                }
-                last_telemetry_publish_ms[i] = now;
-            }
+        if (heap_ok_for_sends) {
+            MQTTPublishTelemetry(mqtt_feed_state);
+            MQTTPublishAircraftStatus(mqtt_feed_state);
         }
 
-        // Periodically publish decoded aircraft status from the aircraft dictionary.
-        for (uint16_t i = 0; i < SettingsManager::Settings::kMaxNumFeeds; i++) {
-            if (!mqtt_clients[i] || !mqtt_clients[i]->IsConnected()) continue;
-            if (settings_manager.settings.feed_protocols[i] != SettingsManager::ReportingProtocol::kMQTT) continue;
-            if (!settings_manager.settings.feed_is_active[i]) continue;
-
-            // Only publish aircraft status if content mode is ALL or STATUS.
-            uint8_t content = mqtt_clients[i]->GetConfig().mqtt_content;
-            if (content != SettingsManager::Settings::MQTT_CONTENT_ALL &&
-                content != SettingsManager::Settings::MQTT_CONTENT_STATUS) {
-                continue;
-            }
-
-            uint32_t now = get_time_since_boot_ms();
-            if (now - last_aircraft_publish_ms[i] < kAircraftStatusIntervalMs) continue;
-
-            uint32_t cutoff = last_aircraft_publish_ms[i];  // Previous publish time = cutoff for dedup.
-            last_aircraft_publish_ms[i] = now;              // Update for next round.
-            for (auto& itr : adsbee_server.aircraft_dictionary.dict) {
-                if (ModeSAircraft* ac = get_if<ModeSAircraft>(&(itr.second)); ac) {
-                    if (!ac->HasBitFlag(ModeSAircraft::kBitFlagPositionValid)) continue;
-                    if (ac->last_message_timestamp_ms <= cutoff) continue;
-                    mqtt_clients[i]->PublishAircraft(*ac, MQTTProtocol::BAND_1090_MHZ);
-                } else if (UATAircraft* uat = get_if<UATAircraft>(&(itr.second)); uat) {
-                    if (!uat->HasBitFlag(UATAircraft::kBitFlagPositionValid)) continue;
-                    if (uat->last_message_timestamp_ms <= cutoff) continue;
-                    // Populate a temporary ModeSAircraft with UAT data for formatting.
-                    ModeSAircraft tmp;
-                    tmp.icao_address = uat->icao_address;
-                    strncpy(tmp.callsign, uat->callsign, sizeof(tmp.callsign));
-                    tmp.latitude_deg = uat->latitude_deg;
-                    tmp.longitude_deg = uat->longitude_deg;
-                    tmp.baro_altitude_ft = uat->baro_altitude_ft;
-                    tmp.direction_deg = uat->direction_deg;
-                    tmp.speed_kts = uat->speed_kts;
-                    tmp.baro_vertical_rate_fpm = uat->baro_vertical_rate_fpm;
-                    tmp.squawk = uat->squawk;
-                    tmp.emitter_category_raw = uat->emitter_category_raw;
-                    tmp.last_message_signal_strength_dbm = uat->last_message_signal_strength_dbm;
-                    tmp.last_message_timestamp_ms = uat->last_message_timestamp_ms;
-                    // Map UAT flags to ModeSAircraft flags (same bit positions for shared flags).
-                    if (uat->HasBitFlag(UATAircraft::kBitFlagIsAirborne))
-                        tmp.flags |= (1 << ModeSAircraft::kBitFlagIsAirborne);
-                    if (uat->HasBitFlag(UATAircraft::kBitFlagIdent))
-                        tmp.flags |= (1 << ModeSAircraft::kBitFlagIdent);
-                    if (uat->HasBitFlag(UATAircraft::kBitFlagTCASRA))
-                        tmp.flags |= (1 << ModeSAircraft::kBitFlagTCASRA);
-                    mqtt_clients[i]->PublishAircraft(tmp, MQTTProtocol::BAND_978_MHZ);
-                }
-            }
-        }
-
-        // Wait for next iteration. This is where the task sleeps when the queue is empty.
         vTaskDelay(kWiFiSTATaskUpdateIntervalTicks);
     }
 
@@ -649,9 +658,9 @@ bool CommsManager::ConnectFeedSocket(uint16_t feed_index) {
     }
     CONSOLE_INFO("CommsManager::IPWANTask", "Successfully connected to %s",
                  settings_manager.settings.feed_uris[feed_index]);
-    feed_sock_is_connected_[feed_index] = true;
 
-    // Perform beginning-of-connection actions here.
+    // Perform beginning-of-connection actions here (before marking as connected, so the
+    // forwarding task doesn't start sending before the handshake completes).
     switch (settings_manager.settings.feed_protocols[feed_index]) {
         case SettingsManager::ReportingProtocol::kBeast:
         case SettingsManager::ReportingProtocol::kBeastNoUAT:
@@ -679,6 +688,9 @@ bool CommsManager::ConnectFeedSocket(uint16_t feed_index) {
             // No start of connections actions required for other protocols.
             break;
     }
+    // Mark socket as connected only after handshake is complete, so the forwarding task
+    // doesn't start sending before the connection is fully established.
+    feed_sock_is_connected_[feed_index] = true;
     return true;
 }
 

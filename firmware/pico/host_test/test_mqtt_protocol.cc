@@ -6,42 +6,42 @@
 TEST(MQTTProtocol, GetTopicJSON_NoBand_NoDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
     EXPECT_TRUE(MQTTProtocol::GetTopic(0xABCDEF, "raw", topic, sizeof(topic),
-                                        MQTTProtocol::BAND_1090_MHZ, false, nullptr));
+                                        MQTTProtocol::kModeS, false, nullptr));
     EXPECT_STREQ(topic, "adsb/ABCDEF/raw");
 }
 
 TEST(MQTTProtocol, GetTopicJSON_UAT_NoDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
     EXPECT_TRUE(MQTTProtocol::GetTopic(0x123456, "raw", topic, sizeof(topic),
-                                        MQTTProtocol::BAND_978_MHZ, false, nullptr));
+                                        MQTTProtocol::kUAT, false, nullptr));
     EXPECT_STREQ(topic, "uat/123456/raw");
 }
 
 TEST(MQTTProtocol, GetTopicJSON_WithDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
     EXPECT_TRUE(MQTTProtocol::GetTopic(0xABCDEF, "status", topic, sizeof(topic),
-                                        MQTTProtocol::BAND_1090_MHZ, false, "mydevice"));
+                                        MQTTProtocol::kModeS, false, "mydevice"));
     EXPECT_STREQ(topic, "mydevice/adsb/ABCDEF/status");
 }
 
 TEST(MQTTProtocol, GetTopicShort_NoDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
     EXPECT_TRUE(MQTTProtocol::GetTopic(0xABCDEF, "raw", topic, sizeof(topic),
-                                        MQTTProtocol::BAND_1090_MHZ, true, nullptr));
+                                        MQTTProtocol::kModeS, true, nullptr));
     EXPECT_STREQ(topic, "a/ABCDEF/r");
 }
 
 TEST(MQTTProtocol, GetTopicShort_UAT_WithDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
     EXPECT_TRUE(MQTTProtocol::GetTopic(0x123456, "status", topic, sizeof(topic),
-                                        MQTTProtocol::BAND_978_MHZ, true, "dev1"));
+                                        MQTTProtocol::kUAT, true, "dev1"));
     EXPECT_STREQ(topic, "dev1/u/123456/s");
 }
 
 TEST(MQTTProtocol, GetTopicShort_Position) {
     char topic[MQTTProtocol::kMaxTopicSize];
     EXPECT_TRUE(MQTTProtocol::GetTopic(0xABCDEF, "position", topic, sizeof(topic),
-                                        MQTTProtocol::BAND_1090_MHZ, true, nullptr));
+                                        MQTTProtocol::kModeS, true, nullptr));
     EXPECT_STREQ(topic, "a/ABCDEF/p");
 }
 
@@ -67,10 +67,10 @@ TEST(MQTTProtocol, GetTelemetryTopicJSON_NoDevice) {
     EXPECT_STREQ(topic, "system/telemetry");
 }
 
-TEST(MQTTProtocol, GetTelemetryTopicJSON_GPS_WithDevice) {
+TEST(MQTTProtocol, GetTelemetryTopicJSON_Position_WithDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
-    EXPECT_TRUE(MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "gps", false, "mydev"));
-    EXPECT_STREQ(topic, "mydev/system/gps");
+    EXPECT_TRUE(MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "position", false, "mydev"));
+    EXPECT_STREQ(topic, "mydev/system/position");
 }
 
 TEST(MQTTProtocol, GetTelemetryTopicShort_NoDevice) {
@@ -79,9 +79,9 @@ TEST(MQTTProtocol, GetTelemetryTopicShort_NoDevice) {
     EXPECT_STREQ(topic, "sys/t");
 }
 
-TEST(MQTTProtocol, GetTelemetryTopicShort_GPS_WithDevice) {
+TEST(MQTTProtocol, GetTelemetryTopicShort_Position_WithDevice) {
     char topic[MQTTProtocol::kMaxTopicSize];
-    EXPECT_TRUE(MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "gps", true, "dev1"));
+    EXPECT_TRUE(MQTTProtocol::GetTelemetryTopic(topic, sizeof(topic), "position", true, "dev1"));
     EXPECT_STREQ(topic, "dev1/sys/g");
 }
 
@@ -105,8 +105,8 @@ TEST(MQTTProtocol, FormatPacketJSON) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer),
-                                               MQTTProtocol::FORMAT_JSON,
-                                               MQTTProtocol::BAND_1090_MHZ);
+                                               MQTTProtocol::kFormatJSON,
+                                               MQTTProtocol::kModeS);
     ASSERT_GT(len, 0);
 
     // Parse the JSON string
@@ -128,8 +128,8 @@ TEST(MQTTProtocol, FormatPacketJSON_UAT_Band) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer),
-                                               MQTTProtocol::FORMAT_JSON,
-                                               MQTTProtocol::BAND_978_MHZ);
+                                               MQTTProtocol::kFormatJSON,
+                                               MQTTProtocol::kUAT);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -144,16 +144,16 @@ TEST(MQTTProtocol, FormatPacketBinary) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer),
-                                               MQTTProtocol::FORMAT_BINARY,
-                                               MQTTProtocol::BAND_1090_MHZ);
+                                               MQTTProtocol::kFormatBinary,
+                                               MQTTProtocol::kModeS);
     ASSERT_GT(len, 0);
 
     // Binary format: [Type:1][Band+Reserved:1][Data:7-14]
-    EXPECT_EQ(buffer[0], MQTTProtocol::BINARY_RAW);
+    EXPECT_EQ(buffer[0], MQTTProtocol::kBinaryRaw);
     // DF17 is long format = 14 data bytes + 2 header = 16 total
     EXPECT_EQ(len, 16);
     // Band in upper 2 bits of byte 1
-    EXPECT_EQ((buffer[1] >> 6) & 0x03, MQTTProtocol::BAND_1090_MHZ);
+    EXPECT_EQ((buffer[1] >> 6) & 0x03, MQTTProtocol::kModeS);
 }
 
 TEST(MQTTProtocol, FormatPacketBinary_UAT_Band) {
@@ -163,10 +163,10 @@ TEST(MQTTProtocol, FormatPacketBinary_UAT_Band) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer),
-                                               MQTTProtocol::FORMAT_BINARY,
-                                               MQTTProtocol::BAND_978_MHZ);
+                                               MQTTProtocol::kFormatBinary,
+                                               MQTTProtocol::kUAT);
     ASSERT_GT(len, 0);
-    EXPECT_EQ((buffer[1] >> 6) & 0x03, MQTTProtocol::BAND_978_MHZ);
+    EXPECT_EQ((buffer[1] >> 6) & 0x03, MQTTProtocol::kUAT);
 }
 
 TEST(MQTTProtocol, FormatPacket_ShortSquitter) {
@@ -177,7 +177,7 @@ TEST(MQTTProtocol, FormatPacket_ShortSquitter) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer),
-                                               MQTTProtocol::FORMAT_BINARY);
+                                               MQTTProtocol::kFormatBinary);
 
     if (packet.is_valid) {
         // Short format = 7 data bytes + 2 header = 9 total
@@ -187,7 +187,7 @@ TEST(MQTTProtocol, FormatPacket_ShortSquitter) {
 
 TEST(MQTTProtocol, FormatPacket_NullBuffer) {
     DecodedModeSPacket packet;
-    uint16_t len = MQTTProtocol::FormatPacket(packet, nullptr, 512, MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatPacket(packet, nullptr, 512, MQTTProtocol::kFormatJSON);
     EXPECT_EQ(len, 0);
 }
 
@@ -196,7 +196,7 @@ TEST(MQTTProtocol, FormatPacket_BufferTooSmall) {
                               0, -42, 50, 0);
     uint8_t buffer[5];  // Way too small
     uint16_t len = MQTTProtocol::FormatPacket(packet, buffer, sizeof(buffer),
-                                               MQTTProtocol::FORMAT_JSON);
+                                               MQTTProtocol::kFormatJSON);
     EXPECT_EQ(len, 0);
 }
 
@@ -218,8 +218,8 @@ TEST(MQTTProtocol, FormatAircraftJSON) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer),
-                                                 MQTTProtocol::FORMAT_JSON,
-                                                 MQTTProtocol::BAND_1090_MHZ);
+                                                 MQTTProtocol::kFormatJSON,
+                                                 MQTTProtocol::kModeS);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -243,7 +243,7 @@ TEST(MQTTProtocol, FormatAircraftJSON_OnGround) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer),
-                                                 MQTTProtocol::FORMAT_JSON);
+                                                 MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -272,21 +272,21 @@ TEST(MQTTProtocol, FormatAircraftBinary) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer),
-                                                 MQTTProtocol::FORMAT_BINARY,
-                                                 MQTTProtocol::BAND_1090_MHZ);
+                                                 MQTTProtocol::kFormatBinary,
+                                                 MQTTProtocol::kModeS);
     ASSERT_EQ(len, sizeof(MQTTProtocol::BinaryAircraft));
 
     MQTTProtocol::BinaryAircraft *msg = (MQTTProtocol::BinaryAircraft *)buffer;
-    EXPECT_EQ(msg->type, MQTTProtocol::BINARY_AIRCRAFT);
-    EXPECT_EQ(msg->band, MQTTProtocol::BAND_1090_MHZ);
+    EXPECT_EQ(msg->type, MQTTProtocol::kBinaryAircraft);
+    EXPECT_EQ(msg->protocol, MQTTProtocol::kModeS);
     EXPECT_EQ(msg->icao24, 0xABCDEFu);
-    EXPECT_EQ(msg->alt, 10000 / 25);
+    EXPECT_EQ(msg->altitude_25ft, 10000 / 25);
     EXPECT_EQ(msg->category, 0x60);
 }
 
 TEST(MQTTProtocol, FormatAircraft_NullBuffer) {
     ModeSAircraft aircraft;
-    uint16_t len = MQTTProtocol::FormatAircraft(aircraft, nullptr, 512, MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatAircraft(aircraft, nullptr, 512, MQTTProtocol::kFormatJSON);
     EXPECT_EQ(len, 0);
 }
 
@@ -301,7 +301,7 @@ TEST(MQTTProtocol, FormatTelemetryJSON) {
     telemetry.memory_free_kb = 128;
     telemetry.rssi_noise_floor_dbm = -95;
     telemetry.receiver_1090_enabled = 1;
-    telemetry.receiver_978_enabled = 1;
+    telemetry.receiver_subg_enabled = 1;
     telemetry.wifi_connected = 1;
     telemetry.mqtt_connected = 1;
     telemetry.fw_major = 2;
@@ -310,7 +310,7 @@ TEST(MQTTProtocol, FormatTelemetryJSON) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatTelemetry(telemetry, buffer, sizeof(buffer),
-                                                  MQTTProtocol::FORMAT_JSON);
+                                                  MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -334,7 +334,7 @@ TEST(MQTTProtocol, FormatTelemetryJSON_WithMPS) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatTelemetry(telemetry, buffer, sizeof(buffer),
-                                                  MQTTProtocol::FORMAT_JSON);
+                                                  MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -353,47 +353,47 @@ TEST(MQTTProtocol, FormatTelemetryBinary) {
     telemetry.memory_free_kb = 2048;  // 2 MB
     telemetry.rssi_noise_floor_dbm = -90;
     telemetry.receiver_1090_enabled = 1;
-    telemetry.receiver_978_enabled = 0;
+    telemetry.receiver_subg_enabled = 0;
     telemetry.wifi_connected = 1;
     telemetry.mqtt_connected = 1;
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatTelemetry(telemetry, buffer, sizeof(buffer),
-                                                  MQTTProtocol::FORMAT_BINARY);
+                                                  MQTTProtocol::kFormatBinary);
     ASSERT_EQ(len, sizeof(MQTTProtocol::BinaryTelemetry));
 
     MQTTProtocol::BinaryTelemetry *msg = (MQTTProtocol::BinaryTelemetry *)buffer;
-    EXPECT_EQ(msg->type, MQTTProtocol::BINARY_TELEMETRY);
-    EXPECT_EQ(msg->uptime, 120u);  // 7200 sec / 60 = 120 min
-    EXPECT_EQ(msg->msgs_rx, 1000);
-    EXPECT_EQ(msg->msgs_tx, 500);
-    EXPECT_EQ(msg->cpu_temp, 55);
-    EXPECT_EQ(msg->noise_floor, -90);
+    EXPECT_EQ(msg->type, MQTTProtocol::kBinaryTelemetry);
+    EXPECT_EQ(msg->uptime_min, 120u);  // 7200 sec / 60 = 120 min
+    EXPECT_EQ(msg->msgs_rx_count, 1000);
+    EXPECT_EQ(msg->msgs_tx_count, 500);
+    EXPECT_EQ(msg->cpu_temp_c, 55);
+    EXPECT_EQ(msg->noise_floor_dbm, -90);
     // Status bits: 1090=1, 978=0, wifi=1, mqtt=1 -> 0b00001101 = 0x0D
     EXPECT_EQ(msg->status, 0x0D);
 }
 
 TEST(MQTTProtocol, FormatTelemetry_NullBuffer) {
     MQTTProtocol::TelemetryData telemetry = {};
-    uint16_t len = MQTTProtocol::FormatTelemetry(telemetry, nullptr, 512, MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatTelemetry(telemetry, nullptr, 512, MQTTProtocol::kFormatJSON);
     EXPECT_EQ(len, 0);
 }
 
-// ---- GPS Formatting Tests ----
+// ---- GNSS Formatting Tests ----
 
-TEST(MQTTProtocol, FormatGPSJSON) {
-    MQTTProtocol::GPSData gps = {};
-    gps.latitude = 37.774929;
-    gps.longitude = -122.419418;
-    gps.altitude_m = 30.5f;
-    gps.fix_status = 2;  // 3D fix
-    gps.num_satellites = 12;
-    gps.hdop = 1.2f;
-    gps.timestamp = 1700000000;
+TEST(MQTTProtocol, FormatGNSSJSON) {
+    MQTTProtocol::GNSSData gnss = {};
+    gnss.latitude_deg = 37.774929;
+    gnss.longitude_deg = -122.419418;
+    gnss.altitude_m = 30.5f;
+    gnss.fix_status = 2;  // 3D fix
+    gnss.num_satellites = 12;
+    gnss.hdop = 1.2f;
+    gnss.timestamp_s = 1700000000;
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatGPS(gps, buffer, sizeof(buffer),
-                                            MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatGNSS(gnss, buffer, sizeof(buffer),
+                                            MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -401,17 +401,17 @@ TEST(MQTTProtocol, FormatGPSJSON) {
 
     EXPECT_NE(strstr(json, "\"fix\":\"3D\""), nullptr);
     EXPECT_NE(strstr(json, "\"sats\":12"), nullptr);
-    EXPECT_NE(strstr(json, "\"lat\":37."), nullptr);
-    EXPECT_NE(strstr(json, "\"lon\":-122."), nullptr);
+    EXPECT_NE(strstr(json, "\"lat_deg\":37."), nullptr);
+    EXPECT_NE(strstr(json, "\"lon_deg\":-122."), nullptr);
 }
 
-TEST(MQTTProtocol, FormatGPSJSON_NoFix) {
-    MQTTProtocol::GPSData gps = {};
-    gps.fix_status = 0;
+TEST(MQTTProtocol, FormatGNSSJSON_NoFix) {
+    MQTTProtocol::GNSSData gnss = {};
+    gnss.fix_status = 0;
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatGPS(gps, buffer, sizeof(buffer),
-                                            MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatGNSS(gnss, buffer, sizeof(buffer),
+                                            MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -419,13 +419,13 @@ TEST(MQTTProtocol, FormatGPSJSON_NoFix) {
     EXPECT_NE(strstr(json, "\"fix\":\"None\""), nullptr);
 }
 
-TEST(MQTTProtocol, FormatGPSJSON_2DFix) {
-    MQTTProtocol::GPSData gps = {};
-    gps.fix_status = 1;
+TEST(MQTTProtocol, FormatGNSSJSON_2DFix) {
+    MQTTProtocol::GNSSData gnss = {};
+    gnss.fix_status = 1;
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatGPS(gps, buffer, sizeof(buffer),
-                                            MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatGNSS(gnss, buffer, sizeof(buffer),
+                                            MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -433,32 +433,32 @@ TEST(MQTTProtocol, FormatGPSJSON_2DFix) {
     EXPECT_NE(strstr(json, "\"fix\":\"2D\""), nullptr);
 }
 
-TEST(MQTTProtocol, FormatGPSBinary) {
-    MQTTProtocol::GPSData gps = {};
-    gps.latitude = 37.77493;
-    gps.longitude = -122.41942;
-    gps.altitude_m = 100.0f;
-    gps.fix_status = 2;
-    gps.num_satellites = 10;
-    gps.hdop = 1.5f;
-    gps.timestamp = 600;  // 10 minutes
+TEST(MQTTProtocol, FormatGNSSBinary) {
+    MQTTProtocol::GNSSData gnss = {};
+    gnss.latitude_deg = 37.77493;
+    gnss.longitude_deg = -122.41942;
+    gnss.altitude_m = 100.0f;
+    gnss.fix_status = 2;
+    gnss.num_satellites = 10;
+    gnss.hdop = 1.5f;
+    gnss.timestamp_s = 600;  // 10 minutes
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
-    uint16_t len = MQTTProtocol::FormatGPS(gps, buffer, sizeof(buffer),
-                                            MQTTProtocol::FORMAT_BINARY);
-    ASSERT_EQ(len, sizeof(MQTTProtocol::BinaryGPS));
+    uint16_t len = MQTTProtocol::FormatGNSS(gnss, buffer, sizeof(buffer),
+                                            MQTTProtocol::kFormatBinary);
+    ASSERT_EQ(len, sizeof(MQTTProtocol::BinaryGNSS));
 
-    MQTTProtocol::BinaryGPS *msg = (MQTTProtocol::BinaryGPS *)buffer;
-    EXPECT_EQ(msg->type, MQTTProtocol::BINARY_GPS);
-    EXPECT_EQ(msg->alt, 100);
+    MQTTProtocol::BinaryGNSS *msg = (MQTTProtocol::BinaryGNSS *)buffer;
+    EXPECT_EQ(msg->type, MQTTProtocol::kBinaryGNSS);
+    EXPECT_EQ(msg->altitude_m, 100);
     EXPECT_EQ(msg->fix, 2);
     EXPECT_EQ(msg->sats, 10);
-    EXPECT_EQ(msg->hdop, 150);  // 1.5 * 100
+    EXPECT_EQ(msg->hdop_e2, 150);  // 1.5 * 100
 }
 
-TEST(MQTTProtocol, FormatGPS_NullBuffer) {
-    MQTTProtocol::GPSData gps = {};
-    uint16_t len = MQTTProtocol::FormatGPS(gps, nullptr, 512, MQTTProtocol::FORMAT_JSON);
+TEST(MQTTProtocol, FormatGNSS_NullBuffer) {
+    MQTTProtocol::GNSSData gnss = {};
+    uint16_t len = MQTTProtocol::FormatGNSS(gnss, nullptr, 512, MQTTProtocol::kFormatJSON);
     EXPECT_EQ(len, 0);
 }
 
@@ -472,7 +472,7 @@ TEST(MQTTProtocol, CategoryCode_InAircraftJSON) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatAircraft(aircraft, buffer, sizeof(buffer),
-                                                 MQTTProtocol::FORMAT_JSON);
+                                                 MQTTProtocol::kFormatJSON);
     ASSERT_GT(len, 0);
 
     char *json = (char *)buffer;
@@ -483,35 +483,35 @@ TEST(MQTTProtocol, CategoryCode_InAircraftJSON) {
 // ---- Bandwidth Estimation Tests ----
 
 TEST(MQTTProtocol, EstimateBandwidth_JSON) {
-    uint32_t bw = MQTTProtocol::EstimateBandwidth(MQTTProtocol::FORMAT_JSON, 1000);
+    uint32_t bw = MQTTProtocol::EstimateBandwidth(MQTTProtocol::kFormatJSON, 1000);
     EXPECT_EQ(bw, 250u * 1000u);  // ~250 bytes per JSON message
 }
 
 TEST(MQTTProtocol, EstimateBandwidth_Binary) {
-    uint32_t bw = MQTTProtocol::EstimateBandwidth(MQTTProtocol::FORMAT_BINARY, 1000);
+    uint32_t bw = MQTTProtocol::EstimateBandwidth(MQTTProtocol::kFormatBinary, 1000);
     EXPECT_EQ(bw, 20u * 1000u);  // ~20 bytes per binary message
 }
 
 // ---- Format Parse/String Tests ----
 
 TEST(MQTTProtocol, ParseFormat_JSON) {
-    EXPECT_EQ(MQTTProtocol::ParseFormat("JSON"), MQTTProtocol::FORMAT_JSON);
-    EXPECT_EQ(MQTTProtocol::ParseFormat("json"), MQTTProtocol::FORMAT_JSON);
+    EXPECT_EQ(MQTTProtocol::ParseFormat("JSON"), MQTTProtocol::kFormatJSON);
+    EXPECT_EQ(MQTTProtocol::ParseFormat("json"), MQTTProtocol::kFormatJSON);
 }
 
 TEST(MQTTProtocol, ParseFormat_Binary) {
-    EXPECT_EQ(MQTTProtocol::ParseFormat("BINARY"), MQTTProtocol::FORMAT_BINARY);
-    EXPECT_EQ(MQTTProtocol::ParseFormat("binary"), MQTTProtocol::FORMAT_BINARY);
+    EXPECT_EQ(MQTTProtocol::ParseFormat("BINARY"), MQTTProtocol::kFormatBinary);
+    EXPECT_EQ(MQTTProtocol::ParseFormat("binary"), MQTTProtocol::kFormatBinary);
 }
 
 TEST(MQTTProtocol, ParseFormat_Default) {
-    EXPECT_EQ(MQTTProtocol::ParseFormat("unknown"), MQTTProtocol::FORMAT_JSON);
-    EXPECT_EQ(MQTTProtocol::ParseFormat(nullptr), MQTTProtocol::FORMAT_JSON);
+    EXPECT_EQ(MQTTProtocol::ParseFormat("unknown"), MQTTProtocol::kFormatJSON);
+    EXPECT_EQ(MQTTProtocol::ParseFormat(nullptr), MQTTProtocol::kFormatJSON);
 }
 
 TEST(MQTTProtocol, FormatToString) {
-    EXPECT_STREQ(MQTTProtocol::FormatToString(MQTTProtocol::FORMAT_JSON), "JSON");
-    EXPECT_STREQ(MQTTProtocol::FormatToString(MQTTProtocol::FORMAT_BINARY), "BINARY");
+    EXPECT_STREQ(MQTTProtocol::FormatToString(MQTTProtocol::kFormatJSON), "JSON");
+    EXPECT_STREQ(MQTTProtocol::FormatToString(MQTTProtocol::kFormatBinary), "BINARY");
 }
 
 // ---- UAT Packet Formatting Tests ----
@@ -532,7 +532,7 @@ TEST(MQTTProtocol, FormatUATPacketJSON) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatUATPacket(packet, buffer, sizeof(buffer),
-                                                  MQTTProtocol::FORMAT_JSON);
+                                                  MQTTProtocol::kFormatJSON);
 
     if (len > 0) {
         char *json = (char *)buffer;
@@ -558,12 +558,12 @@ TEST(MQTTProtocol, FormatUATPacketBinary) {
 
     uint8_t buffer[MQTTProtocol::kMaxMessageSize];
     uint16_t len = MQTTProtocol::FormatUATPacket(packet, buffer, sizeof(buffer),
-                                                  MQTTProtocol::FORMAT_BINARY);
+                                                  MQTTProtocol::kFormatBinary);
 
     if (len > 0) {
-        EXPECT_EQ(buffer[0], MQTTProtocol::BINARY_RAW);
+        EXPECT_EQ(buffer[0], MQTTProtocol::kBinaryRaw);
         // Band in upper 2 bits of byte 1 should be BAND_978_MHZ (1)
-        EXPECT_EQ((buffer[1] >> 6) & 0x03, MQTTProtocol::BAND_978_MHZ);
+        EXPECT_EQ((buffer[1] >> 6) & 0x03, MQTTProtocol::kUAT);
         // Data length = raw buffer + 2 byte header
         EXPECT_EQ(len, 18 + 2);
     }
@@ -571,7 +571,7 @@ TEST(MQTTProtocol, FormatUATPacketBinary) {
 
 TEST(MQTTProtocol, FormatUATPacket_NullBuffer) {
     DecodedUATADSBPacket packet;
-    uint16_t len = MQTTProtocol::FormatUATPacket(packet, nullptr, 512, MQTTProtocol::FORMAT_JSON);
+    uint16_t len = MQTTProtocol::FormatUATPacket(packet, nullptr, 512, MQTTProtocol::kFormatJSON);
     EXPECT_EQ(len, 0);
 }
 

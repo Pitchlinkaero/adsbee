@@ -171,24 +171,6 @@ bool SPICoprocessor::Update() {
                 config_.interface.SPIEndTransaction();
                 return false;
             }
-            // Debug: Dump settings data when received
-            if (write_packet.addr == ObjectDictionary::Address::kAddrSettingsData) {
-                CONSOLE_INFO("SPICoprocessor::Update", "Received settings data write: %d bytes at offset %d",
-                            write_packet.len, write_packet.offset);
-
-                // Dump first 100 bytes as hex for debugging
-                char hex_dump[301]; // 100 bytes * 3 chars per byte + null terminator
-                int dump_len = write_packet.len < 100 ? write_packet.len : 100;
-                for (int i = 0; i < dump_len; i++) {
-                    sprintf(&hex_dump[i*3], "%02X ", write_packet.data[i]);
-                }
-                CONSOLE_INFO("SPICoprocessor::Update", "Settings data (first %d bytes): %s", dump_len, hex_dump);
-
-                // Also show the size of our local settings structure
-                CONSOLE_INFO("SPICoprocessor::Update", "Local settings structure size: %zu bytes",
-                            sizeof(settings_manager.settings));
-            }
-
             ret =
                 object_dictionary.SetBytes(write_packet.addr, write_packet.data, write_packet.len, write_packet.offset);
             bool ack = true;

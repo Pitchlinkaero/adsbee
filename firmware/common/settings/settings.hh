@@ -13,7 +13,7 @@
 #include "pico/rand.h"
 #endif
 
-static constexpr uint32_t kSettingsVersion = 22;  // Change this when settings format changes!
+static constexpr uint32_t kSettingsVersion = 13;  // Change this when settings format changes!
 static constexpr uint32_t kDeviceInfoVersion = 2;
 
 class SettingsManager {
@@ -201,27 +201,27 @@ class SettingsManager {
         
         // MQTT-specific settings
         enum MQTTFormat : uint8_t {
-            MQTT_FORMAT_JSON = 0,
-            MQTT_FORMAT_BINARY = 1
+            kMQTTFormatJSON = 0,
+            kMQTTFormatBinary = 1
         };
         // Use plain uint8_t array to ensure consistent size across compilers
-        uint8_t feed_mqtt_formats[kMaxNumFeeds] = {MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON,
-                                                    MQTT_FORMAT_JSON, MQTT_FORMAT_JSON};
+        uint8_t feed_mqtt_formats[kMaxNumFeeds] = {kMQTTFormatJSON, kMQTTFormatJSON,
+                                                    kMQTTFormatJSON, kMQTTFormatJSON,
+                                                    kMQTTFormatJSON, kMQTTFormatJSON,
+                                                    kMQTTFormatJSON, kMQTTFormatJSON,
+                                                    kMQTTFormatJSON, kMQTTFormatJSON};
 
         // MQTT content selection - choose what to publish per feed
         enum MQTTContent : uint8_t {
-            MQTT_CONTENT_ALL = 0,     // Publish both raw packets and decoded aircraft status
-            MQTT_CONTENT_RAW = 1,     // Raw hex packets only
-            MQTT_CONTENT_STATUS = 2   // Decoded aircraft status only
+            kMQTTContentAll = 0,      // Publish both raw packets and decoded aircraft status
+            kMQTTContentRaw = 1,      // Raw hex packets only
+            kMQTTContentStatus = 2    // Decoded aircraft status only
         };
-        uint8_t feed_mqtt_content[kMaxNumFeeds] = {MQTT_CONTENT_ALL, MQTT_CONTENT_ALL,
-                                                    MQTT_CONTENT_ALL, MQTT_CONTENT_ALL,
-                                                    MQTT_CONTENT_ALL, MQTT_CONTENT_ALL,
-                                                    MQTT_CONTENT_ALL, MQTT_CONTENT_ALL,
-                                                    MQTT_CONTENT_ALL, MQTT_CONTENT_ALL};
+        uint8_t feed_mqtt_content[kMaxNumFeeds] = {kMQTTContentAll, kMQTTContentAll,
+                                                    kMQTTContentAll, kMQTTContentAll,
+                                                    kMQTTContentAll, kMQTTContentAll,
+                                                    kMQTTContentAll, kMQTTContentAll,
+                                                    kMQTTContentAll, kMQTTContentAll};
 
         // MQTT OTA settings - enable OTA via MQTT per feed (disabled by default for safety)
         bool mqtt_ota_enabled[kMaxNumFeeds] = {false, false, false, false, false,
